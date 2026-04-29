@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   description   TEXT,
   status        ENUM('open','in_progress','on_hold','resolved','closed') NOT NULL DEFAULT 'open',
   priority      ENUM('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
+  request_type  ENUM('incident','service_request','question','change') NOT NULL DEFAULT 'service_request',
+  category      VARCHAR(80) NULL,
   requester     VARCHAR(120) NOT NULL,
   assignee      VARCHAR(120),
   asset_id      INT UNSIGNED NULL,
@@ -30,6 +32,18 @@ CREATE TABLE IF NOT EXISTS tickets (
   updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_tickets_status (status),
   INDEX idx_tickets_assignee (assignee)
+);
+
+CREATE TABLE IF NOT EXISTS ticket_attachments (
+  id                INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  ticket_id         INT UNSIGNED NOT NULL,
+  original_filename VARCHAR(255) NOT NULL,
+  stored_filename   VARCHAR(255) NOT NULL,
+  mime_type         VARCHAR(120) NOT NULL,
+  size_bytes        INT UNSIGNED NOT NULL,
+  uploaded_by       VARCHAR(120),
+  uploaded_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_ta_ticket (ticket_id)
 );
 
 CREATE TABLE IF NOT EXISTS assets (
