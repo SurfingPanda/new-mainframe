@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply font-sans text-slate-800 antialiased bg-slate-50;
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+  .container-app {
+    @apply max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-10;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-md bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800 focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2 transition-colors;
+  }
+  .btn-accent {
+    @apply inline-flex items-center justify-center rounded-md bg-accent-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-accent-600 focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2 transition-colors;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 transition-colors;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center rounded-md px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 transition-colors;
+  }
+  .eyebrow {
+    @apply inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-brand-900;
+  }
+  .eyebrow::before {
+    content: '';
+    @apply inline-block h-1.5 w-1.5 rounded-full bg-accent-500;
+  }
+}
+
+@layer utilities {
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, rgb(14 28 61 / 0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(14 28 61 / 0.06) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  .bg-grid-dark {
+    background-image:
+      linear-gradient(to right, rgb(255 255 255 / 0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(255 255 255 / 0.06) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+  .bg-dots {
+    background-image: radial-gradient(circle at 1px 1px, rgb(14 28 61 / 0.10) 1px, transparent 0);
+    background-size: 22px 22px;
+  }
+  .mask-fade-radial {
+    mask-image: radial-gradient(ellipse 70% 75% at center, black 40%, transparent 95%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 75% at center, black 40%, transparent 95%);
+  }
+  .mask-fade-bottom {
+    mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  }
+}
