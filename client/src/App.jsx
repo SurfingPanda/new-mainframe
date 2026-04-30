@@ -4,7 +4,9 @@ import SignIn from './pages/SignIn.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import ModulePlaceholder from './pages/ModulePlaceholder.jsx';
 import AllTickets from './pages/AllTickets.jsx';
+import MyQueue from './pages/MyQueue.jsx';
 import CreateTicket from './pages/CreateTicket.jsx';
+import CreateIncident from './pages/CreateIncident.jsx';
 import TicketDetail from './pages/TicketDetail.jsx';
 import Users from './pages/Users.jsx';
 import AllAssets from './pages/AllAssets.jsx';
@@ -36,10 +38,26 @@ export default function App() {
         }
       />
       <Route
+        path="/tickets/my-queue"
+        element={
+          <ProtectedRoute>
+            <MyQueue />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/tickets/create"
         element={
           <ProtectedRoute>
             <CreateTicket />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tickets/create-incident"
+        element={
+          <ProtectedRoute>
+            <CreateIncident />
           </ProtectedRoute>
         }
       />

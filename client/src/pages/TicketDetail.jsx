@@ -511,7 +511,7 @@ function KbLinkPanel({ links, canEdit, onLink, onUnlink }) {
             />
           </div>
           {err && <p className="text-xs text-rose-700">{err}</p>}
-          <div className="max-h-56 overflow-y-auto rounded-md border border-slate-200 bg-white">
+          <div className="max-h-56 overflow-y-auto scrollbar-pretty rounded-md border border-slate-200 bg-white">
             {searching ? (
               <p className="px-3 py-4 text-center text-xs text-slate-500">Searching…</p>
             ) : results.length === 0 ? (
@@ -804,7 +804,7 @@ function ActivityPanel({ activity, canPost, onAddNote, ticketId }) {
         </form>
       )}
 
-      <div className="max-h-[36rem] overflow-y-auto">
+      <div className="max-h-[36rem] overflow-y-auto scrollbar-pretty">
         {activity.length === 0 ? (
           <p className="px-5 py-12 text-center text-xs italic text-slate-400">
             No activity yet for T-{String(ticketId).padStart(4, '0')}.
@@ -1019,37 +1019,106 @@ function SelectField({ label, value, options, onChange, disabled }) {
 }
 
 function AssigneePicker({ value, users, onChange, disabled }) {
-  const matchesUser = users.some((u) => u.name === value || u.email === value);
-  const selectValue = value === '' ? '__none__' : matchesUser ? value : '__custom__';
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const wrapRef = useRef(null);
+
+  const query = value || '';
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((u) => {
+      const haystack = `${u.name} ${u.email || ''} ${u.role || ''} ${u.department || ''}`.toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [users, query]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  useEffect(() => {
+    setHighlight(0);
+  }, [query, open]);
+
+  const pick = (u) => {
+    onChange(u.name);
+    setOpen(false);
+  };
+
+  const onKeyDown = (e) => {
+    if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
+      setOpen(true);
+      return;
+    }
+    if (!open) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlight((h) => Math.min(h + 1, filtered.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlight((h) => Math.max(h - 1, 0));
+    } else if (e.key === 'Enter') {
+      if (filtered[highlight]) {
+        e.preventDefault();
+        pick(filtered[highlight]);
+      }
+    } else if (e.key === 'Escape') {
+      setOpen(false);
+    }
+  };
 
   return (
-    <div className="space-y-2">
-      <select
-        value={selectValue}
-        onChange={(e) => {
-          if (e.target.value === '__none__') return onChange('');
-          if (e.target.value === '__custom__') return; // keep current text
-          onChange(e.target.value);
-        }}
+    <div ref={wrapRef} className="relative">
+      <input
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={onKeyDown}
         disabled={disabled}
-        className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:opacity-60"
-      >
-        <option value="__none__">Unassigned</option>
-        {users.map((u) => (
-          <option key={u.id} value={u.name}>
-            {u.name} · {u.role}{u.department ? ` · ${u.department}` : ''}
-          </option>
-        ))}
-        <option value="__custom__">Custom name…</option>
-      </select>
-      {selectValue === '__custom__' && (
-        <input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          disabled={disabled}
-          placeholder="Type a name or username"
-          className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:bg-slate-50"
-        />
+        placeholder="Type to search users or enter a name"
+        autoComplete="off"
+        className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:bg-slate-50 disabled:text-slate-700"
+      />
+      {open && !disabled && (
+        <div className="absolute z-20 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg max-h-64 overflow-y-auto scrollbar-pretty">
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { onChange(''); setOpen(false); }}
+            className="block w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 border-b border-slate-100"
+          >
+            Unassigned
+          </button>
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-slate-500">
+              No matching users. Press Enter to keep "{value}" as a custom name.
+            </div>
+          ) : (
+            filtered.map((u, idx) => (
+              <button
+                key={u.id}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onMouseEnter={() => setHighlight(idx)}
+                onClick={() => pick(u)}
+                className={`block w-full text-left px-3 py-2 text-sm ${
+                  idx === highlight ? 'bg-accent-50 text-accent-800' : 'text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <div className="font-medium">{u.name}</div>
+                <div className="text-xs text-slate-500">
+                  {u.email ? `${u.email} · ` : ''}{u.role}{u.department ? ` · ${u.department}` : ''}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
       )}
     </div>
   );

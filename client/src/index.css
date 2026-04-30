@@ -64,4 +64,35 @@
     mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
     -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
   }
+
+  .scrollbar-pretty {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(148 163 184 / 0.55) transparent;
+  }
+  .scrollbar-pretty::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-pretty::-webkit-scrollbar-track {
+    background: transparent;
+    margin: 4px;
+  }
+  .scrollbar-pretty::-webkit-scrollbar-thumb {
+    background-color: rgb(148 163 184 / 0.5);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    transition: background-color 150ms ease;
+  }
+  .scrollbar-pretty::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(100 116 139 / 0.75);
+    background-clip: padding-box;
+  }
+  .scrollbar-pretty::-webkit-scrollbar-thumb:active {
+    background-color: rgb(71 85 105 / 0.9);
+    background-clip: padding-box;
+  }
+  .scrollbar-pretty::-webkit-scrollbar-corner {
+    background: transparent;
+  }
 }
