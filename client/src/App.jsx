@@ -14,6 +14,7 @@ import AddAsset from './pages/AddAsset.jsx';
 import AllArticles from './pages/AllArticles.jsx';
 import KbArticle from './pages/KbArticle.jsx';
 import ArticleEditor from './pages/ArticleEditor.jsx';
+import AssetRequest from './pages/AssetRequest.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 
 export default function App() {
@@ -106,6 +107,14 @@ export default function App() {
         element={
           <ProtectedRoute role={['admin', 'agent']}>
             <AddAsset />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/assets/request"
+        element={
+          <ProtectedRoute>
+            <AssetRequest />
           </ProtectedRoute>
         }
       />

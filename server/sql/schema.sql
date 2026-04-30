@@ -100,6 +100,32 @@ CREATE TABLE IF NOT EXISTS kb_articles (
   INDEX idx_kb_published (published)
 );
 
+CREATE TABLE IF NOT EXISTS asset_requests (
+  id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  requester_id    INT UNSIGNED NOT NULL,
+  requester_name  VARCHAR(120) NOT NULL,
+  asset_type      VARCHAR(60) NOT NULL,
+  quantity        SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  urgency         ENUM('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
+  justification   TEXT NOT NULL,
+  department      VARCHAR(80),
+  status          ENUM('pending','approved','denied','fulfilled') NOT NULL DEFAULT 'pending',
+  reviewed_by     VARCHAR(120),
+  reviewed_at     TIMESTAMP NULL,
+  admin_notes     TEXT,
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_ar_requester (requester_id),
+  INDEX idx_ar_status (status)
+);
+
+-- Seed admin user (password: admin123)
+INSERT INTO users (email, password_hash, name, role, department, is_active) VALUES
+  ('admin@mainframe.local',
+   '$2b$10$CoyXTfr1.ACqBOfZzg6QRO/C11uS9aB4LldVc7O79tdoQfhlHFdVS',
+   'Admin', 'admin', 'IT', 1)
+ON DUPLICATE KEY UPDATE email = email;
+
 -- Sample data so the dashboard counters aren't empty.
 INSERT INTO assets (asset_tag, type, model, assignee, location, status) VALUES
   ('LT-0001', 'Laptop', 'ThinkPad T14', 'jdoe', 'HQ — Floor 3', 'in_use'),
