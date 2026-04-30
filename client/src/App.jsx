@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import ModulePlaceholder from './pages/ModulePlaceholder.jsx';
 import AllTickets from './pages/AllTickets.jsx';
 import CreateTicket from './pages/CreateTicket.jsx';
+import TicketDetail from './pages/TicketDetail.jsx';
 import Users from './pages/Users.jsx';
 import AllAssets from './pages/AllAssets.jsx';
 import AddAsset from './pages/AddAsset.jsx';
@@ -47,6 +48,14 @@ export default function App() {
         element={
           <ProtectedRoute role="admin">
             <Users />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tickets/:id"
+        element={
+          <ProtectedRoute>
+            <TicketDetail />
           </ProtectedRoute>
         }
       />

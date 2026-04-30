@@ -5,7 +5,11 @@
       "Bash(git init:*)",
       "Bash(git remote:*)",
       "Bash(git fetch:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(node scripts/seed-user.js admin@mainframe.local Admin123! \"Admin\" admin IT)",
+      "Bash(curl *)",
+      "PowerShell(Get-NetTCPConnection *)",
+      "PowerShell(Get-Process *)"
     ]
   }
 }
