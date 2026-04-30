@@ -4,7 +4,7 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 
-import { pingDb } from './config/db.js';
+import { pingDb, ensureSchema } from './config/db.js';
 import auth from './routes/auth.js';
 import users from './routes/users.js';
 import tickets from './routes/tickets.js';
@@ -40,6 +40,8 @@ app.use((err, req, res, _next) => {
   console.error(err);
   res.status(500).json({ error: 'Internal server error' });
 });
+
+ensureSchema().catch((err) => console.error('schema bootstrap failed:', err));
 
 app.listen(PORT, () => {
   console.log(`Mainframe API listening on http://localhost:${PORT}`);

@@ -6,6 +6,20 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 const router = Router();
 const ROLES = ['admin', 'agent', 'user'];
 
+router.get('/assignable', requireAuth, async (_req, res, next) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, name, email, role, department
+         FROM users
+        WHERE is_active = 1 AND role IN ('admin','agent')
+        ORDER BY name ASC`
+    );
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.use(requireAuth, requireRole('admin'));
 
 router.get('/', async (_req, res, next) => {
