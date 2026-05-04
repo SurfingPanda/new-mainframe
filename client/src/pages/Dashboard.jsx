@@ -24,7 +24,7 @@ export default function Dashboard() {
 
   const openTickets = tickets.filter((t) => t.status !== 'closed' && t.status !== 'resolved');
   const highPriority = tickets.filter((t) => t.priority === 'high' || t.priority === 'urgent').length;
-  const inMaintenance = assets.filter((a) => a.status === 'maintenance').length;
+  const inMaintenance = assets.filter((a) => a.status === 'repair').length;
   const greeting = getGreeting();
 
   return (

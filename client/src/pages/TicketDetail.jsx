@@ -175,7 +175,7 @@ export default function TicketDetail() {
       <DashboardHeader />
 
       <main className="container-app py-10 space-y-6">
-        <nav className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+        <nav className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 print:hidden">
           <Link to="/dashboard" className="hover:text-slate-800">Dashboard</Link>
           <span className="text-slate-300">/</span>
           <Link to="/tickets/all" className="hover:text-slate-800">Tickets</Link>
@@ -214,9 +214,24 @@ export default function TicketDetail() {
                   Opened {formatDateTime(ticket.created_at)} · Updated {formatDateTime(ticket.updated_at)}
                 </p>
               </div>
-              <Link to="/tickets/all" className="btn-ghost !px-3.5 !py-2 text-xs self-start">
-                ← All tickets
-              </Link>
+              <div className="flex items-center gap-2 self-start print:hidden">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="btn-ghost !px-3.5 !py-2 text-xs"
+                  title="Print this ticket"
+                >
+                  <svg className="h-3.5 w-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 9V2h12v7" />
+                    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                    <rect x="6" y="14" width="12" height="8" />
+                  </svg>
+                  Print
+                </button>
+                <Link to="/tickets/all" className="btn-ghost !px-3.5 !py-2 text-xs">
+                  ← All tickets
+                </Link>
+              </div>
             </header>
 
             <SlaBanner ticket={ticket} />
@@ -402,7 +417,7 @@ function SavePanel({ isDirty, dirtyFields, saving, onSave, onDiscard, visible })
   if (!visible) return null;
   return (
     <section
-      className={`rounded-lg border shadow-card transition-colors ${
+      className={`rounded-lg border shadow-card transition-colors print:hidden ${
         isDirty ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'
       }`}
     >
@@ -492,7 +507,7 @@ function KbLinkPanel({ links, canEdit, onLink, onUnlink }) {
           <button
             type="button"
             onClick={() => { setPicking(true); setErr(''); }}
-            className="btn-secondary !px-2.5 !py-1.5 text-[11px]"
+            className="btn-secondary !px-2.5 !py-1.5 text-[11px] print:hidden"
           >
             + Link article
           </button>
@@ -500,7 +515,7 @@ function KbLinkPanel({ links, canEdit, onLink, onUnlink }) {
       </header>
 
       {picking && (
-        <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 space-y-2">
+        <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 space-y-2 print:hidden">
           <div className="relative">
             <input
               autoFocus
@@ -591,7 +606,7 @@ function KbLinkPanel({ links, canEdit, onLink, onUnlink }) {
                   <button
                     type="button"
                     onClick={() => onUnlink(a.id)}
-                    className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                    className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 print:hidden"
                     aria-label="Unlink"
                     title="Unlink"
                   >
@@ -737,7 +752,7 @@ function ActivityPanel({ activity, canPost, onAddNote, ticketId }) {
       </header>
 
       {canPost && (
-        <form onSubmit={submit} className="px-5 py-4 border-b border-slate-100 space-y-2">
+        <form onSubmit={submit} className="px-5 py-4 border-b border-slate-100 space-y-2 print:hidden">
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -804,7 +819,7 @@ function ActivityPanel({ activity, canPost, onAddNote, ticketId }) {
         </form>
       )}
 
-      <div className="max-h-[36rem] overflow-y-auto scrollbar-pretty">
+      <div className="max-h-[36rem] overflow-y-auto scrollbar-pretty print:max-h-none print:overflow-visible">
         {activity.length === 0 ? (
           <p className="px-5 py-12 text-center text-xs italic text-slate-400">
             No activity yet for T-{String(ticketId).padStart(4, '0')}.

@@ -127,6 +127,13 @@ INSERT INTO users (email, password_hash, name, role, department, is_active) VALU
    'Admin', 'admin', 'IT', 1)
 ON DUPLICATE KEY UPDATE email = email;
 
+-- Seed admin user (password: admin101)
+INSERT INTO users (email, password_hash, name, role, department, is_active) VALUES
+  ('admin@bwsuperbakeshop.ph',
+   '$2b$10$mWxM7fBfkkuhUf.QQ.ixXeeN4PYk3yGj5/IyMmQRAfN.uQqKnEi16',
+   'Admin', 'admin', 'IT', 1)
+ON DUPLICATE KEY UPDATE email = email;
+
 -- Sample data so the dashboard counters aren't empty.
 INSERT INTO assets (asset_tag, type, model, assignee, location, status) VALUES
   ('LT-0001', 'Laptop', 'ThinkPad T14', 'jdoe', 'HQ — Floor 3', 'in_use'),
@@ -141,6 +148,3 @@ INSERT INTO kb_articles (title, slug, category, body, author) VALUES
    '# VPN setup\n\nDownload the client from the IT portal...', 'IT Team')
 ON DUPLICATE KEY UPDATE slug = slug;
 
-INSERT INTO tickets (title, description, priority, requester, status) VALUES
-  ('Outlook keeps asking for credentials', 'Started this morning after the update', 'normal', 'jdoe', 'open'),
-  ('Replace dock for monitor flicker', 'Second monitor flickers on dock', 'low', 'asmith', 'in_progress');

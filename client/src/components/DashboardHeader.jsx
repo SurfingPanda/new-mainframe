@@ -77,7 +77,7 @@ export default function DashboardHeader() {
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200">
+    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200 print:hidden">
       <div className="container-app flex items-center justify-between h-16">
         <Link to="/dashboard" className="flex items-center gap-3">
           <img src="/images/logo.png" alt="Eljin Corp" className="h-9 w-auto" />

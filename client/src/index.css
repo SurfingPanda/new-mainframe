@@ -96,3 +96,43 @@
     background: transparent;
   }
 }
+
+@media print {
+  html, body {
+    background: white !important;
+    color: #0f172a !important;
+  }
+  .container-app {
+    max-width: 100% !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  .sticky { position: static !important; }
+  .shadow-card, .shadow-elevated, .shadow-sm, .shadow-lg {
+    box-shadow: none !important;
+  }
+  /* Render form fields as plain text on paper */
+  input, select, textarea {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    background-image: none !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    color: #0f172a !important;
+  }
+  textarea {
+    resize: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+  /* Avoid splitting cards across pages where possible */
+  section, article, li {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}

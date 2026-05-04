@@ -26,7 +26,9 @@
       "Bash(node --check server/src/middleware/auth.js)",
       "Bash(node --check server/src/routes/auth.js)",
       "Bash(node --check server/src/routes/users.js)",
-      "Bash(node --check server/src/routes/tickets.js)"
+      "Bash(node --check server/src/routes/tickets.js)",
+      "Bash(node -e \"import\\('bcryptjs'\\).then\\(b => b.default.hash\\('admin101', 10\\).then\\(h => console.log\\(h\\)\\)\\)\")",
+      "Bash(node *)"
     ]
   }
 }
