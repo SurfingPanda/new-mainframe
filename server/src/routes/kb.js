@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import { pool } from '../config/db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { hasPermission } from '../lib/permissions.js';
 
 const router = Router();
 
 const CATEGORIES = [
   'Accounts', 'Networking', 'Hardware', 'Software',
-  'Security', 'Email & Communication', 'Printing & Peripherals', 'General'
+  'Security', 'Email & Communication', 'Printing & Peripherals',
+  'Troubleshooting', 'FAQ', 'Policies', 'General'
 ];
 
 function slugify(text) {
@@ -17,17 +19,16 @@ function slugify(text) {
     .slice(0, 200);
 }
 
-// All authenticated users can browse
-router.get('/', requireAuth, async (req, res, next) => {
+router.get('/', requireAuth, requirePermission('kb', 'view'), async (req, res, next) => {
   try {
     const { category, q, published } = req.query;
-    const isAdmin = req.user.role === 'admin' || req.user.role === 'agent';
+    // Users who can manage KB can also see drafts; everyone else sees published only.
+    const canManage = hasPermission(req.user, 'kb', 'manage');
 
     const conditions = [];
     const values = [];
 
-    // Non-admins only see published articles
-    if (!isAdmin) {
+    if (!canManage) {
       conditions.push('published = 1');
     } else if (published === '1') {
       conditions.push('published = 1');
@@ -59,14 +60,14 @@ router.get('/', requireAuth, async (req, res, next) => {
   }
 });
 
-router.get('/meta/categories', requireAuth, (_req, res) => {
+router.get('/meta/categories', requireAuth, requirePermission('kb', 'view'), (_req, res) => {
   res.json(CATEGORIES);
 });
 
-router.get('/:slug', requireAuth, async (req, res, next) => {
+router.get('/:slug', requireAuth, requirePermission('kb', 'view'), async (req, res, next) => {
   try {
-    const isAdmin = req.user.role === 'admin' || req.user.role === 'agent';
-    const extra = isAdmin ? '' : 'AND published = 1';
+    const canManage = hasPermission(req.user, 'kb', 'manage');
+    const extra = canManage ? '' : 'AND published = 1';
     const [rows] = await pool.query(
       `SELECT id, title, slug, category, body, author, published, created_at, updated_at
          FROM kb_articles WHERE slug = ? ${extra} LIMIT 1`,
@@ -79,8 +80,7 @@ router.get('/:slug', requireAuth, async (req, res, next) => {
   }
 });
 
-// Admin / agent only — create, edit, delete
-router.post('/', requireAuth, requireRole('admin', 'agent'), async (req, res, next) => {
+router.post('/', requireAuth, requirePermission('kb', 'manage'), async (req, res, next) => {
   try {
     const { title, category, body, author, published = true } = req.body || {};
     if (!title || !body) {
@@ -122,7 +122,7 @@ router.post('/', requireAuth, requireRole('admin', 'agent'), async (req, res, ne
   }
 });
 
-router.patch('/:slug', requireAuth, requireRole('admin', 'agent'), async (req, res, next) => {
+router.patch('/:slug', requireAuth, requirePermission('kb', 'manage'), async (req, res, next) => {
   try {
     const { title, category, body, author, published } = req.body || {};
 
@@ -154,7 +154,7 @@ router.patch('/:slug', requireAuth, requireRole('admin', 'agent'), async (req, r
   }
 });
 
-router.delete('/:slug', requireAuth, requireRole('admin', 'agent'), async (req, res, next) => {
+router.delete('/:slug', requireAuth, requirePermission('kb', 'manage'), async (req, res, next) => {
   try {
     const [r] = await pool.query('DELETE FROM kb_articles WHERE slug = ?', [req.params.slug]);
     if (r.affectedRows === 0) return res.status(404).json({ error: 'Article not found' });

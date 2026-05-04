@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { hasPermission } from '../lib/permissions.js';
 
 export function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
@@ -19,6 +20,15 @@ export function requireAuth(req, res, next) {
 export function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    next();
+  };
+}
+
+export function requirePermission(module, action) {
+  return (req, res, next) => {
+    if (!req.user || !hasPermission(req.user, module, action)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     next();

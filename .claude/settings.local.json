@@ -17,7 +17,16 @@
       "Read(//c/xampp/mysql/bin/**)",
       "Read(//c/Program Files/MySQL/MySQL Server 8.0/bin/**)",
       "Read(//c/Program Files/**)",
-      "Bash(C:/xampp/mysql/bin/mysql.exe:*)"
+      "Bash(C:/xampp/mysql/bin/mysql.exe:*)",
+      "Bash(node reset-admin-password.mjs)",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>{const u=JSON.parse\\(s\\);console.log\\(JSON.stringify\\(u.map\\(x=>\\({id:x.id,email:x.email,role:x.role,permissions:x.permissions,effective_permissions:x.effective_permissions}\\)\\),null,2\\)\\)}\\)\")",
+      "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>{const u=JSON.parse\\(s\\);console.log\\(JSON.stringify\\({permissions:u.permissions,effective:u.effective_permissions.users},null,2\\)\\)}\\)\")",
+      "Bash(node --check server/src/lib/permissions.js)",
+      "Bash(node --check server/src/middleware/auth.js)",
+      "Bash(node --check server/src/routes/auth.js)",
+      "Bash(node --check server/src/routes/users.js)",
+      "Bash(node --check server/src/routes/tickets.js)"
     ]
   }
 }

@@ -6,6 +6,61 @@ import { api, getUser } from '../lib/auth.js';
 
 const ROLES = ['admin', 'agent', 'user'];
 
+const PERMISSION_MODULES = [
+  {
+    key: 'tickets',
+    label: 'Tickets',
+    actions: [
+      { key: 'view', label: 'View tickets' },
+      { key: 'create', label: 'Create / edit tickets' }
+    ]
+  },
+  {
+    key: 'assets',
+    label: 'Assets',
+    actions: [
+      { key: 'view', label: 'View asset inventory' },
+      { key: 'manage', label: 'Add / edit assets' }
+    ]
+  },
+  {
+    key: 'kb',
+    label: 'Knowledge Base',
+    actions: [
+      { key: 'view', label: 'View articles' },
+      { key: 'manage', label: 'Author / edit articles' }
+    ]
+  },
+  {
+    key: 'users',
+    label: 'Users',
+    actions: [
+      { key: 'manage', label: 'Manage users' }
+    ]
+  }
+];
+
+const ROLE_DEFAULTS = {
+  admin: {
+    tickets: { view: true,  create: true  },
+    assets:  { view: true,  manage: true  },
+    kb:      { view: true,  manage: true  },
+    users:   { manage: true }
+  },
+  agent: {
+    tickets: { view: true,  create: true  },
+    assets:  { view: true,  manage: true  },
+    kb:      { view: true,  manage: true  },
+    users:   { manage: false }
+  },
+  user: {
+    tickets: { view: true,  create: true  },
+    assets:  { view: true,  manage: false },
+    kb:      { view: true,  manage: false },
+    users:   { manage: false }
+  }
+};
+
 export default function Users() {
   const me = getUser();
   const [users, setUsers] = useState([]);
@@ -308,8 +363,27 @@ function UserFormModal({ target, onClose, onSave, isSelf }) {
   const [role, setRole] = useState(isNew ? 'user' : target.role || 'user');
   const [department, setDepartment] = useState(isNew ? '' : target.department || '');
   const [isActive, setIsActive] = useState(isNew ? true : !!target.is_active);
+  // null = inherit from role; an object = explicit overrides per module/action
+  const [permissions, setPermissions] = useState(isNew ? null : target.permissions || null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  const setPermissionFor = (mod, action, value) => {
+    setPermissions((prev) => {
+      const next = prev ? { ...prev, [mod]: { ...(prev[mod] || {}) } } : { [mod]: {} };
+      if (value === 'inherit') {
+        if (next[mod]) {
+          delete next[mod][action];
+          if (Object.keys(next[mod]).length === 0) delete next[mod];
+        }
+      } else {
+        next[mod] = { ...(next[mod] || {}), [action]: value };
+      }
+      return Object.keys(next).length ? next : null;
+    });
+  };
+
+  const resetPermissions = () => setPermissions(null);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -320,9 +394,10 @@ function UserFormModal({ target, onClose, onSave, isSelf }) {
     }
     setSubmitting(true);
     try {
-      const payload = isNew
+      const basePayload = isNew
         ? { name: name.trim(), email: email.trim(), password, role, department: department.trim() || null, is_active: isActive }
         : { name: name.trim(), role, department: department.trim() || null, is_active: isActive };
+      const payload = isSelf ? basePayload : { ...basePayload, permissions };
       await onSave(payload, isNew);
     } catch (err) {
       setError(err.message || 'Could not save the user.');
@@ -386,6 +461,14 @@ function UserFormModal({ target, onClose, onSave, isSelf }) {
           {isSelf && <span className="text-[11px] text-slate-500">(you cannot deactivate yourself)</span>}
         </label>
 
+        <PermissionsPanel
+          role={role}
+          permissions={permissions}
+          onChange={setPermissionFor}
+          onReset={resetPermissions}
+          disabled={isSelf}
+        />
+
         {error && <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>}
 
         <footer className="flex justify-end gap-2 pt-2">
@@ -396,6 +479,77 @@ function UserFormModal({ target, onClose, onSave, isSelf }) {
         </footer>
       </form>
     </Modal>
+  );
+}
+
+function PermissionsPanel({ role, permissions, onChange, onReset, disabled }) {
+  const overrides = permissions || {};
+  const defaults = ROLE_DEFAULTS[role] || ROLE_DEFAULTS.user;
+  const hasOverrides = Object.keys(overrides).length > 0;
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-50/50">
+      <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-2">
+        <div>
+          <div className="text-xs font-semibold text-slate-700">Module access</div>
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            Defaults follow the user's role. Override individual modules below — leave a row on
+            <span className="font-semibold"> Inherit</span> to keep the role default.
+          </p>
+        </div>
+        {hasOverrides && !disabled && (
+          <button
+            type="button"
+            onClick={onReset}
+            className="text-[11px] font-semibold text-accent-700 hover:text-accent-900"
+          >
+            Reset to role defaults
+          </button>
+        )}
+      </header>
+      {disabled ? (
+        <p className="px-3 py-2 text-[11px] text-slate-500">You cannot change your own permissions.</p>
+      ) : (
+        <div className="divide-y divide-slate-200">
+          {PERMISSION_MODULES.map((mod) => (
+            <div key={mod.key} className="px-3 py-2.5">
+              <div className="text-xs font-semibold text-slate-800 mb-1.5">{mod.label}</div>
+              <div className="space-y-1.5">
+                {mod.actions.map((action) => {
+                  const override = overrides[mod.key]?.[action.key];
+                  const isOverridden = typeof override === 'boolean';
+                  const value = isOverridden ? (override ? 'allow' : 'deny') : 'inherit';
+                  const inherited = !!defaults[mod.key]?.[action.key];
+                  return (
+                    <div key={action.key} className="flex items-center justify-between gap-3">
+                      <div className="text-sm text-slate-700">
+                        {action.label}
+                        <span className="ml-2 text-[10px] uppercase tracking-wide text-slate-400">
+                          role default: {inherited ? 'allow' : 'deny'}
+                        </span>
+                      </div>
+                      <select
+                        value={value}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === 'inherit') onChange(mod.key, action.key, 'inherit');
+                          else onChange(mod.key, action.key, v === 'allow');
+                        }}
+                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
+                      >
+                        <option value="inherit">Inherit ({inherited ? 'allow' : 'deny'})</option>
+                        <option value="allow">Allow</option>
+                        <option value="deny">Deny</option>
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

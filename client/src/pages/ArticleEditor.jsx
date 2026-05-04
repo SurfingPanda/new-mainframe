@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import MarkdownEditor from '../components/MarkdownEditor.jsx';
 import { api, getUser } from '../lib/auth.js';
 
 const CATEGORIES = [
   'Accounts', 'Networking', 'Hardware', 'Software',
-  'Security', 'Email & Communication', 'Printing & Peripherals', 'General'
+  'Security', 'Email & Communication', 'Printing & Peripherals',
+  'Troubleshooting', 'FAQ', 'Policies', 'General'
 ];
 
 function slugify(text) {
@@ -18,6 +19,7 @@ export default function ArticleEditor() {
   const isNew = !editSlug;
   const navigate = useNavigate();
   const me = getUser();
+  const [searchParams] = useSearchParams();
 
   const [loading, setLoading]   = useState(!isNew);
   const [saving, setSaving]     = useState(false);
@@ -27,7 +29,10 @@ export default function ArticleEditor() {
   const [title, setTitle]       = useState('');
   const [slug, setSlug]         = useState('');
   const [slugEdited, setSlugEdited] = useState(false);
-  const [category, setCategory] = useState('');
+  const initialCategory = isNew && CATEGORIES.includes(searchParams.get('category'))
+    ? searchParams.get('category')
+    : '';
+  const [category, setCategory] = useState(initialCategory);
   const [author, setAuthor]     = useState(me?.name || '');
   const [body, setBody]         = useState('');
   const [published, setPublished] = useState(true);

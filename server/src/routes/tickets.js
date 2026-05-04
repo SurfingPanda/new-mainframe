@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -60,7 +60,7 @@ const ALLOWED_CATEGORIES = [
   'Other'
 ];
 
-router.get('/', async (req, res, next) => {
+router.get('/', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
   try {
     const [rows] = await pool.query(
       `SELECT id, title, description, status, priority, request_type, category,
@@ -100,7 +100,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
@@ -163,7 +163,7 @@ const EDITABLE_FIELDS = {
   asset_id: { numeric: true, nullable: true }
 };
 
-router.patch('/:id', requireAuth, async (req, res, next) => {
+router.patch('/:id', requireAuth, requirePermission('tickets', 'create'), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
@@ -290,7 +290,7 @@ async function loadActivity(ticketId) {
   }));
 }
 
-router.get('/:id/activity', async (req, res, next) => {
+router.get('/:id/activity', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
@@ -331,6 +331,7 @@ router.get('/:id/activity', async (req, res, next) => {
 router.post(
   '/:id/activity',
   requireAuth,
+  requirePermission('tickets', 'create'),
   (req, res, next) => {
     upload.single('attachment')(req, res, (err) => {
       if (err) return res.status(400).json({ error: err.message });
@@ -423,7 +424,7 @@ router.post(
   }
 );
 
-router.get('/:id/kb', async (req, res, next) => {
+router.get('/:id/kb', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
@@ -444,7 +445,7 @@ router.get('/:id/kb', async (req, res, next) => {
   }
 });
 
-router.post('/:id/kb', requireAuth, async (req, res, next) => {
+router.post('/:id/kb', requireAuth, requirePermission('tickets', 'create'), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
@@ -498,7 +499,7 @@ router.post('/:id/kb', requireAuth, async (req, res, next) => {
   }
 });
 
-router.delete('/:id/kb/:articleId', requireAuth, async (req, res, next) => {
+router.delete('/:id/kb/:articleId', requireAuth, requirePermission('tickets', 'create'), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const articleId = Number(req.params.articleId);
@@ -533,6 +534,8 @@ router.delete('/:id/kb/:articleId', requireAuth, async (req, res, next) => {
 
 router.post(
   '/',
+  requireAuth,
+  requirePermission('tickets', 'create'),
   (req, res, next) => {
     upload.array('attachments', 5)(req, res, (err) => {
       if (err) return res.status(400).json({ error: err.message });

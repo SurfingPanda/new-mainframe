@@ -22,6 +22,13 @@ export async function pingDb() {
 }
 
 export async function ensureSchema() {
+  // users.permissions for per-module access overrides
+  try {
+    await pool.query(`ALTER TABLE users ADD COLUMN permissions JSON NULL AFTER is_active`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ticket_activity (
       id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

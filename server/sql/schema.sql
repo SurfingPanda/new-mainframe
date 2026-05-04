@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
   role            ENUM('admin','agent','user') NOT NULL DEFAULT 'user',
   department      VARCHAR(80),
   is_active       TINYINT(1) NOT NULL DEFAULT 1,
+  permissions     JSON NULL,
   last_login_at   TIMESTAMP NULL,
   created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../config/db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -11,8 +11,7 @@ const ASSET_TYPES = [
   'Networking', 'UPS', 'Docking Station', 'Headset', 'Other'
 ];
 
-// All authenticated users can view
-router.get('/', requireAuth, async (req, res, next) => {
+router.get('/', requireAuth, requirePermission('assets', 'view'), async (req, res, next) => {
   try {
     const { status, type, q } = req.query;
     const conditions = [];
@@ -44,11 +43,11 @@ router.get('/', requireAuth, async (req, res, next) => {
   }
 });
 
-router.get('/meta/types', requireAuth, (_req, res) => {
+router.get('/meta/types', requireAuth, requirePermission('assets', 'view'), (_req, res) => {
   res.json(ASSET_TYPES);
 });
 
-router.get('/:id', requireAuth, async (req, res, next) => {
+router.get('/:id', requireAuth, requirePermission('assets', 'view'), async (req, res, next) => {
   try {
     const [rows] = await pool.query(
       'SELECT * FROM assets WHERE id = ?',
@@ -61,8 +60,7 @@ router.get('/:id', requireAuth, async (req, res, next) => {
   }
 });
 
-// Admin / agent only — create, edit, delete
-router.post('/', requireAuth, requireRole('admin', 'agent'), async (req, res, next) => {
+router.post('/', requireAuth, requirePermission('assets', 'manage'), async (req, res, next) => {
   try {
     const { asset_tag, type, model, serial_no, assignee, location, status = 'in_use', purchased_at } = req.body || {};
     if (!asset_tag || !type) {
@@ -95,7 +93,7 @@ router.post('/', requireAuth, requireRole('admin', 'agent'), async (req, res, ne
   }
 });
 
-router.patch('/:id', requireAuth, requireRole('admin', 'agent'), async (req, res, next) => {
+router.patch('/:id', requireAuth, requirePermission('assets', 'manage'), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const { asset_tag, type, model, serial_no, assignee, location, status, purchased_at } = req.body || {};
@@ -131,7 +129,7 @@ router.patch('/:id', requireAuth, requireRole('admin', 'agent'), async (req, res
   }
 });
 
-router.delete('/:id', requireAuth, requireRole('admin', 'agent'), async (req, res, next) => {
+router.delete('/:id', requireAuth, requirePermission('assets', 'manage'), async (req, res, next) => {
   try {
     const [r] = await pool.query('DELETE FROM assets WHERE id = ?', [Number(req.params.id)]);
     if (r.affectedRows === 0) return res.status(404).json({ error: 'Asset not found' });

@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool } from '../config/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { effectivePermissions } from '../lib/permissions.js';
 
 const router = Router();
 
@@ -14,7 +15,7 @@ router.post('/login', async (req, res, next) => {
     }
 
     const [rows] = await pool.query(
-      'SELECT id, email, password_hash, name, role, department, is_active FROM users WHERE email = ? LIMIT 1',
+      'SELECT id, email, password_hash, name, role, department, is_active, permissions FROM users WHERE email = ? LIMIT 1',
       [email.toLowerCase().trim()]
     );
 
@@ -30,8 +31,9 @@ router.post('/login', async (req, res, next) => {
 
     await pool.query('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
 
+    const permissions = effectivePermissions(user);
     const token = jwt.sign(
-      { sub: user.id, email: user.email, role: user.role, name: user.name },
+      { sub: user.id, email: user.email, role: user.role, name: user.name, permissions },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
@@ -43,7 +45,8 @@ router.post('/login', async (req, res, next) => {
         email: user.email,
         name: user.name,
         role: user.role,
-        department: user.department
+        department: user.department,
+        permissions
       }
     });
   } catch (err) {
@@ -54,11 +57,13 @@ router.post('/login', async (req, res, next) => {
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
     const [rows] = await pool.query(
-      'SELECT id, email, name, role, department, last_login_at FROM users WHERE id = ? AND is_active = 1 LIMIT 1',
+      'SELECT id, email, name, role, department, permissions, last_login_at FROM users WHERE id = ? AND is_active = 1 LIMIT 1',
       [req.user.sub]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
-    res.json(rows[0]);
+    const me = rows[0];
+    me.permissions = effectivePermissions(me);
+    res.json(me);
   } catch (err) {
     next(err);
   }
