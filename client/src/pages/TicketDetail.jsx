@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
+import UserPicker from '../components/UserPicker.jsx';
 import { api, getUser } from '../lib/auth.js';
 
 const STATUSES = [
@@ -58,6 +59,7 @@ export default function TicketDetail() {
   const [activity, setActivity] = useState([]);
   const [kbLinks, setKbLinks] = useState([]);
   const [assignableUsers, setAssignableUsers] = useState([]);
+  const [directoryUsers, setDirectoryUsers] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -77,15 +79,17 @@ export default function TicketDetail() {
       api(`/api/tickets/${id}`),
       api(`/api/tickets/${id}/activity`).catch(() => []),
       api(`/api/tickets/${id}/kb`).catch(() => []),
-      api('/api/users/assignable').catch(() => [])
+      api('/api/users/assignable').catch(() => []),
+      api('/api/users/directory').catch(() => [])
     ])
-      .then(([t, acts, kb, users]) => {
+      .then(([t, acts, kb, users, dir]) => {
         if (!active) return;
         setTicket(t);
         setDraft(makeDraft(t));
         setActivity(acts);
         setKbLinks(kb);
         setAssignableUsers(users);
+        setDirectoryUsers(dir);
         setError('');
       })
       .catch((e) => active && setError(e.message))
@@ -155,6 +159,36 @@ export default function TicketDetail() {
     }
   };
 
+  const printTicket = (mode) => {
+    const cleanup = () => {
+      document.body.classList.remove('print-3x5');
+      document.getElementById('print-3x5-page')?.remove();
+      window.removeEventListener('afterprint', cleanup);
+    };
+    if (mode === '3x5') {
+      const style = document.createElement('style');
+      style.id = 'print-3x5-page';
+      style.textContent = '@page { size: 5in 3in; margin: 0.15in; }';
+      document.head.appendChild(style);
+      document.body.classList.add('print-3x5');
+      window.addEventListener('afterprint', cleanup);
+    }
+    window.print();
+    if (mode === '3x5') {
+      // Safety net for browsers that don't fire afterprint reliably.
+      setTimeout(cleanup, 1000);
+    }
+  };
+
+  const removeAttachment = async (attachmentId) => {
+    await api(`/api/tickets/${id}/attachments/${attachmentId}`, { method: 'DELETE' });
+    setTicket((t) => t ? {
+      ...t,
+      attachments: (t.attachments || []).filter((a) => a.id !== attachmentId)
+    } : t);
+    reloadActivity();
+  };
+
   const linkArticle = async (articleId) => {
     const link = await api(`/api/tickets/${id}/kb`, {
       method: 'POST',
@@ -174,7 +208,7 @@ export default function TicketDetail() {
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader />
 
-      <main className="container-app py-10 space-y-6">
+      <main className="container-app py-10 space-y-6 screen-only">
         <nav className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 print:hidden">
           <Link to="/dashboard" className="hover:text-slate-800">Dashboard</Link>
           <span className="text-slate-300">/</span>
@@ -217,9 +251,9 @@ export default function TicketDetail() {
               <div className="flex items-center gap-2 self-start print:hidden">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => printTicket('landscape')}
                   className="btn-ghost !px-3.5 !py-2 text-xs"
-                  title="Print this ticket"
+                  title="Print on letter/A4 landscape"
                 >
                   <svg className="h-3.5 w-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M6 9V2h12v7" />
@@ -227,6 +261,18 @@ export default function TicketDetail() {
                     <rect x="6" y="14" width="12" height="8" />
                   </svg>
                   Print
+                </button>
+                <button
+                  type="button"
+                  onClick={() => printTicket('3x5')}
+                  className="btn-ghost !px-3.5 !py-2 text-xs"
+                  title="Print on a 3×5 inch index card"
+                >
+                  <svg className="h-3.5 w-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="6" width="18" height="12" rx="1.5" />
+                    <path d="M7 10h10M7 14h6" />
+                  </svg>
+                  Print 3×5
                 </button>
                 <Link to="/tickets/all" className="btn-ghost !px-3.5 !py-2 text-xs">
                   ← All tickets
@@ -295,20 +341,22 @@ export default function TicketDetail() {
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
                       <FieldLabel>Requester</FieldLabel>
-                      <input
+                      <UserPicker
                         value={draft.requester || ''}
-                        onChange={(e) => setField('requester', e.target.value)}
+                        users={directoryUsers}
+                        onChange={(v) => setField('requester', v)}
                         disabled={!isStaff}
-                        className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:bg-slate-50 disabled:text-slate-700"
+                        placeholder="Type to search users or enter a name"
                       />
                     </div>
                     <div>
                       <FieldLabel>Assignee</FieldLabel>
-                      <AssigneePicker
+                      <UserPicker
                         value={draft.assignee || ''}
                         users={assignableUsers}
                         onChange={(v) => setField('assignee', v)}
                         disabled={!isStaff}
+                        placeholder="Type to search users or enter a name"
                       />
                     </div>
                   </div>
@@ -325,33 +373,12 @@ export default function TicketDetail() {
                   {ticket.attachments?.length ? (
                     <ul className="space-y-2">
                       {ticket.attachments.map((a) => (
-                        <li
+                        <AttachmentRow
                           key={a.id}
-                          className="flex items-center gap-3 rounded-md border border-slate-200 bg-white p-2 pr-3"
-                        >
-                          <AttachmentThumb attachment={a} />
-                          <div className="min-w-0 flex-1">
-                            <a
-                              href={a.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="block text-sm font-medium text-accent-700 hover:text-accent-800 truncate"
-                            >
-                              {a.filename}
-                            </a>
-                            <div className="text-[11px] text-slate-500">
-                              {formatSize(a.size_bytes)} · {a.mime_type}
-                              {a.uploaded_by ? ` · uploaded by ${a.uploaded_by}` : ''}
-                            </div>
-                          </div>
-                          <a
-                            href={a.url}
-                            download={a.filename}
-                            className="btn-ghost !px-2.5 !py-1.5 text-[11px]"
-                          >
-                            Download
-                          </a>
-                        </li>
+                          attachment={a}
+                          canRemove={isStaff}
+                          onRemove={removeAttachment}
+                        />
                       ))}
                     </ul>
                   ) : (
@@ -407,7 +434,84 @@ export default function TicketDetail() {
           </>
         )}
       </main>
+
+      {ticket && <PrintableTicket ticket={ticket} />}
     </div>
+  );
+}
+
+/* -------- Printable ticket -------- */
+
+function PrintableTicket({ ticket }) {
+  const pretty = (v) => (v ? String(v).replace(/_/g, ' ') : '—');
+  return (
+    <article className="printable-ticket">
+      <header className="pt-header">
+        <div className="pt-brand">
+          <img src="/images/logo.png" alt="Eljin Corp" className="pt-logo" />
+          <div className="pt-brand-text">
+            <div className="pt-brand-name">Eljin Corp</div>
+            <div className="pt-brand-sub">IT Service Ticket</div>
+          </div>
+        </div>
+        <div className="pt-ticket-id">
+          <div className="pt-id-label">Ticket No.</div>
+          <div className="pt-id">T-{String(ticket.id).padStart(4, '0')}</div>
+        </div>
+      </header>
+
+      <div className="pt-titlebar">
+        <h1 className="pt-title">{ticket.title}</h1>
+        <div className="pt-pills">
+          <span className="pt-pill"><b>Status:</b> {pretty(ticket.status)}</span>
+          <span className="pt-pill"><b>Priority:</b> {pretty(ticket.priority)}</span>
+        </div>
+      </div>
+
+      <div className="pt-grid">
+        <div><b>Type</b><span>{pretty(ticket.request_type)}</span></div>
+        <div><b>Category</b><span>{ticket.category || '—'}</span></div>
+        <div><b>Requester</b><span>{ticket.requester || '—'}</span></div>
+        <div><b>Assignee</b><span>{ticket.assignee || '—'}</span></div>
+        <div><b>Opened</b><span>{formatDateTime(ticket.created_at)}</span></div>
+        <div><b>Last update</b><span>{formatDateTime(ticket.updated_at)}</span></div>
+      </div>
+
+      {ticket.description && (
+        <section className="pt-section">
+          <div className="pt-label">Description</div>
+          <div className="pt-body">{ticket.description}</div>
+        </section>
+      )}
+
+      {ticket.asset && (
+        <section className="pt-section">
+          <div className="pt-label">Linked asset</div>
+          <div className="pt-body">
+            <strong>{ticket.asset.asset_tag}</strong> — {ticket.asset.type}
+            {ticket.asset.model ? ` · ${ticket.asset.model}` : ''}
+            {ticket.asset.location ? ` · ${ticket.asset.location}` : ''}
+          </div>
+        </section>
+      )}
+
+      <div className="pt-signatures">
+        <div className="pt-sig">
+          <div className="pt-sig-line" />
+          <div className="pt-sig-name">{ticket.requester || ''}</div>
+          <div className="pt-sig-label">Requester · signature over printed name &amp; date</div>
+        </div>
+        <div className="pt-sig">
+          <div className="pt-sig-line" />
+          <div className="pt-sig-name">{ticket.assignee || ''}</div>
+          <div className="pt-sig-label">Technician / Assignee · signature over printed name &amp; date</div>
+        </div>
+      </div>
+
+      <div className="pt-footer">
+        Eljin Corp IT Service Portal · printed {formatDateTime(new Date())}
+      </div>
+    </article>
   );
 }
 
@@ -840,6 +944,7 @@ function ActivityItem({ item }) {
   const isNote = item.type === 'note';
   const isCreation = item.type === 'change' && item.field === 'created';
   const isKbLink = item.type === 'change' && (item.field === 'kb_link' || item.field === 'kb_unlink');
+  const isAttachmentRemoved = item.type === 'change' && item.field === 'attachment_removed';
 
   let icon;
   let iconWrap;
@@ -919,7 +1024,13 @@ function ActivityItem({ item }) {
           </p>
         )}
 
-        {!isNote && !isCreation && !isKbLink && (
+        {isAttachmentRemoved && (
+          <p className="mt-1 text-xs text-slate-600 leading-snug">
+            removed attachment <ChangeValue value={item.old_value} field="title" />
+          </p>
+        )}
+
+        {!isNote && !isCreation && !isKbLink && !isAttachmentRemoved && (
           <p className="mt-1 text-xs text-slate-600 leading-snug">
             changed <span className="font-semibold text-slate-800">{labelForField(item.field)}</span>
             {' '}from{' '}
@@ -1000,7 +1111,8 @@ function labelForField(field) {
     asset_id: 'linked asset',
     created: 'creation',
     kb_link: 'KB link',
-    kb_unlink: 'KB link'
+    kb_unlink: 'KB link',
+    attachment_removed: 'attachment'
   };
   return map[field] || field;
 }
@@ -1033,112 +1145,6 @@ function SelectField({ label, value, options, onChange, disabled }) {
   );
 }
 
-function AssigneePicker({ value, users, onChange, disabled }) {
-  const [open, setOpen] = useState(false);
-  const [highlight, setHighlight] = useState(0);
-  const wrapRef = useRef(null);
-
-  const query = value || '';
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter((u) => {
-      const haystack = `${u.name} ${u.email || ''} ${u.role || ''} ${u.department || ''}`.toLowerCase();
-      return haystack.includes(q);
-    });
-  }, [users, query]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, [open]);
-
-  useEffect(() => {
-    setHighlight(0);
-  }, [query, open]);
-
-  const pick = (u) => {
-    onChange(u.name);
-    setOpen(false);
-  };
-
-  const onKeyDown = (e) => {
-    if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
-      setOpen(true);
-      return;
-    }
-    if (!open) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setHighlight((h) => Math.min(h + 1, filtered.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setHighlight((h) => Math.max(h - 1, 0));
-    } else if (e.key === 'Enter') {
-      if (filtered[highlight]) {
-        e.preventDefault();
-        pick(filtered[highlight]);
-      }
-    } else if (e.key === 'Escape') {
-      setOpen(false);
-    }
-  };
-
-  return (
-    <div ref={wrapRef} className="relative">
-      <input
-        value={value}
-        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={onKeyDown}
-        disabled={disabled}
-        placeholder="Type to search users or enter a name"
-        autoComplete="off"
-        className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:bg-slate-50 disabled:text-slate-700"
-      />
-      {open && !disabled && (
-        <div className="absolute z-20 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg max-h-64 overflow-y-auto scrollbar-pretty">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => { onChange(''); setOpen(false); }}
-            className="block w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 border-b border-slate-100"
-          >
-            Unassigned
-          </button>
-          {filtered.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-slate-500">
-              No matching users. Press Enter to keep "{value}" as a custom name.
-            </div>
-          ) : (
-            filtered.map((u, idx) => (
-              <button
-                key={u.id}
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onMouseEnter={() => setHighlight(idx)}
-                onClick={() => pick(u)}
-                className={`block w-full text-left px-3 py-2 text-sm ${
-                  idx === highlight ? 'bg-accent-50 text-accent-800' : 'text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <div className="font-medium">{u.name}</div>
-                <div className="text-xs text-slate-500">
-                  {u.email ? `${u.email} · ` : ''}{u.role}{u.department ? ` · ${u.department}` : ''}
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* -------- Cards & helpers -------- */
 
 function Card({ title, subtitle, children }) {
@@ -1150,6 +1156,69 @@ function Card({ title, subtitle, children }) {
       </header>
       <div className="p-5">{children}</div>
     </section>
+  );
+}
+
+function AttachmentRow({ attachment, canRemove, onRemove }) {
+  const [removing, setRemoving] = useState(false);
+  const [err, setErr] = useState('');
+
+  const handleRemove = async () => {
+    if (removing) return;
+    if (!window.confirm(`Remove "${attachment.filename}"? This cannot be undone.`)) return;
+    setRemoving(true);
+    setErr('');
+    try {
+      await onRemove(attachment.id);
+    } catch (e) {
+      setErr(e.message || 'Failed to remove file.');
+      setRemoving(false);
+    }
+  };
+
+  return (
+    <li className="flex items-center gap-3 rounded-md border border-slate-200 bg-white p-2 pr-3">
+      <AttachmentThumb attachment={attachment} />
+      <div className="min-w-0 flex-1">
+        <a
+          href={attachment.url}
+          target="_blank"
+          rel="noreferrer"
+          className="block text-sm font-medium text-accent-700 hover:text-accent-800 truncate"
+        >
+          {attachment.filename}
+        </a>
+        <div className="text-[11px] text-slate-500">
+          {formatSize(attachment.size_bytes)} · {attachment.mime_type}
+          {attachment.uploaded_by ? ` · uploaded by ${attachment.uploaded_by}` : ''}
+        </div>
+        {err && <div className="text-[11px] text-rose-700 mt-0.5">{err}</div>}
+      </div>
+      <a
+        href={attachment.url}
+        download={attachment.filename}
+        className="btn-ghost !px-2.5 !py-1.5 text-[11px]"
+      >
+        Download
+      </a>
+      {canRemove && (
+        <button
+          type="button"
+          onClick={handleRemove}
+          disabled={removing}
+          className="rounded p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 disabled:cursor-not-allowed print:hidden"
+          aria-label="Remove attachment"
+          title="Remove attachment"
+        >
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 6h18" />
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+            <path d="M10 11v6M14 11v6" />
+          </svg>
+        </button>
+      )}
+    </li>
   );
 }
 

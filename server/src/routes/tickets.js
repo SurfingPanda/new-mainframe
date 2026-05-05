@@ -424,6 +424,54 @@ router.post(
   }
 );
 
+router.delete(
+  '/:id/attachments/:attachmentId',
+  requireAuth,
+  requirePermission('tickets', 'create'),
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      const attachmentId = Number(req.params.attachmentId);
+      if (!Number.isInteger(id) || id <= 0 ||
+          !Number.isInteger(attachmentId) || attachmentId <= 0) {
+        return res.status(400).json({ error: 'invalid ids' });
+      }
+
+      const [rows] = await pool.query(
+        `SELECT id, ticket_id, original_filename, stored_filename
+           FROM ticket_attachments
+          WHERE id = ? AND ticket_id = ?
+          LIMIT 1`,
+        [attachmentId, id]
+      );
+      if (!rows.length) return res.status(404).json({ error: 'Attachment not found' });
+      const att = rows[0];
+
+      // Detach activity references first so the audit log keeps its rows.
+      await pool.query(
+        `UPDATE ticket_activity SET attachment_id = NULL WHERE attachment_id = ?`,
+        [attachmentId]
+      );
+      await pool.query('DELETE FROM ticket_attachments WHERE id = ?', [attachmentId]);
+
+      // Best-effort file removal — schema row is the source of truth.
+      const filePath = path.join(UPLOAD_DIR, path.basename(att.stored_filename));
+      fs.unlink(filePath, () => {});
+
+      const actor = req.user?.name || req.user?.email || 'system';
+      await pool.query(
+        `INSERT INTO ticket_activity (ticket_id, type, actor, field, old_value)
+         VALUES (?, 'change', ?, 'attachment_removed', ?)`,
+        [id, actor, String(att.original_filename).slice(0, 500)]
+      );
+
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 router.get('/:id/kb', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
   try {
     const id = Number(req.params.id);

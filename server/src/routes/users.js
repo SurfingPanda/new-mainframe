@@ -22,7 +22,21 @@ router.get('/assignable', requireAuth, async (_req, res, next) => {
     const [rows] = await pool.query(
       `SELECT id, name, email, role, department
          FROM users
-        WHERE is_active = 1 AND role IN ('admin','agent')
+        WHERE is_active = 1
+        ORDER BY name ASC`
+    );
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/directory', requireAuth, async (_req, res, next) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, name, email, role, department
+         FROM users
+        WHERE is_active = 1
         ORDER BY name ASC`
     );
     res.json(rows);

@@ -5,6 +5,7 @@ import Modules from '../components/Modules.jsx';
 import SystemStatus from '../components/SystemStatus.jsx';
 import AccessCTA from '../components/AccessCTA.jsx';
 import Footer from '../components/Footer.jsx';
+import Reveal from '../components/Reveal.jsx';
 
 export default function Landing() {
   return (
@@ -12,12 +13,22 @@ export default function Landing() {
       <Banner />
       <Navbar />
       <main>
-        <Hero />
-        <Modules />
-        <SystemStatus />
-        <AccessCTA />
+        <Reveal direction="fade" duration={900}>
+          <Hero />
+        </Reveal>
+        <Reveal direction="up">
+          <Modules />
+        </Reveal>
+        <Reveal direction="up">
+          <SystemStatus />
+        </Reveal>
+        <Reveal direction="up" duration={800}>
+          <AccessCTA />
+        </Reveal>
       </main>
-      <Footer />
+      <Reveal direction="fade">
+        <Footer />
+      </Reveal>
     </div>
   );
 }

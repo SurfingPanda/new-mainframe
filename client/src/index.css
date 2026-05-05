@@ -19,16 +19,16 @@
     @apply max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-10;
   }
   .btn-primary {
-    @apply inline-flex items-center justify-center rounded-md bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800 focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2 transition-colors;
+    @apply inline-flex items-center justify-center rounded-md bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800 hover:shadow-md hover:-translate-y-px active:translate-y-0 active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2 transition-all duration-150 ease-out;
   }
   .btn-accent {
-    @apply inline-flex items-center justify-center rounded-md bg-accent-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-accent-600 focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2 transition-colors;
+    @apply inline-flex items-center justify-center rounded-md bg-accent-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-accent-600 hover:shadow-md hover:-translate-y-px active:translate-y-0 active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2 transition-all duration-150 ease-out;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 transition-colors;
+    @apply inline-flex items-center justify-center rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 hover:-translate-y-px active:translate-y-0 active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 transition-all duration-150 ease-out;
   }
   .btn-ghost {
-    @apply inline-flex items-center justify-center rounded-md px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 transition-colors;
+    @apply inline-flex items-center justify-center rounded-md px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 active:scale-[0.97] focus:outline-none transition-all duration-150 ease-out;
   }
   .eyebrow {
     @apply inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-brand-900;
@@ -36,6 +36,79 @@
   .eyebrow::before {
     content: '';
     @apply inline-block h-1.5 w-1.5 rounded-full bg-accent-500;
+  }
+}
+
+/* ---- Sign-in: click pulse + page entrance ----------------------------- */
+@keyframes btn-launch {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(0.94); }
+  70%  { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+.btn-launching {
+  animation: btn-launch 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+@keyframes signin-slide-left {
+  from { opacity: 0; transform: translate3d(-32px, 0, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes signin-slide-right {
+  from { opacity: 0; transform: translate3d(32px, 0, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes signin-rise {
+  from { opacity: 0; transform: translate3d(0, 24px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes signin-blob-float {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50%      { transform: translate3d(8px, -12px, 0); }
+}
+.signin-brand-anim { animation: signin-slide-left 800ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.signin-form-anim  { animation: signin-slide-right 800ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.signin-card-anim  { animation: signin-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) 220ms both; }
+.signin-card-anim-2 { animation: signin-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) 360ms both; }
+.signin-blob-1 { animation: signin-blob-float 9s ease-in-out infinite; }
+.signin-blob-2 { animation: signin-blob-float 11s ease-in-out infinite reverse; }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-launching,
+  .signin-brand-anim,
+  .signin-form-anim,
+  .signin-card-anim,
+  .signin-card-anim-2,
+  .signin-blob-1,
+  .signin-blob-2 {
+    animation: none !important;
+  }
+}
+
+/* ---- Scroll-reveal animations ----------------------------------------- */
+.reveal {
+  opacity: 0;
+  transition:
+    opacity 700ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+.reveal-up    { transform: translate3d(0, 32px, 0); }
+.reveal-down  { transform: translate3d(0, -32px, 0); }
+.reveal-left  { transform: translate3d(-32px, 0, 0); }
+.reveal-right { transform: translate3d(32px, 0, 0); }
+.reveal-fade  { transform: none; }
+.reveal-scale { transform: scale(0.96); }
+.reveal-in {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
 }
 
@@ -97,42 +170,267 @@
   }
 }
 
+/* ---- Printable ticket -------------------------------------------------- */
+
+.printable-ticket { display: none; }
+
+@page { size: landscape; margin: 0.4in; }
+
 @media print {
   html, body {
     background: white !important;
     color: #0f172a !important;
   }
-  .container-app {
-    max-width: 100% !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
+  .screen-only { display: none !important; }
+
+  .printable-ticket {
+    display: flex !important;
+    flex-direction: column;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    color: #0f172a;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.35;
   }
-  .sticky { position: static !important; }
-  .shadow-card, .shadow-elevated, .shadow-sm, .shadow-lg {
-    box-shadow: none !important;
+  .pt-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12pt;
+    padding-bottom: 6pt;
+    margin-bottom: 10pt;
+    border-bottom: 1.5pt solid #0f172a;
   }
-  /* Render form fields as plain text on paper */
-  input, select, textarea {
-    border-color: transparent !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    appearance: none !important;
-    -webkit-appearance: none !important;
-    -moz-appearance: none !important;
-    background-image: none !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-    color: #0f172a !important;
+  .pt-brand { display: flex; align-items: center; gap: 9pt; min-width: 0; }
+  .pt-logo {
+    height: 32pt;
+    width: auto;
+    object-fit: contain;
+    flex: none;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
-  textarea {
-    resize: none !important;
-    height: auto !important;
-    min-height: 0 !important;
-    overflow: visible !important;
+  .pt-brand-text { line-height: 1.1; min-width: 0; }
+  .pt-brand-name {
+    font-size: 12pt;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: 0.01em;
   }
-  /* Avoid splitting cards across pages where possible */
-  section, article, li {
+  .pt-brand-sub {
+    margin-top: 1.5pt;
+    font-size: 7.5pt;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 600;
+  }
+  .pt-ticket-id { text-align: right; flex: none; }
+  .pt-id-label {
+    font-size: 7pt;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+  }
+  .pt-id {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 14pt;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: 0.04em;
+    margin-top: 1pt;
+  }
+
+  .pt-titlebar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 14pt;
+    margin-bottom: 10pt;
+  }
+  .pt-title {
+    font-size: 15pt;
+    font-weight: 700;
+    margin: 0;
+    line-height: 1.25;
+    flex: 1;
+    min-width: 0;
+    color: #0f172a;
+  }
+  .pt-pills {
+    display: flex;
+    gap: 5pt;
+    flex: none;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .pt-pill {
+    display: inline-block;
+    padding: 1.5pt 7pt;
+    border: 0.6pt solid #475569;
+    border-radius: 999px;
+    font-size: 8.5pt;
+    color: #0f172a;
+    text-transform: capitalize;
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+  .pt-pill b {
+    font-weight: 600;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 7.5pt;
+    margin-right: 3pt;
+  }
+
+  .pt-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border: 0.5pt solid #cbd5e1;
+    border-radius: 3pt;
+    overflow: hidden;
+    margin-bottom: 10pt;
+  }
+  .pt-grid > div {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5pt;
+    padding: 5pt 8pt;
+    min-width: 0;
+    border-top: 0.5pt solid #e2e8f0;
+    border-left: 0.5pt solid #e2e8f0;
+  }
+  .pt-grid > div:nth-child(-n+3) { border-top: none; }
+  .pt-grid > div:nth-child(3n+1) { border-left: none; }
+  .pt-grid b {
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-size: 7pt;
+  }
+  .pt-grid span {
+    font-size: 10pt;
+    color: #0f172a;
+    overflow-wrap: anywhere;
+    line-height: 1.3;
+  }
+
+  .pt-section { margin-top: 8pt; break-inside: avoid; }
+  .pt-label {
+    font-size: 7.5pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: #475569;
+    margin-bottom: 3pt;
+  }
+  .pt-body {
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding: 5pt 8pt;
+    border-left: 1.2pt solid #cbd5e1;
+    background: transparent;
+    font-size: 10pt;
+    line-height: 1.4;
+  }
+
+  .pt-signatures {
+    margin-top: auto;
+    padding-top: 30pt;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 36pt;
     break-inside: avoid;
-    page-break-inside: avoid;
+  }
+  .pt-sig { display: flex; flex-direction: column; }
+  .pt-sig-line {
+    border-bottom: 1pt solid #0f172a;
+    height: 32pt;
+  }
+  .pt-sig-name {
+    margin-top: 4pt;
+    font-size: 10.5pt;
+    font-weight: 600;
+    color: #0f172a;
+    min-height: 13pt;
+  }
+  .pt-sig-label {
+    margin-top: 1pt;
+    font-size: 7.5pt;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+  }
+
+  .pt-footer {
+    margin-top: 12pt;
+    padding-top: 5pt;
+    border-top: 0.5pt solid #e2e8f0;
+    font-size: 7.5pt;
+    color: #64748b;
+    text-align: center;
+    letter-spacing: 0.03em;
+  }
+
+  /* 3x5 index-card variant — same content, scaled. */
+  body.print-3x5 .printable-ticket { font-size: 6.5pt; line-height: 1.25; }
+  body.print-3x5 .pt-header {
+    padding-bottom: 2pt;
+    margin-bottom: 3pt;
+    border-bottom-width: 0.75pt;
+  }
+  body.print-3x5 .pt-brand { gap: 4pt; }
+  body.print-3x5 .pt-logo { height: 14pt; }
+  body.print-3x5 .pt-brand-name { font-size: 7pt; }
+  body.print-3x5 .pt-brand-sub { font-size: 4.5pt; letter-spacing: 0.08em; margin-top: 0.5pt; }
+  body.print-3x5 .pt-id-label { font-size: 4.5pt; letter-spacing: 0.06em; }
+  body.print-3x5 .pt-id { font-size: 8pt; margin-top: 0.5pt; }
+  body.print-3x5 .pt-titlebar { gap: 4pt; margin-bottom: 3pt; }
+  body.print-3x5 .pt-title { font-size: 8pt; }
+  body.print-3x5 .pt-pills { gap: 2pt; }
+  body.print-3x5 .pt-pill { padding: 0.5pt 3pt; font-size: 4.5pt; border-width: 0.4pt; }
+  body.print-3x5 .pt-pill b { font-size: 4pt; margin-right: 1.5pt; letter-spacing: 0.03em; }
+  body.print-3x5 .pt-grid {
+    grid-template-columns: 1fr 1fr;
+    margin-bottom: 3pt;
+    border-radius: 1.5pt;
+  }
+  body.print-3x5 .pt-grid > div { padding: 1.5pt 3pt; gap: 0.5pt; }
+  body.print-3x5 .pt-grid > div:nth-child(-n+3) { border-top: 0.5pt solid #e2e8f0; }
+  body.print-3x5 .pt-grid > div:nth-child(-n+2) { border-top: none; }
+  body.print-3x5 .pt-grid > div:nth-child(3n+1) { border-left: 0.5pt solid #e2e8f0; }
+  body.print-3x5 .pt-grid > div:nth-child(2n+1) { border-left: none; }
+  body.print-3x5 .pt-grid b { font-size: 4pt; letter-spacing: 0.04em; }
+  body.print-3x5 .pt-grid span { font-size: 6pt; }
+  body.print-3x5 .pt-section { margin-top: 3pt; }
+  body.print-3x5 .pt-label { font-size: 4.5pt; margin-bottom: 1pt; letter-spacing: 0.05em; }
+  body.print-3x5 .pt-body {
+    padding: 2pt 4pt;
+    border-left-width: 0.6pt;
+    font-size: 6pt;
+    line-height: 1.2;
+    max-height: 26pt;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+  }
+  body.print-3x5 .pt-signatures { padding-top: 10pt; gap: 14pt; }
+  body.print-3x5 .pt-sig-line { height: 14pt; }
+  body.print-3x5 .pt-sig-name { font-size: 6pt; margin-top: 1pt; min-height: 7pt; }
+  body.print-3x5 .pt-sig-label { font-size: 4.5pt; letter-spacing: 0.04em; }
+  body.print-3x5 .pt-footer {
+    font-size: 4.5pt;
+    margin-top: 4pt;
+    padding-top: 2pt;
+    border-top-width: 0.4pt;
   }
 }

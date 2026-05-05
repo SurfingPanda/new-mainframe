@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { clearSession, getUser, hasPermission } from '../lib/auth.js';
 import NavDropdown from './NavDropdown.jsx';
+import Modal from './Modal.jsx';
 
 function ticketsMenu(user) {
   const sections = [
@@ -63,6 +64,7 @@ const KB_MENU = [
 export default function DashboardHeader() {
   const navigate = useNavigate();
   const user = getUser();
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const initials = (user?.name || 'U')
     .split(' ')
@@ -71,12 +73,16 @@ export default function DashboardHeader() {
     .join('')
     .toUpperCase();
 
-  const logout = () => {
+  const requestLogout = () => setConfirmOpen(true);
+
+  const confirmLogout = () => {
+    setConfirmOpen(false);
     clearSession();
     navigate('/signin');
   };
 
   return (
+    <>
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200 print:hidden">
       <div className="container-app flex items-center justify-between h-16">
         <Link to="/dashboard" className="flex items-center gap-3">
@@ -132,9 +138,40 @@ export default function DashboardHeader() {
           )}
         </nav>
 
-        <ProfileMenu user={user} initials={initials} onSignOut={logout} />
+        <ProfileMenu user={user} initials={initials} onSignOut={requestLogout} />
       </div>
     </header>
+
+    <Modal open={confirmOpen} onClose={() => setConfirmOpen(false)} title="Sign out" size="sm">
+      <p className="text-sm text-slate-700">
+        Are you sure you want to sign out
+        {user?.name ? <>, <span className="font-semibold text-brand-900">{user.name}</span></> : ''}
+        ? You'll need to sign in again to access Mainframe.
+      </p>
+      <div className="mt-5 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setConfirmOpen(false)}
+          className="btn-ghost !px-3.5 !py-2 text-xs"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={confirmLogout}
+          autoFocus
+          className="inline-flex items-center justify-center rounded-md bg-rose-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2 transition-colors"
+        >
+          <svg className="h-3.5 w-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <path d="M16 17l5-5-5-5" />
+            <path d="M21 12H9" />
+          </svg>
+          Sign out
+        </button>
+      </div>
+    </Modal>
+    </>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
+import UserPicker from '../components/UserPicker.jsx';
 import { api, getUser } from '../lib/auth.js';
 
 const TITLE_MAX = 200;
@@ -50,11 +51,15 @@ export default function CreateTicket() {
   const [files, setFiles] = useState([]);
 
   const [assets, setAssets] = useState([]);
+  const [assignableUsers, setAssignableUsers] = useState([]);
+  const [directoryUsers, setDirectoryUsers] = useState([]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     api('/api/assets').then(setAssets).catch(() => setAssets([]));
+    api('/api/users/assignable').then(setAssignableUsers).catch(() => setAssignableUsers([]));
+    api('/api/users/directory').then(setDirectoryUsers).catch(() => setDirectoryUsers([]));
   }, []);
 
   const titleCount = title.length;
@@ -231,15 +236,24 @@ export default function CreateTicket() {
 
             <Card title="People">
               <Field label="Requester" hint="Person reporting the issue." required>
-                <input
-                  value={requester}
-                  onChange={(e) => setRequester(e.target.value)}
-                  placeholder="username or email"
-                  className={inputCls(false)}
-                  readOnly={!isStaff}
-                />
-                {!isStaff && (
-                  <p className="mt-1 text-[11px] text-slate-500">Requester is locked to your account.</p>
+                {isStaff ? (
+                  <UserPicker
+                    value={requester}
+                    users={directoryUsers}
+                    onChange={setRequester}
+                    placeholder="Type to search users or enter a name"
+                  />
+                ) : (
+                  <>
+                    <input
+                      value={requester}
+                      onChange={(e) => setRequester(e.target.value)}
+                      placeholder="username or email"
+                      className={inputCls(false)}
+                      readOnly
+                    />
+                    <p className="mt-1 text-[11px] text-slate-500">Requester is locked to your account.</p>
+                  </>
                 )}
               </Field>
 
@@ -247,12 +261,12 @@ export default function CreateTicket() {
                 label="Assignee"
                 hint={isStaff ? 'Leave blank to triage later.' : 'IT will assign someone.'}
               >
-                <input
+                <UserPicker
                   value={assignee}
-                  onChange={(e) => setAssignee(e.target.value)}
-                  placeholder={isStaff ? 'username (optional)' : 'unassigned'}
-                  className={inputCls(false)}
+                  users={assignableUsers}
+                  onChange={setAssignee}
                   disabled={!isStaff}
+                  placeholder={isStaff ? 'Type to search users (optional)' : 'unassigned'}
                 />
               </Field>
             </Card>
