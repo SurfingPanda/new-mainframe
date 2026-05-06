@@ -142,6 +142,13 @@ function Icon({ name }) {
           <circle cx="3.5" cy="18" r="1" fill="currentColor" />
         </svg>
       );
+    case 'submitted':
+      return (
+        <svg {...common}>
+          <path d="M22 2L11 13" />
+          <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+        </svg>
+      );
     case 'alert':
       return (
         <svg {...common}>

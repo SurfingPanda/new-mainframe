@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import ModulePlaceholder from './pages/ModulePlaceholder.jsx';
 import AllTickets from './pages/AllTickets.jsx';
 import MyQueue from './pages/MyQueue.jsx';
+import SubmittedTickets from './pages/SubmittedTickets.jsx';
 import CreateTicket from './pages/CreateTicket.jsx';
 import CreateIncident from './pages/CreateIncident.jsx';
 import TicketDetail from './pages/TicketDetail.jsx';
@@ -53,6 +54,14 @@ export default function App() {
         element={
           <ProtectedRoute permission={['tickets', 'view']}>
             <MyQueue />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tickets/submitted"
+        element={
+          <ProtectedRoute permission={['tickets', 'view']}>
+            <SubmittedTickets />
           </ProtectedRoute>
         }
       />

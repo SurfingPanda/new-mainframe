@@ -10,6 +10,7 @@ function ticketsMenu(user) {
       heading: 'Views',
       items: [
         { to: '/tickets/my-queue', label: 'My Queue', desc: 'Tickets assigned to you', icon: 'queue' },
+        { to: '/tickets/submitted', label: 'Submitted Tickets', desc: 'Tickets you own or were filed for you', icon: 'submitted' },
         { to: '/tickets/all', label: 'All Tickets', desc: 'Every ticket in the system', icon: 'list' }
       ]
     }
