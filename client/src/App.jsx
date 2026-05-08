@@ -18,6 +18,10 @@ import KbArticle from './pages/KbArticle.jsx';
 import KbCategory from './pages/KbCategory.jsx';
 import ArticleEditor from './pages/ArticleEditor.jsx';
 import AssetRequest from './pages/AssetRequest.jsx';
+import NetworkMonitoring from './pages/NetworkMonitoring.jsx';
+import NetworkReports from './pages/NetworkReports.jsx';
+import NetworkReportEditor from './pages/NetworkReportEditor.jsx';
+import NetworkReportView from './pages/NetworkReportView.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 
 export default function App() {
@@ -38,6 +42,46 @@ export default function App() {
         element={
           <ProtectedRoute>
             <Settings />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/network"
+        element={
+          <ProtectedRoute role={['admin', 'agent']}>
+            <NetworkMonitoring />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/network/reports"
+        element={
+          <ProtectedRoute role={['admin', 'agent']}>
+            <NetworkReports />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/network/reports/new"
+        element={
+          <ProtectedRoute role={['admin', 'agent']}>
+            <NetworkReportEditor />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/network/reports/edit/:date"
+        element={
+          <ProtectedRoute role={['admin', 'agent']}>
+            <NetworkReportEditor />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/network/reports/view/:date"
+        element={
+          <ProtectedRoute role={['admin', 'agent']}>
+            <NetworkReportView />
           </ProtectedRoute>
         }
       />

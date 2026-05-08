@@ -11,6 +11,7 @@ import tickets from './routes/tickets.js';
 import assets from './routes/assets.js';
 import kb from './routes/kb.js';
 import assetRequests from './routes/asset-requests.js';
+import network from './routes/network.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -35,6 +36,7 @@ app.use('/api/tickets', tickets);
 app.use('/api/assets', assets);
 app.use('/api/kb', kb);
 app.use('/api/asset-requests', assetRequests);
+app.use('/api/network', network);
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 

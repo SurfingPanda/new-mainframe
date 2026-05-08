@@ -30,25 +30,27 @@ export default function SystemStatus() {
 
         <div className="lg:col-span-8">
           <div className="rounded-lg border border-slate-200 bg-white shadow-card overflow-hidden">
-            <div className="grid grid-cols-12 px-5 py-3 bg-slate-50 border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <div className="col-span-6">Service</div>
-              <div className="col-span-3">State</div>
-              <div className="col-span-3 text-right">Last update</div>
+            <div className="hidden sm:grid sm:grid-cols-12 px-5 py-3 bg-slate-50 border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <div className="sm:col-span-6">Service</div>
+              <div className="sm:col-span-3">State</div>
+              <div className="sm:col-span-3 text-right">Last update</div>
             </div>
             <ul className="divide-y divide-slate-100">
               {services.map((s) => (
-                <li key={s.name} className="grid grid-cols-12 items-center px-5 py-4">
-                  <div className="col-span-6">
+                <li key={s.name} className="flex flex-col gap-2 px-5 py-4 sm:grid sm:grid-cols-12 sm:items-center sm:gap-0">
+                  <div className="sm:col-span-6">
                     <div className="font-medium text-brand-900">{s.name}</div>
                     <div className="text-xs text-slate-500 mt-0.5">{s.detail}</div>
                   </div>
-                  <div className="col-span-3">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-50 px-2 py-0.5 text-xs font-semibold text-accent-700 ring-1 ring-inset ring-accent-200">
-                      <span className="h-1.5 w-1.5 rounded-full bg-accent-500" />
-                      {s.state}
-                    </span>
+                  <div className="flex items-center justify-between gap-3 sm:contents">
+                    <div className="sm:col-span-3">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-50 px-2 py-0.5 text-xs font-semibold text-accent-700 ring-1 ring-inset ring-accent-200">
+                        <span className="h-1.5 w-1.5 rounded-full bg-accent-500" />
+                        {s.state}
+                      </span>
+                    </div>
+                    <div className="sm:col-span-3 sm:text-right text-xs font-mono text-slate-500">just now</div>
                   </div>
-                  <div className="col-span-3 text-right text-xs font-mono text-slate-500">just now</div>
                 </li>
               ))}
             </ul>

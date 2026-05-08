@@ -437,7 +437,7 @@ function UserFormModal({ target, onClose, onSave, isSelf }) {
           </FormField>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <FormField label="Role" required>
             <select value={role} onChange={(e) => setRole(e.target.value)} className={inputCls()} disabled={isSelf}>
               {ROLES.map((r) => <option key={r} value={r}>{r[0].toUpperCase() + r.slice(1)}</option>)}

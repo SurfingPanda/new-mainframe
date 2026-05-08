@@ -7,7 +7,7 @@
     scroll-behavior: smooth;
   }
   body {
-    @apply font-sans text-slate-800 antialiased bg-slate-50;
+    @apply font-sans text-slate-800 antialiased bg-slate-50 dark:bg-slate-950 dark:text-slate-200;
   }
 }
 
@@ -25,10 +25,10 @@
     @apply inline-flex items-center justify-center rounded-md bg-accent-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-accent-600 hover:shadow-md hover:-translate-y-px active:translate-y-0 active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2 transition-all duration-150 ease-out;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 hover:-translate-y-px active:translate-y-0 active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 transition-all duration-150 ease-out;
+    @apply inline-flex items-center justify-center rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 hover:-translate-y-px active:translate-y-0 active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 transition-all duration-150 ease-out dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700 dark:hover:bg-slate-700;
   }
   .btn-ghost {
-    @apply inline-flex items-center justify-center rounded-md px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 active:scale-[0.97] focus:outline-none transition-all duration-150 ease-out;
+    @apply inline-flex items-center justify-center rounded-md px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 active:scale-[0.97] focus:outline-none transition-all duration-150 ease-out dark:text-slate-300 dark:hover:bg-slate-800;
   }
   .eyebrow {
     @apply inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-brand-900;
@@ -432,5 +432,147 @@
     margin-top: 4pt;
     padding-top: 2pt;
     border-top-width: 0.4pt;
+  }
+
+  /* ---- Network report (portrait, single-page) ------------------------- */
+  body.print-network-report .container-app {
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+  body.print-network-report main {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  body.print-network-report .nr-doc {
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    color: #0f172a !important;
+  }
+  /* Header band */
+  body.print-network-report .nr-doc > header {
+    padding: 5pt 10pt !important;
+    border-bottom: 1.5pt solid #0e1c3d !important;
+    background: #fff !important;
+    color: #0e1c3d !important;
+  }
+  body.print-network-report .nr-doc > header h1 {
+    font-size: 11pt !important;
+    line-height: 1.1 !important;
+    margin: 0 !important;
+  }
+  body.print-network-report .nr-doc > header p {
+    font-size: 7pt !important;
+    margin: 1pt 0 0 0 !important;
+    letter-spacing: 0.18em !important;
+    color: #126a2a !important;
+  }
+  body.print-network-report .nr-doc > header > div > div:last-child,
+  body.print-network-report .nr-doc > header > div > div:last-child div {
+    font-size: 7pt !important;
+    line-height: 1.15 !important;
+  }
+  /* Sections */
+  body.print-network-report .nr-doc section {
+    padding: 3pt 8pt !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    border-top: 0.5pt solid #cbd5e1 !important;
+  }
+  body.print-network-report .nr-doc section h2 {
+    font-size: 7pt !important;
+    letter-spacing: 0.12em !important;
+    margin: 0 0 2pt 0 !important;
+    color: #126a2a !important;
+  }
+  body.print-network-report .nr-doc section > div {
+    margin: 0 !important;
+    font-size: 7.5pt !important;
+    line-height: 1.25 !important;
+    color: #0f172a !important;
+  }
+  body.print-network-report .nr-doc section > div .leading-relaxed,
+  body.print-network-report .nr-doc section > div .whitespace-pre-wrap {
+    line-height: 1.25 !important;
+  }
+  /* Performance overview row (3-up, full width) */
+  body.print-network-report .nr-doc section > div > .grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr 1fr !important;
+    gap: 4pt !important;
+  }
+  body.print-network-report .nr-doc section > div > .grid > div {
+    padding: 3pt 5pt !important;
+    border-width: 0.5pt !important;
+    border-radius: 2pt !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  body.print-network-report .nr-doc section > div > .grid > div h3 {
+    font-size: 6.5pt !important;
+    letter-spacing: 0.08em !important;
+    margin: 0 !important;
+  }
+  body.print-network-report .nr-doc section > div > .grid > div > p {
+    font-size: 10pt !important;
+    margin-top: 1pt !important;
+    line-height: 1.1 !important;
+  }
+  body.print-network-report .nr-doc section > div > .grid > div ul {
+    margin-top: 2pt !important;
+  }
+  body.print-network-report .nr-doc section > div > .grid > div ul li {
+    font-size: 6.5pt !important;
+    line-height: 1.2 !important;
+  }
+  body.print-network-report .nr-doc section > div > .grid > div > div {
+    margin-top: 2pt !important;
+    padding-top: 2pt !important;
+    font-size: 6.5pt !important;
+    line-height: 1.2 !important;
+  }
+  /* Two-column body */
+  body.print-network-report .nr-doc > .nr-cols {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    border-top: 0.5pt solid #cbd5e1 !important;
+  }
+  body.print-network-report .nr-doc > .nr-cols > .nr-col {
+    border-right: 0.5pt solid #cbd5e1 !important;
+  }
+  body.print-network-report .nr-doc > .nr-cols > .nr-col:last-child {
+    border-right: none !important;
+  }
+  body.print-network-report .nr-doc > .nr-cols section {
+    border-top: 0 !important;
+  }
+  body.print-network-report .nr-doc > .nr-cols section + section {
+    border-top: 0.5pt solid #e2e8f0 !important;
+  }
+  /* Health status table */
+  body.print-network-report .nr-doc table {
+    font-size: 7pt !important;
+  }
+  body.print-network-report .nr-doc table th,
+  body.print-network-report .nr-doc table td {
+    padding: 1.5pt 4pt !important;
+  }
+  body.print-network-report .nr-doc table span.inline-flex {
+    padding: 0.25pt 3pt !important;
+    font-size: 6.5pt !important;
+  }
+  /* Network traffic chart */
+  body.print-network-report .nr-doc svg {
+    max-height: 1.1in !important;
+    height: auto !important;
+  }
+  /* Footer */
+  body.print-network-report .nr-doc > footer {
+    padding: 2pt 8pt !important;
+    font-size: 6pt !important;
+    background: #fff !important;
+    border-top: 0.5pt solid #cbd5e1 !important;
   }
 }

@@ -55,18 +55,18 @@ export default function Dashboard() {
   const assetLocationData = aggregate(assets, 'location', 'Unassigned').slice(0, 6);
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <DashboardHeader />
 
-      <main className="container-app py-10 space-y-8">
+      <main className="container-app py-6 sm:py-10 space-y-6 sm:space-y-8">
         <section className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <span className="eyebrow">Overview</span>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900">
+            <h1 className="mt-2 text-2xl sm:text-3xl font-bold tracking-tight text-brand-900 dark:text-slate-100">
               {greeting}, {user?.name?.split(' ')[0] || 'there'}.
             </h1>
-            <p className="mt-1 text-slate-600">
-              Signed in as <span className="font-mono text-slate-700">{user?.email}</span>
+            <p className="mt-1 text-slate-600 dark:text-slate-400">
+              Signed in as <span className="font-mono text-slate-700 dark:text-slate-300">{user?.email}</span>
               {user?.department && <> · <span>{user.department}</span></>}
             </p>
           </div>
@@ -95,7 +95,7 @@ export default function Dashboard() {
         </section>
 
         {error && (
-          <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">
+          <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:ring-rose-900 dark:text-rose-300">
             {error}
           </div>
         )}
@@ -139,18 +139,18 @@ export default function Dashboard() {
         </section>
 
         <section className="grid gap-5 lg:grid-cols-3">
-          <div className="lg:col-span-2 rounded-lg border border-slate-200 bg-white shadow-card">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <div className="lg:col-span-2 rounded-lg border border-slate-200 bg-white shadow-card dark:bg-slate-900 dark:border-slate-800">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
               <div>
-                <h2 className="text-sm font-semibold text-brand-900">Recent tickets</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Latest activity across the queue</p>
+                <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Recent tickets</h2>
+                <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">Latest activity across the queue</p>
               </div>
-              <Link to="/tickets/all" className="text-xs font-semibold text-accent-700 hover:text-accent-800">
+              <Link to="/tickets/all" className="text-xs font-semibold text-accent-700 hover:text-accent-800 dark:text-accent-400 dark:hover:text-accent-300">
                 View all →
               </Link>
             </div>
             {loading ? (
-              <div className="px-5 py-10 text-center text-sm text-slate-500">Loading…</div>
+              <div className="px-5 py-10 text-center text-sm text-slate-500 dark:text-slate-400">Loading…</div>
             ) : tickets.length === 0 ? (
               <EmptyState
                 title="No tickets yet"
@@ -158,43 +158,50 @@ export default function Dashboard() {
                 cta={{ to: '/tickets/create', label: 'Create the first ticket' }}
               />
             ) : (
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {tickets.slice(0, 6).map((t) => (
-                  <li key={t.id} className="grid grid-cols-12 items-center gap-3 px-5 py-3 text-sm hover:bg-slate-50/60">
-                    <span className="col-span-2 font-mono text-xs text-slate-500">T-{String(t.id).padStart(4, '0')}</span>
-                    <span className="col-span-6 truncate text-slate-800">{t.title}</span>
-                    <span className="col-span-2">
-                      <PriorityPill priority={t.priority} />
-                    </span>
-                    <span className="col-span-2 text-right">
-                      <StatusPill status={t.status} />
-                    </span>
+                  <li key={t.id} className="px-5 py-3 text-sm hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                    <div className="flex flex-col gap-1.5 sm:grid sm:grid-cols-12 sm:items-center sm:gap-3">
+                      <div className="flex items-center justify-between gap-2 sm:col-span-2">
+                        <span className="font-mono text-xs text-slate-500 dark:text-slate-400">T-{String(t.id).padStart(4, '0')}</span>
+                        <span className="sm:hidden">
+                          <StatusPill status={t.status} />
+                        </span>
+                      </div>
+                      <span className="truncate text-slate-800 sm:col-span-6 dark:text-slate-200">{t.title}</span>
+                      <span className="sm:col-span-2">
+                        <PriorityPill priority={t.priority} />
+                      </span>
+                      <span className="hidden sm:block sm:col-span-2 sm:text-right">
+                        <StatusPill status={t.status} />
+                      </span>
+                    </div>
                   </li>
                 ))}
               </ul>
             )}
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white shadow-card">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <div className="rounded-lg border border-slate-200 bg-white shadow-card dark:bg-slate-900 dark:border-slate-800">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
               <div>
-                <h2 className="text-sm font-semibold text-brand-900">Latest articles</h2>
-                <p className="text-xs text-slate-500 mt-0.5">From the knowledge base</p>
+                <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Latest articles</h2>
+                <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">From the knowledge base</p>
               </div>
-              <Link to="/kb/all" className="text-xs font-semibold text-accent-700 hover:text-accent-800">
+              <Link to="/kb/all" className="text-xs font-semibold text-accent-700 hover:text-accent-800 dark:text-accent-400 dark:hover:text-accent-300">
                 Browse →
               </Link>
             </div>
             {loading ? (
-              <div className="px-5 py-10 text-center text-sm text-slate-500">Loading…</div>
+              <div className="px-5 py-10 text-center text-sm text-slate-500 dark:text-slate-400">Loading…</div>
             ) : kb.length === 0 ? (
               <EmptyState title="No articles yet" desc="Publish your first guide to help the team self-serve." />
             ) : (
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {kb.slice(0, 5).map((a) => (
-                  <li key={a.id} className="px-5 py-3 text-sm hover:bg-slate-50/60">
-                    <div className="font-medium text-slate-800 truncate">{a.title}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">{a.category || 'General'}</div>
+                  <li key={a.id} className="px-5 py-3 text-sm hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                    <div className="font-medium text-slate-800 truncate dark:text-slate-200">{a.title}</div>
+                    <div className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">{a.category || 'General'}</div>
                   </li>
                 ))}
               </ul>
@@ -205,10 +212,10 @@ export default function Dashboard() {
         <section>
           <div className="flex items-end justify-between mb-3">
             <div>
-              <h2 className="text-sm font-semibold text-brand-900">Ticketing reports</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Distribution across the queue</p>
+              <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Ticketing reports</h2>
+              <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">Distribution across the queue</p>
             </div>
-            <Link to="/tickets/all" className="text-xs font-semibold text-accent-700 hover:text-accent-800">
+            <Link to="/tickets/all" className="text-xs font-semibold text-accent-700 hover:text-accent-800 dark:text-accent-400 dark:hover:text-accent-300">
               Open ticketing →
             </Link>
           </div>
@@ -228,10 +235,10 @@ export default function Dashboard() {
         <section>
           <div className="flex items-end justify-between mb-3">
             <div>
-              <h2 className="text-sm font-semibold text-brand-900">Asset reports</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Inventory at a glance</p>
+              <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Asset reports</h2>
+              <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">Inventory at a glance</p>
             </div>
-            <Link to="/assets/all" className="text-xs font-semibold text-accent-700 hover:text-accent-800">
+            <Link to="/assets/all" className="text-xs font-semibold text-accent-700 hover:text-accent-800 dark:text-accent-400 dark:hover:text-accent-300">
               Open assets →
             </Link>
           </div>
@@ -271,32 +278,32 @@ function getGreeting() {
 
 function StatCard({ label, value, sub, tone = 'brand', icon }) {
   const tones = {
-    brand: 'bg-brand-50 text-brand-800 ring-brand-200',
-    accent: 'bg-accent-50 text-accent-700 ring-accent-200',
-    amber: 'bg-amber-50 text-amber-700 ring-amber-200'
+    brand: 'bg-brand-50 text-brand-800 ring-brand-200 dark:bg-brand-500/15 dark:text-brand-200 dark:ring-brand-500/30',
+    accent: 'bg-accent-50 text-accent-700 ring-accent-200 dark:bg-accent-500/15 dark:text-accent-300 dark:ring-accent-500/30',
+    amber: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/30'
   };
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-card dark:bg-slate-900 dark:border-slate-800">
       <div className="flex items-start justify-between">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
         <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ring-1 ring-inset ${tones[tone]}`}>
           {icon}
         </span>
       </div>
-      <div className="mt-3 text-3xl font-bold text-brand-900 tabular-nums">{value}</div>
-      <div className="mt-1 text-xs text-slate-500">{sub}</div>
+      <div className="mt-3 text-3xl font-bold text-brand-900 tabular-nums dark:text-slate-100">{value}</div>
+      <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{sub}</div>
     </div>
   );
 }
 
 function PriorityPill({ priority }) {
   const map = {
-    low: 'text-slate-600 bg-slate-100 ring-slate-200',
-    normal: 'text-slate-700 bg-slate-50 ring-slate-200',
-    high: 'text-amber-700 bg-amber-50 ring-amber-200',
-    urgent: 'text-rose-700 bg-rose-50 ring-rose-200'
+    low: 'text-slate-600 bg-slate-100 ring-slate-200 dark:text-slate-300 dark:bg-slate-800 dark:ring-slate-700',
+    normal: 'text-slate-700 bg-slate-50 ring-slate-200 dark:text-slate-300 dark:bg-slate-800 dark:ring-slate-700',
+    high: 'text-amber-700 bg-amber-50 ring-amber-200 dark:text-amber-300 dark:bg-amber-500/10 dark:ring-amber-500/30',
+    urgent: 'text-rose-700 bg-rose-50 ring-rose-200 dark:text-rose-300 dark:bg-rose-500/10 dark:ring-rose-500/30'
   };
-  if (!priority) return <span className="text-xs text-slate-400">—</span>;
+  if (!priority) return <span className="text-xs text-slate-400 dark:text-slate-500">—</span>;
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset capitalize ${map[priority] || map.normal}`}>
       {priority}
@@ -306,11 +313,11 @@ function PriorityPill({ priority }) {
 
 function StatusPill({ status }) {
   const map = {
-    open: 'bg-amber-50 text-amber-700 ring-amber-200',
-    in_progress: 'bg-brand-50 text-brand-800 ring-brand-200',
-    on_hold: 'bg-slate-100 text-slate-700 ring-slate-200',
-    resolved: 'bg-accent-50 text-accent-700 ring-accent-200',
-    closed: 'bg-slate-100 text-slate-600 ring-slate-200'
+    open: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30',
+    in_progress: 'bg-brand-50 text-brand-800 ring-brand-200 dark:bg-brand-500/15 dark:text-brand-200 dark:ring-brand-500/30',
+    on_hold: 'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700',
+    resolved: 'bg-accent-50 text-accent-700 ring-accent-200 dark:bg-accent-500/15 dark:text-accent-300 dark:ring-accent-500/30',
+    closed: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:ring-slate-700'
   };
   return (
     <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${map[status] || map.open}`}>
@@ -322,10 +329,10 @@ function StatusPill({ status }) {
 function EmptyState({ title, desc, cta }) {
   return (
     <div className="px-5 py-10 text-center">
-      <p className="text-sm font-semibold text-slate-700">{title}</p>
-      <p className="mt-1 text-xs text-slate-500">{desc}</p>
+      <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</p>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{desc}</p>
       {cta && (
-        <Link to={cta.to} className="mt-4 inline-flex text-xs font-semibold text-accent-700 hover:text-accent-800">
+        <Link to={cta.to} className="mt-4 inline-flex text-xs font-semibold text-accent-700 hover:text-accent-800 dark:text-accent-400 dark:hover:text-accent-300">
           {cta.label} →
         </Link>
       )}
@@ -335,10 +342,10 @@ function EmptyState({ title, desc, cta }) {
 
 function ChartCard({ title, subtitle, children }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white shadow-card">
-      <div className="px-5 py-4 border-b border-slate-100">
-        <h3 className="text-sm font-semibold text-brand-900">{title}</h3>
-        {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+    <div className="rounded-lg border border-slate-200 bg-white shadow-card dark:bg-slate-900 dark:border-slate-800">
+      <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800">
+        <h3 className="text-sm font-semibold text-brand-900 dark:text-slate-100">{title}</h3>
+        {subtitle && <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">{subtitle}</p>}
       </div>
       <div className="p-5">{children}</div>
     </div>
@@ -352,7 +359,7 @@ function BarChart({ data }) {
       <div className="flex items-end gap-2 h-40">
         {data.map((d) => (
           <div key={d.key} className="flex-1 flex flex-col items-center justify-end h-full">
-            <div className="text-[10px] font-semibold text-slate-700 tabular-nums">{d.value}</div>
+            <div className="text-[10px] font-semibold text-slate-700 tabular-nums dark:text-slate-300">{d.value}</div>
             <div
               className="mt-1 w-full rounded-t-md transition-all"
               style={{
@@ -366,7 +373,7 @@ function BarChart({ data }) {
       </div>
       <div className="mt-2 flex gap-2">
         {data.map((d) => (
-          <div key={d.key} className="flex-1 text-center text-[10px] text-slate-500 truncate">
+          <div key={d.key} className="flex-1 text-center text-[10px] text-slate-500 truncate dark:text-slate-400">
             {d.label}
           </div>
         ))}
@@ -383,7 +390,7 @@ function Donut({ data, centerLabel }) {
   return (
     <div className="flex items-center gap-5">
       <svg viewBox="0 0 100 100" className="h-32 w-32 -rotate-90 shrink-0">
-        <circle cx="50" cy="50" r={r} fill="none" stroke="#e2e8f0" strokeWidth="14" />
+        <circle cx="50" cy="50" r={r} fill="none" stroke="#e2e8f0" strokeWidth="14" className="dark:stroke-slate-800" />
         {total > 0 &&
           data.map((d) => {
             const frac = d.value / total;
@@ -406,16 +413,16 @@ function Donut({ data, centerLabel }) {
           })}
       </svg>
       <div className="flex-1 min-w-0">
-        <div className="text-2xl font-bold text-brand-900 tabular-nums">{total}</div>
-        <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">
+        <div className="text-2xl font-bold text-brand-900 tabular-nums dark:text-slate-100">{total}</div>
+        <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
           {centerLabel}
         </div>
         <ul className="mt-2 space-y-1">
           {data.map((d) => (
-            <li key={d.key || d.label} className="flex items-center gap-2 text-xs text-slate-600">
+            <li key={d.key || d.label} className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
               <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
               <span className="flex-1 truncate">{d.label}</span>
-              <span className="font-semibold text-slate-700 tabular-nums">{d.value}</span>
+              <span className="font-semibold text-slate-700 tabular-nums dark:text-slate-200">{d.value}</span>
             </li>
           ))}
         </ul>
@@ -426,7 +433,7 @@ function Donut({ data, centerLabel }) {
 
 function HBarChart({ data, color = '#3f5b95', emptyLabel = 'No data' }) {
   if (!data.length) {
-    return <div className="text-sm text-slate-500 py-10 text-center">{emptyLabel}</div>;
+    return <div className="text-sm text-slate-500 py-10 text-center dark:text-slate-400">{emptyLabel}</div>;
   }
   const max = Math.max(1, ...data.map((d) => d.value));
   return (
@@ -434,10 +441,10 @@ function HBarChart({ data, color = '#3f5b95', emptyLabel = 'No data' }) {
       {data.map((d) => (
         <li key={d.label}>
           <div className="flex items-center justify-between text-xs mb-1">
-            <span className="text-slate-700 truncate">{d.label}</span>
-            <span className="font-semibold text-slate-800 tabular-nums">{d.value}</span>
+            <span className="text-slate-700 truncate dark:text-slate-300">{d.label}</span>
+            <span className="font-semibold text-slate-800 tabular-nums dark:text-slate-200">{d.value}</span>
           </div>
-          <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+          <div className="h-2 rounded-full bg-slate-100 overflow-hidden dark:bg-slate-800">
             <div
               className="h-full rounded-full transition-all"
               style={{ width: `${(d.value / max) * 100}%`, backgroundColor: color }}

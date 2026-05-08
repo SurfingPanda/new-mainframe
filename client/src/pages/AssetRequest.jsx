@@ -366,7 +366,7 @@ export default function AssetRequest() {
       {reviewTarget && (
         <Modal open onClose={() => setReviewTarget(null)} title={`Review Request #${reviewTarget.id}`} size="md">
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div>
                 <span className="block text-xs font-semibold text-slate-500 mb-0.5">Requester</span>
                 <span className="text-slate-800">{reviewTarget.requester_name}</span>
