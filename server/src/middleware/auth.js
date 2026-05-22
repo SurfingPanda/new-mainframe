@@ -1,7 +1,13 @@
 import jwt from 'jsonwebtoken';
-import { hasPermission } from '../lib/permissions.js';
+import { pool } from '../config/db.js';
+import { hasPermission, effectivePermissions } from '../lib/permissions.js';
 
-export function requireAuth(req, res, next) {
+// Verifies the JWT, then re-loads the user from the database so role,
+// permissions, and active status reflect the current state — not whatever was
+// true when the token was issued. A deactivated account or a changed
+// permission therefore takes effect immediately, without waiting for the
+// token to expire.
+export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
 
@@ -9,11 +15,38 @@ export function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
+  let payload;
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
-    next();
+    payload = jwt.verify(token, process.env.JWT_SECRET);
   } catch {
-    res.status(401).json({ error: 'Invalid or expired token' });
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  const userId = Number(payload?.sub);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, email, name, role, permissions, is_active FROM users WHERE id = ? LIMIT 1',
+      [userId]
+    );
+    const user = rows[0];
+    if (!user || !user.is_active) {
+      return res.status(401).json({ error: 'Account is inactive or no longer exists' });
+    }
+
+    req.user = {
+      sub: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      permissions: effectivePermissions(user)
+    };
+    next();
+  } catch (err) {
+    next(err);
   }
 }
 

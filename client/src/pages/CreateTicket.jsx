@@ -47,6 +47,7 @@ export default function CreateTicket() {
   const [priority, setPriority] = useState('normal');
   const [requester, setRequester] = useState(user?.email || '');
   const [assignee, setAssignee] = useState('');
+  const [department, setDepartment] = useState('');
   const [assetId, setAssetId] = useState('');
   const [files, setFiles] = useState([]);
 
@@ -66,6 +67,37 @@ export default function CreateTicket() {
   const descCount = description.length;
   const titleTooLong = titleCount > TITLE_MAX;
   const descTooLong = descCount > DESC_MAX;
+
+  // Regular users may only link assets assigned to them; staff see all assets.
+  const visibleAssets = useMemo(() => {
+    if (isStaff) return assets;
+    const mine = [user?.email, user?.name]
+      .filter(Boolean)
+      .map((v) => v.trim().toLowerCase());
+    return assets.filter(
+      (a) => a.assignee && mine.includes(a.assignee.trim().toLowerCase())
+    );
+  }, [assets, isStaff, user?.email, user?.name]);
+
+  // Departments that have at least one assignable user — picking one filters
+  // the assignee list to that department's people.
+  const departments = useMemo(
+    () => [...new Set(assignableUsers.map((u) => u.department).filter(Boolean))].sort(),
+    [assignableUsers]
+  );
+
+  const assigneeChoices = useMemo(
+    () => (department ? assignableUsers.filter((u) => u.department === department) : assignableUsers),
+    [assignableUsers, department]
+  );
+
+  // Changing the department drops an assignee who isn't part of it.
+  const onDepartmentChange = (d) => {
+    setDepartment(d);
+    if (d && assignee && !assignableUsers.some((u) => u.name === assignee && u.department === d)) {
+      setAssignee('');
+    }
+  };
 
   const canSubmit = useMemo(
     () => title.trim().length >= 4 && requester.trim() && !titleTooLong && !descTooLong && !submitting,
@@ -87,6 +119,7 @@ export default function CreateTicket() {
       fd.append('priority', priority);
       fd.append('request_type', requestType);
       if (category) fd.append('category', category);
+      if (department) fd.append('department', department);
       fd.append('requester', requester.trim());
       if (assignee.trim()) fd.append('assignee', assignee.trim());
       if (assetId) fd.append('asset_id', assetId);
@@ -211,12 +244,15 @@ export default function CreateTicket() {
                 className={inputCls(false)}
               >
                 <option value="">No asset linked</option>
-                {assets.map((a) => (
+                {visibleAssets.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.asset_tag} — {a.type}{a.model ? ` · ${a.model}` : ''}{a.assignee ? ` · ${a.assignee}` : ''}
                   </option>
                 ))}
               </select>
+              {!isStaff && visibleAssets.length === 0 && (
+                <p className="mt-1 text-[11px] text-slate-500">No assets are assigned to your account.</p>
+              )}
             </Card>
           </div>
 
@@ -258,12 +294,32 @@ export default function CreateTicket() {
               </Field>
 
               <Field
+                label="Department"
+                hint={
+                  department
+                    ? `Assignee list is filtered to ${department}.`
+                    : 'Route this ticket to a department. Optional.'
+                }
+              >
+                <select
+                  value={department}
+                  onChange={(e) => onDepartmentChange(e.target.value)}
+                  className={inputCls(false)}
+                >
+                  <option value="">Any department</option>
+                  {departments.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field
                 label="Assignee"
                 hint={isStaff ? 'Leave blank to triage later.' : 'IT will assign someone.'}
               >
                 <UserPicker
                   value={assignee}
-                  users={assignableUsers}
+                  users={assigneeChoices}
                   onChange={setAssignee}
                   disabled={!isStaff}
                   placeholder={isStaff ? 'Type to search users (optional)' : 'unassigned'}

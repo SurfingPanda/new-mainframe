@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
-import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -47,7 +47,7 @@ const upload = multer({
 });
 
 const ALLOWED_PRIORITIES = ['low', 'normal', 'high', 'urgent'];
-const ALLOWED_STATUSES = ['open', 'in_progress', 'on_hold', 'resolved', 'closed'];
+const ALLOWED_STATUSES = ['open', 'in_progress', 'on_hold', 'pending', 'resolved', 'closed'];
 const ALLOWED_REQUEST_TYPES = ['incident', 'service_request', 'question', 'change'];
 const ALLOWED_CATEGORIES = [
   'Hardware',
@@ -60,14 +60,43 @@ const ALLOWED_CATEGORIES = [
   'Other'
 ];
 
+// --- Per-record access -----------------------------------------------------
+// Admins and agents work the whole queue; a plain `user` is limited to tickets
+// they requested or are assigned to. Identities are matched by display name,
+// with email as a fallback for legacy rows.
+function isStaff(user) {
+  return user?.role === 'admin' || user?.role === 'agent';
+}
+
+function userIdentities(user) {
+  return [user?.name, user?.email].filter(Boolean);
+}
+
+function ownsTicket(ticket, identities) {
+  return identities.includes(ticket.requester) || identities.includes(ticket.assignee);
+}
+
 router.get('/', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
   try {
+    // A plain user only sees tickets they requested or are assigned to;
+    // agents and admins see the whole queue.
+    const params = [];
+    let scope = '';
+    if (!isStaff(req.user)) {
+      const identities = userIdentities(req.user);
+      if (!identities.length) return res.json([]);
+      scope = 'WHERE requester IN (?) OR assignee IN (?)';
+      params.push(identities, identities);
+    }
+
     const [rows] = await pool.query(
-      `SELECT id, title, description, status, priority, request_type, category,
+      `SELECT id, title, description, status, priority, request_type, category, department,
               requester, assignee, asset_id, created_at, updated_at
          FROM tickets
+        ${scope}
         ORDER BY created_at DESC
-        LIMIT 500`
+        LIMIT 500`,
+      params
     );
 
     if (rows.length === 0) return res.json([]);
@@ -108,7 +137,7 @@ router.get('/:id', requireAuth, requirePermission('tickets', 'view'), async (req
     }
 
     const [rows] = await pool.query(
-      `SELECT id, title, description, status, priority, request_type, category,
+      `SELECT id, title, description, status, priority, request_type, category, department,
               requester, assignee, asset_id, created_at, updated_at
          FROM tickets WHERE id = ?`,
       [id]
@@ -116,6 +145,9 @@ router.get('/:id', requireAuth, requirePermission('tickets', 'view'), async (req
     if (!rows.length) return res.status(404).json({ error: 'Ticket not found' });
 
     const ticket = rows[0];
+    if (!isStaff(req.user) && !ownsTicket(ticket, userIdentities(req.user))) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
 
     const [atts] = await pool.query(
       `SELECT id, original_filename, stored_filename, mime_type, size_bytes, uploaded_by, uploaded_at
@@ -158,12 +190,13 @@ const EDITABLE_FIELDS = {
   priority: { enum: ALLOWED_PRIORITIES },
   request_type: { enum: ALLOWED_REQUEST_TYPES },
   category: { enum: ALLOWED_CATEGORIES, nullable: true },
+  department: { max: 80, nullable: true },
   requester: { max: 120 },
   assignee: { max: 120, nullable: true },
   asset_id: { numeric: true, nullable: true }
 };
 
-router.patch('/:id', requireAuth, requirePermission('tickets', 'create'), async (req, res, next) => {
+router.patch('/:id', requireAuth, requireRole('admin', 'agent'), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
@@ -171,7 +204,7 @@ router.patch('/:id', requireAuth, requirePermission('tickets', 'create'), async 
     }
 
     const [existingRows] = await pool.query(
-      `SELECT id, title, description, status, priority, request_type, category,
+      `SELECT id, title, description, status, priority, request_type, category, department,
               requester, assignee, asset_id
          FROM tickets WHERE id = ?`,
       [id]
@@ -244,7 +277,7 @@ router.patch('/:id', requireAuth, requirePermission('tickets', 'create'), async 
     }
 
     const [updatedRows] = await pool.query(
-      `SELECT id, title, description, status, priority, request_type, category,
+      `SELECT id, title, description, status, priority, request_type, category, department,
               requester, assignee, asset_id, created_at, updated_at
          FROM tickets WHERE id = ?`,
       [id]
@@ -295,6 +328,15 @@ router.get('/:id/activity', requireAuth, requirePermission('tickets', 'view'), a
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'invalid ticket id' });
+    }
+
+    const [ownerRows] = await pool.query(
+      'SELECT requester, assignee FROM tickets WHERE id = ? LIMIT 1',
+      [id]
+    );
+    if (!ownerRows.length) return res.status(404).json({ error: 'Ticket not found' });
+    if (!isStaff(req.user) && !ownsTicket(ownerRows[0], userIdentities(req.user))) {
+      return res.status(404).json({ error: 'Ticket not found' });
     }
 
     const rows = await loadActivity(id);
@@ -353,8 +395,15 @@ router.post(
         return res.status(400).json({ error: 'note body or attachment is required' });
       }
 
-      const [exists] = await pool.query('SELECT id FROM tickets WHERE id = ? LIMIT 1', [id]);
+      const [exists] = await pool.query(
+        'SELECT id, requester, assignee FROM tickets WHERE id = ? LIMIT 1',
+        [id]
+      );
       if (!exists.length) {
+        cleanupFile();
+        return res.status(404).json({ error: 'Ticket not found' });
+      }
+      if (!isStaff(req.user) && !ownsTicket(exists[0], userIdentities(req.user))) {
         cleanupFile();
         return res.status(404).json({ error: 'Ticket not found' });
       }
@@ -427,7 +476,7 @@ router.post(
 router.delete(
   '/:id/attachments/:attachmentId',
   requireAuth,
-  requirePermission('tickets', 'create'),
+  requireRole('admin', 'agent'),
   async (req, res, next) => {
     try {
       const id = Number(req.params.id);
@@ -478,6 +527,16 @@ router.get('/:id/kb', requireAuth, requirePermission('tickets', 'view'), async (
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'invalid ticket id' });
     }
+
+    const [ownerRows] = await pool.query(
+      'SELECT requester, assignee FROM tickets WHERE id = ? LIMIT 1',
+      [id]
+    );
+    if (!ownerRows.length) return res.status(404).json({ error: 'Ticket not found' });
+    if (!isStaff(req.user) && !ownsTicket(ownerRows[0], userIdentities(req.user))) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+
     const [rows] = await pool.query(
       `SELECT k.id, k.title, k.slug, k.category, k.published,
               l.linked_by, l.created_at AS linked_at
@@ -493,7 +552,7 @@ router.get('/:id/kb', requireAuth, requirePermission('tickets', 'view'), async (
   }
 });
 
-router.post('/:id/kb', requireAuth, requirePermission('tickets', 'create'), async (req, res, next) => {
+router.post('/:id/kb', requireAuth, requireRole('admin', 'agent'), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
@@ -547,7 +606,7 @@ router.post('/:id/kb', requireAuth, requirePermission('tickets', 'create'), asyn
   }
 });
 
-router.delete('/:id/kb/:articleId', requireAuth, requirePermission('tickets', 'create'), async (req, res, next) => {
+router.delete('/:id/kb/:articleId', requireAuth, requireRole('admin', 'agent'), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const articleId = Number(req.params.articleId);
@@ -604,12 +663,19 @@ router.post(
         status = 'open',
         request_type = 'service_request',
         category,
+        department,
         requester,
         assignee,
         asset_id
       } = req.body || {};
 
-      if (!title || !requester) {
+      // A plain user can only file tickets under their own identity; agents
+      // and admins may file on behalf of anyone.
+      const requesterName = isStaff(req.user)
+        ? requester
+        : (req.user?.name || req.user?.email || '');
+
+      if (!title || !requesterName) {
         cleanup();
         return res.status(400).json({ error: 'title and requester are required' });
       }
@@ -632,8 +698,8 @@ router.post(
 
       const [result] = await pool.query(
         `INSERT INTO tickets
-           (title, description, priority, status, request_type, category, requester, assignee, asset_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (title, description, priority, status, request_type, category, department, requester, assignee, asset_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           String(title).trim().slice(0, 200),
           description ? String(description).trim() : null,
@@ -641,7 +707,8 @@ router.post(
           status,
           request_type,
           category || null,
-          String(requester).trim().slice(0, 120),
+          department ? String(department).trim().slice(0, 80) : null,
+          String(requesterName).trim().slice(0, 120),
           assignee ? String(assignee).trim().slice(0, 120) : null,
           asset_id ? Number(asset_id) : null
         ]
@@ -653,7 +720,7 @@ router.post(
          VALUES (?, 'change', ?, 'created', ?)`,
         [
           ticketId,
-          String(requester).trim().slice(0, 120),
+          String(requesterName).trim().slice(0, 120),
           String(title).trim().slice(0, 500)
         ]
       );
@@ -665,7 +732,7 @@ router.post(
           path.basename(f.path),
           f.mimetype,
           f.size,
-          requester
+          requesterName
         ]);
         await pool.query(
           `INSERT INTO ticket_attachments
@@ -676,7 +743,7 @@ router.post(
       }
 
       const [rows] = await pool.query(
-        `SELECT id, title, description, status, priority, request_type, category,
+        `SELECT id, title, description, status, priority, request_type, category, department,
                 requester, assignee, asset_id, created_at, updated_at
            FROM tickets WHERE id = ?`,
         [ticketId]

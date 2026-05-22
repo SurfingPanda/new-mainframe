@@ -5,15 +5,11 @@
 // {
 //   date, savedAt, author, authorEmail,
 //   status: 'stable' | 'degraded' | 'incident',
-//   executiveSummary,
-//   performance: {
-//     peak:         { time, clients, avgDownloadMbps, avgUploadKbps, observation },
-//     interruption: { timeRange, clients, avgDownloadMbps, avgUploadKbps, observation },
-//     lowest:       { time, clients, avgDownloadMbps, avgUploadKbps, observation }
-//   },
-//   health: { internet, bandwidth, wireless, gateway, vlan, criticalDowntime },
-//   trafficAnalysis, observations, recommendations, incidentSummary,
-//   trafficSamples: [{ time, downloadMbps, uploadMbps }, ...]
+//   template: {
+//     networkCondition, downtimeStatus, internetActivity, peakUsagePeriod,
+//     highestTrafficDevice, clientStatus, highestRecordedTraffic,
+//     trafficObservation, wirelessStatus, currentMonitoring
+//   }
 // }
 
 const STORAGE_KEY = 'mf_network_reports';
@@ -66,19 +62,43 @@ export function deleteReport(date) {
   write(read().filter((r) => r.date !== date));
 }
 
-export const HEALTH_OPTIONS = [
-  'Stable', 'Optimal', 'Healthy', 'Operational',
-  'Slow', 'Intermittent', 'Degraded',
-  'Down', 'Critical', 'Disconnected',
-  'N/A',
+// The 10-field daily template. `type` drives the editor input and the view rendering.
+export const TEMPLATE_FIELDS = [
+  { key: 'networkCondition',       label: 'Network Condition',        type: 'select',   options: ['Stable', 'Optimal', 'Degraded', 'Unstable', 'Critical'] },
+  { key: 'downtimeStatus',         label: 'Downtime Status',          type: 'select',   options: ['No downtime', 'Brief downtime', 'Partial outage', 'Major outage'] },
+  { key: 'internetActivity',       label: 'Internet Activity',        type: 'text',     placeholder: 'e.g. Normal browsing and cloud sync throughout the day' },
+  { key: 'peakUsagePeriod',        label: 'Peak Usage Period',        type: 'text',     placeholder: 'e.g. 1:00 PM - 3:00 PM' },
+  { key: 'highestTrafficDevice',   label: 'Highest Traffic Device',   type: 'text',     placeholder: 'e.g. Front-desk workstation' },
+  { key: 'clientStatus',           label: 'Client Status',            type: 'select',   options: ['All connected', 'Mostly connected', 'Intermittent drops', 'Widespread disconnections'] },
+  { key: 'highestRecordedTraffic', label: 'Highest Recorded Traffic', type: 'text',     placeholder: 'e.g. 84.2 Mbps down / 12.0 Mbps up' },
+  { key: 'trafficObservation',     label: 'Traffic Observation',      type: 'textarea', placeholder: 'What stood out in the traffic pattern today.' },
+  { key: 'wirelessStatus',         label: 'Wireless Status',          type: 'select',   options: ['Stable', 'Optimal', 'Degraded', 'Intermittent', 'Down'] },
+  { key: 'currentMonitoring',      label: 'Current Monitoring',       type: 'select',   options: ['Active', 'Ongoing', 'Scheduled', 'Paused'] },
 ];
 
-export function healthTone(value) {
+// Maps a select value to a status tone for the pills shown on the view page.
+export function templateTone(value) {
   const v = String(value || '').toLowerCase();
-  if (['stable', 'optimal', 'healthy', 'operational'].includes(v)) return 'good';
-  if (['slow', 'intermittent', 'degraded'].includes(v)) return 'warn';
-  if (['down', 'critical', 'disconnected'].includes(v)) return 'bad';
+  if (['stable', 'optimal', 'active', 'all connected', 'no downtime'].includes(v)) return 'good';
+  if (['degraded', 'unstable', 'intermittent', 'ongoing', 'scheduled', 'paused',
+       'mostly connected', 'intermittent drops', 'brief downtime', 'partial outage'].includes(v)) return 'warn';
+  if (['critical', 'down', 'major outage', 'widespread disconnections'].includes(v)) return 'bad';
   return 'muted';
+}
+
+export function emptyTemplate() {
+  return {
+    networkCondition: 'Stable',
+    downtimeStatus: 'No downtime',
+    internetActivity: '',
+    peakUsagePeriod: '',
+    highestTrafficDevice: '',
+    clientStatus: 'All connected',
+    highestRecordedTraffic: '',
+    trafficObservation: '',
+    wirelessStatus: 'Stable',
+    currentMonitoring: 'Active',
+  };
 }
 
 export function emptyReport(user) {
@@ -87,48 +107,17 @@ export function emptyReport(user) {
     status: 'stable',
     author: user?.name || '',
     authorEmail: user?.email || '',
-    executiveSummary: '',
-    performance: {
-      peak:         { time: '', clients: 0, avgDownloadMbps: 0, avgUploadKbps: 0, observation: '' },
-      interruption: { timeRange: '', clients: 0, avgDownloadMbps: 0, avgUploadKbps: 0, observation: '' },
-      lowest:       { time: '', clients: 0, avgDownloadMbps: 0, avgUploadKbps: 0, observation: '' },
-    },
-    health: {
-      internet: 'Stable',
-      bandwidth: 'Optimal',
-      wireless: 'Healthy',
-      gateway: 'Operational',
-      vlan: 'Healthy',
-      criticalDowntime: 'None',
-    },
-    trafficAnalysis: '',
-    observations: '',
-    recommendations: '',
-    incidentSummary: '',
-    trafficSamples: [
-      { time: '08:00', downloadMbps: 0, uploadMbps: 0 },
-      { time: '12:00', downloadMbps: 0, uploadMbps: 0 },
-      { time: '16:00', downloadMbps: 0, uploadMbps: 0 },
-      { time: '20:00', downloadMbps: 0, uploadMbps: 0 },
-    ],
+    template: emptyTemplate(),
   };
 }
 
-// Deep-merge an existing record onto the empty template so older records still load
+// Merge an existing record onto the empty template so older records still load
 // even when the schema gains fields.
 export function mergeIntoTemplate(template, existing) {
   if (!existing) return template;
   return {
     ...template,
     ...existing,
-    performance: {
-      peak:         { ...template.performance.peak,         ...(existing.performance?.peak         || {}) },
-      interruption: { ...template.performance.interruption, ...(existing.performance?.interruption || {}) },
-      lowest:       { ...template.performance.lowest,       ...(existing.performance?.lowest       || {}) },
-    },
-    health: { ...template.health, ...(existing.health || {}) },
-    trafficSamples: Array.isArray(existing.trafficSamples) && existing.trafficSamples.length
-      ? existing.trafficSamples
-      : template.trafficSamples,
+    template: { ...template.template, ...(existing.template || {}) },
   };
 }

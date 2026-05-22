@@ -8,6 +8,7 @@ const STATUSES = [
   { key: 'open', label: 'Open' },
   { key: 'in_progress', label: 'In Progress' },
   { key: 'on_hold', label: 'On Hold' },
+  { key: 'pending', label: 'Pending - Waiting for Customer' },
   { key: 'resolved', label: 'Resolved' },
   { key: 'closed', label: 'Closed' }
 ];
@@ -39,7 +40,7 @@ const RESOLVED_STATUSES = new Set(['resolved', 'closed']);
 
 const DRAFT_FIELDS = [
   'description', 'status', 'priority', 'request_type',
-  'category', 'requester', 'assignee'
+  'category', 'department', 'requester', 'assignee'
 ];
 
 function makeDraft(ticket) {
@@ -113,6 +114,34 @@ export default function TicketDetail() {
   }, [ticket, draft]);
 
   const isDirty = dirtyFields.length > 0;
+
+  // Department routing — selecting a department filters the assignee list to
+  // that department's users.
+  const departments = useMemo(
+    () => [...new Set(assignableUsers.map((u) => u.department).filter(Boolean))].sort(),
+    [assignableUsers]
+  );
+  // Keep the ticket's saved department selectable even if no current user
+  // sits in it (e.g. the last member left that department).
+  const deptOptions = useMemo(() => {
+    const d = draft.department;
+    return d && !departments.includes(d) ? [d, ...departments] : departments;
+  }, [departments, draft.department]);
+  const assigneeChoices = useMemo(() => {
+    const d = draft.department;
+    return d ? assignableUsers.filter((u) => u.department === d) : assignableUsers;
+  }, [assignableUsers, draft.department]);
+
+  // Changing the department drops an assignee who isn't part of it.
+  const onDepartmentChange = (d) => {
+    setDraft((dr) => {
+      const next = { ...dr, department: d };
+      if (d && dr.assignee && !assignableUsers.some((u) => u.name === dr.assignee && u.department === d)) {
+        next.assignee = '';
+      }
+      return next;
+    });
+  };
 
   const save = async () => {
     if (!isDirty || saving) return;
@@ -280,7 +309,7 @@ export default function TicketDetail() {
               </div>
             </header>
 
-            <SlaBanner ticket={ticket} />
+            <SlaBanner ticket={ticket} activity={activity} />
 
             {error && (
               <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">
@@ -338,7 +367,26 @@ export default function TicketDetail() {
                 </Card>
 
                 <Card title="People">
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <FieldLabel>Department</FieldLabel>
+                    <select
+                      value={draft.department || ''}
+                      onChange={(e) => onDepartmentChange(e.target.value)}
+                      disabled={!isStaff}
+                      className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:opacity-60"
+                    >
+                      <option value="">— No department —</option>
+                      {deptOptions.map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                    {draft.department && (
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        Assignee list is limited to {draft.department}.
+                      </p>
+                    )}
+                  </div>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
                     <div>
                       <FieldLabel>Requester</FieldLabel>
                       <UserPicker
@@ -353,7 +401,7 @@ export default function TicketDetail() {
                       <FieldLabel>Assignee</FieldLabel>
                       <UserPicker
                         value={draft.assignee || ''}
-                        users={assignableUsers}
+                        users={assigneeChoices}
                         onChange={(v) => setField('assignee', v)}
                         disabled={!isStaff}
                         placeholder="Type to search users or enter a name"
@@ -471,6 +519,7 @@ function PrintableTicket({ ticket }) {
       <div className="pt-grid">
         <div><b>Type</b><span>{pretty(ticket.request_type)}</span></div>
         <div><b>Category</b><span>{ticket.category || '—'}</span></div>
+        <div><b>Department</b><span>{ticket.department || '—'}</span></div>
         <div><b>Requester</b><span>{ticket.requester || '—'}</span></div>
         <div><b>Assignee</b><span>{ticket.assignee || '—'}</span></div>
         <div><b>Opened</b><span>{formatDateTime(ticket.created_at)}</span></div>
@@ -730,8 +779,8 @@ function KbLinkPanel({ links, canEdit, onLink, onUnlink }) {
 
 /* -------- SLA -------- */
 
-function SlaBanner({ ticket }) {
-  const sla = useMemo(() => computeSla(ticket), [ticket]);
+function SlaBanner({ ticket, activity }) {
+  const sla = useMemo(() => computeSla(ticket, activity), [ticket, activity]);
   if (!sla) return null;
 
   const tone = sla.resolved
@@ -768,8 +817,16 @@ function SlaBanner({ ticket }) {
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
             SLA · {ticket.priority?.toUpperCase()} · {SLA_DAYS[ticket.priority]}-day target
+            {sla.graceMs > 0 && (
+              <span className="text-violet-600"> · +72h pending extension</span>
+            )}
           </p>
           <p className="mt-0.5 text-sm font-semibold text-brand-900">{headline}</p>
+          {sla.isPending && (
+            <p className="mt-0.5 text-xs font-medium text-violet-700">
+              Waiting for customer response — 72 hours added to the SLA target.
+            </p>
+          )}
         </div>
         <p className="text-xs text-slate-600">
           Due <span className="font-medium text-slate-800">{formatDateTime(sla.dueAt)}</span>
@@ -789,12 +846,27 @@ function SlaBanner({ ticket }) {
   );
 }
 
-function computeSla(ticket) {
+const PENDING_GRACE_MS = 72 * 60 * 60 * 1000;
+
+// A ticket earns a one-time 72-hour SLA extension once it has been set to
+// "Pending - Waiting for Customer". The extension sticks even after the ticket
+// leaves that status, so it's detected from the current status plus the
+// status-change history in the activity log.
+function hasBeenPending(ticket, activity) {
+  if (ticket.status === 'pending') return true;
+  return (activity || []).some(
+    (a) => a.type === 'change' && a.field === 'status' &&
+           (a.new_value === 'pending' || a.old_value === 'pending')
+  );
+}
+
+function computeSla(ticket, activity = []) {
   const days = SLA_DAYS[ticket.priority];
   if (!days || !ticket.created_at) return null;
   const opened = new Date(ticket.created_at).getTime();
-  const dueAt = opened + days * 24 * 60 * 60 * 1000;
-  const totalMs = dueAt - opened;
+  const graceMs = hasBeenPending(ticket, activity) ? PENDING_GRACE_MS : 0;
+  const totalMs = days * 24 * 60 * 60 * 1000 + graceMs;
+  const dueAt = opened + totalMs;
   const resolved = RESOLVED_STATUSES.has(ticket.status);
   const referencePoint = resolved ? new Date(ticket.updated_at).getTime() : Date.now();
   const elapsed = referencePoint - opened;
@@ -805,7 +877,9 @@ function computeSla(ticket) {
     percent,
     remainingMs,
     overdue: remainingMs < 0,
-    resolved
+    resolved,
+    graceMs,
+    isPending: ticket.status === 'pending'
   };
 }
 
@@ -1247,6 +1321,7 @@ function StatusPill({ status }) {
     open: 'bg-amber-50 text-amber-700 ring-amber-200',
     in_progress: 'bg-brand-50 text-brand-800 ring-brand-200',
     on_hold: 'bg-slate-100 text-slate-700 ring-slate-200',
+    pending: 'bg-violet-50 text-violet-700 ring-violet-200',
     resolved: 'bg-accent-50 text-accent-700 ring-accent-200',
     closed: 'bg-slate-100 text-slate-600 ring-slate-200'
   };

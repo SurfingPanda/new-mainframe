@@ -29,6 +29,29 @@ export async function ensureSchema() {
     if (err.code !== 'ER_DUP_FIELDNAME') throw err;
   }
 
+  // users.notifications_seen_at marks when the user last cleared their bell.
+  try {
+    await pool.query(`ALTER TABLE users ADD COLUMN notifications_seen_at TIMESTAMP NULL AFTER last_login_at`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
+  // tickets.status gained a 'pending' value (Pending - Waiting for Customer).
+  // MODIFY with the full enum is idempotent — re-running it is a harmless no-op.
+  await pool.query(`
+    ALTER TABLE tickets
+      MODIFY COLUMN status
+        ENUM('open','in_progress','on_hold','pending','resolved','closed')
+        NOT NULL DEFAULT 'open'
+  `);
+
+  // tickets.department routes a ticket to a department's queue.
+  try {
+    await pool.query(`ALTER TABLE tickets ADD COLUMN department VARCHAR(80) NULL AFTER category`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ticket_activity (
       id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

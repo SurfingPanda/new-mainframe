@@ -7,6 +7,7 @@ const STATUSES = [
   { key: 'open', label: 'Open' },
   { key: 'in_progress', label: 'In Progress' },
   { key: 'on_hold', label: 'On Hold' },
+  { key: 'pending', label: 'Pending' },
   { key: 'resolved', label: 'Resolved' },
   { key: 'closed', label: 'Closed' }
 ];
@@ -23,7 +24,7 @@ const SORTS = [
 const PRIORITY_RANK = { urgent: 0, high: 1, normal: 2, low: 3 };
 const PAGE_SIZE = 10;
 
-const ACTIVE_STATUSES = new Set(['open', 'in_progress', 'on_hold']);
+const ACTIVE_STATUSES = new Set(['open', 'in_progress', 'on_hold', 'pending']);
 
 export default function MyQueue() {
   const user = getUser();
@@ -114,12 +115,12 @@ export default function MyQueue() {
   };
 
   const counts = useMemo(() => {
-    const c = { open: 0, in_progress: 0, on_hold: 0, resolved: 0, closed: 0 };
+    const c = { open: 0, in_progress: 0, on_hold: 0, pending: 0, resolved: 0, closed: 0 };
     myTickets.forEach((t) => { if (c[t.status] != null) c[t.status]++; });
     return c;
   }, [myTickets]);
 
-  const activeCount = counts.open + counts.in_progress + counts.on_hold;
+  const activeCount = counts.open + counts.in_progress + counts.on_hold + counts.pending;
   const hasActiveFilters = query || statusFilter.size > 0 || priorityFilter !== 'all';
 
   return (
@@ -163,10 +164,11 @@ export default function MyQueue() {
           </div>
         </section>
 
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <section className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <SummaryTile label="Open" value={counts.open} tone="amber" active={statusFilter.has('open')} onClick={() => toggleStatus('open')} />
           <SummaryTile label="In Progress" value={counts.in_progress} tone="brand" active={statusFilter.has('in_progress')} onClick={() => toggleStatus('in_progress')} />
           <SummaryTile label="On Hold" value={counts.on_hold} tone="slate" active={statusFilter.has('on_hold')} onClick={() => toggleStatus('on_hold')} />
+          <SummaryTile label="Pending" value={counts.pending} tone="violet" active={statusFilter.has('pending')} onClick={() => toggleStatus('pending')} />
           <SummaryTile label="Resolved" value={counts.resolved} tone="accent" active={statusFilter.has('resolved')} onClick={() => toggleStatus('resolved')} />
           <SummaryTile label="Closed" value={counts.closed} tone="slate" active={statusFilter.has('closed')} onClick={() => toggleStatus('closed')} />
         </section>
@@ -345,6 +347,7 @@ function SummaryTile({ label, value, tone, active, onClick }) {
     amber: 'text-amber-700 ring-amber-200 bg-amber-50',
     brand: 'text-brand-800 ring-brand-200 bg-brand-50',
     accent: 'text-accent-700 ring-accent-200 bg-accent-50',
+    violet: 'text-violet-700 ring-violet-200 bg-violet-50',
     slate: 'text-slate-700 ring-slate-200 bg-slate-50'
   };
   return (
@@ -406,6 +409,7 @@ function StatusPill({ status }) {
     open: 'bg-amber-50 text-amber-700 ring-amber-200',
     in_progress: 'bg-brand-50 text-brand-800 ring-brand-200',
     on_hold: 'bg-slate-100 text-slate-700 ring-slate-200',
+    pending: 'bg-violet-50 text-violet-700 ring-violet-200',
     resolved: 'bg-accent-50 text-accent-700 ring-accent-200',
     closed: 'bg-slate-100 text-slate-600 ring-slate-200'
   };

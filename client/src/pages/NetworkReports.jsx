@@ -42,7 +42,9 @@ export default function NetworkReports() {
       return (
         r.date?.toLowerCase().includes(q) ||
         r.author?.toLowerCase().includes(q) ||
-        r.summary?.toLowerCase().includes(q)
+        r.template?.networkCondition?.toLowerCase().includes(q) ||
+        r.template?.internetActivity?.toLowerCase().includes(q) ||
+        r.template?.trafficObservation?.toLowerCase().includes(q)
       );
     });
   }, [rows, query, statusFilter]);
@@ -129,7 +131,7 @@ export default function NetworkReports() {
             <div className="flex flex-wrap items-center gap-2">
               <input
                 type="search"
-                placeholder="Search date, author, summary…"
+                placeholder="Search date, author, condition…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 dark:bg-slate-950 dark:border-slate-700 dark:text-slate-200 dark:placeholder:text-slate-500"
@@ -160,8 +162,8 @@ export default function NetworkReports() {
                   <tr>
                     <th className="px-5 py-2.5 text-left">Date</th>
                     <th className="px-5 py-2.5 text-left">Author</th>
-                    <th className="px-5 py-2.5 text-left">Executive summary</th>
-                    <th className="px-5 py-2.5 text-left">Critical downtime</th>
+                    <th className="px-5 py-2.5 text-left">Network condition</th>
+                    <th className="px-5 py-2.5 text-left">Downtime status</th>
                     <th className="px-5 py-2.5 text-right">Status</th>
                     <th className="px-5 py-2.5 text-right">Actions</th>
                   </tr>
@@ -176,13 +178,11 @@ export default function NetworkReports() {
                         <div className="font-mono text-xs text-slate-500 dark:text-slate-400">{r.date}</div>
                       </td>
                       <td className="px-5 py-3 text-slate-600 dark:text-slate-300">{r.author || '—'}</td>
-                      <td className="px-5 py-3 text-slate-700 dark:text-slate-200 max-w-xs">
-                        <div className="truncate" title={r.executiveSummary || r.summary}>
-                          {r.executiveSummary || r.summary || '—'}
-                        </div>
+                      <td className="px-5 py-3 text-slate-700 dark:text-slate-200">
+                        {r.template?.networkCondition || '—'}
                       </td>
                       <td className="px-5 py-3 text-slate-700 dark:text-slate-200">
-                        {r.health?.criticalDowntime || '—'}
+                        {r.template?.downtimeStatus || '—'}
                       </td>
                       <td className="px-5 py-3 text-right">
                         <StatusPill status={r.status} />

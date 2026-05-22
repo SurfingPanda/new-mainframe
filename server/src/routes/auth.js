@@ -3,11 +3,19 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool } from '../config/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 import { effectivePermissions } from '../lib/permissions.js';
 
 const router = Router();
 
-router.post('/login', async (req, res, next) => {
+// Throttle login attempts per client IP to blunt password brute-forcing.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: 'Too many login attempts. Please wait a few minutes and try again.'
+});
+
+router.post('/login', loginLimiter, async (req, res, next) => {
   try {
     const { email, password } = req.body || {};
     if (!email || !password) {

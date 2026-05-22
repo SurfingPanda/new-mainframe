@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { clearSession, getUser, hasPermission } from '../lib/auth.js';
 import { getTheme, toggleTheme } from '../lib/theme.js';
 import NavDropdown from './NavDropdown.jsx';
+import NotificationBell from './NotificationBell.jsx';
 import Modal from './Modal.jsx';
 
 function ticketsMenu(user) {
@@ -181,6 +182,7 @@ export default function DashboardHeader() {
               )}
             </svg>
           </button>
+          <NotificationBell />
           <ProfileMenu user={user} initials={initials} onSignOut={requestLogout} />
         </div>
       </div>

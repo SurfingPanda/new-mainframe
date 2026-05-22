@@ -31,6 +31,7 @@ export default function Dashboard() {
     { key: 'open', label: 'Open', color: '#f59e0b' },
     { key: 'in_progress', label: 'In progress', color: '#3f5b95' },
     { key: 'on_hold', label: 'On hold', color: '#94a3b8' },
+    { key: 'pending', label: 'Pending', color: '#7c3aed' },
     { key: 'resolved', label: 'Resolved', color: '#22a23e' },
     { key: 'closed', label: 'Closed', color: '#475569' }
   ].map((s) => ({ ...s, value: tickets.filter((t) => t.status === s.key).length }));
@@ -316,6 +317,7 @@ function StatusPill({ status }) {
     open: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30',
     in_progress: 'bg-brand-50 text-brand-800 ring-brand-200 dark:bg-brand-500/15 dark:text-brand-200 dark:ring-brand-500/30',
     on_hold: 'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700',
+    pending: 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-500/15 dark:text-violet-300 dark:ring-violet-500/30',
     resolved: 'bg-accent-50 text-accent-700 ring-accent-200 dark:bg-accent-500/15 dark:text-accent-300 dark:ring-accent-500/30',
     closed: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:ring-slate-700'
   };

@@ -34,7 +34,20 @@
       "Bash(Format-List FullName)",
       "Bash(npm run *)",
       "PowerShell(Add-Type -AssemblyName System.Drawing; $img = [System.Drawing.Image]::FromFile\\('c:\\\\xampp\\\\htdocs\\\\new-mainframe\\\\client\\\\public\\\\images\\\\sample.png'\\); \"$\\($img.Width\\) x $\\($img.Height\\)\"; $img.Dispose\\(\\))",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Read(//c/Users/Admin/AppData/Local/Temp/claude/C--xampp-htdocs-new-mainframe/eff99703-58dc-44de-be5b-e2de13c6dc98/tasks/**)",
+      "Bash(git check-ignore *)",
+      "Bash(grep -iA3 \"INTO users\" server/sql/schema.sql)",
+      "Bash(grep -niA2 \"assignee\\\\|CREATE TABLE assets\\\\|INTO assets\" server/sql/schema.sql)",
+      "Bash(grep -nA14 \"CREATE TABLE IF NOT EXISTS users\" server/sql/schema.sql)",
+      "Bash(grep -nA4 \"INTO users\" server/sql/schema.sql)",
+      "Bash(grep -nA12 \"INSERT INTO assets\" server/sql/schema.sql)",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -e 'SELECT id, asset_tag, assignee FROM assets ORDER BY asset_tag;')",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -e 'SELECT id,email,role FROM users WHERE email LIKE '\\\\''verify.%'\\\\'';')",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -e ' *)",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -e 'SELECT asset_tag, assignee FROM assets ORDER BY asset_tag; SELECT email,name,role FROM users WHERE email LIKE '\\\\''verify.%'\\\\'';')",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -e 'SELECT asset_tag, assignee FROM assets ORDER BY asset_tag; SELECT COUNT\\(*\\) AS leftover_test_users FROM users WHERE email LIKE '\\\\''verify.%'\\\\'';')",
+      "Bash(PORT=4100 node *)"
     ]
   }
 }

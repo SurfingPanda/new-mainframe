@@ -7,6 +7,7 @@ const STATUSES = [
   { key: 'open', label: 'Open' },
   { key: 'in_progress', label: 'In Progress' },
   { key: 'on_hold', label: 'On Hold' },
+  { key: 'pending', label: 'Pending' },
   { key: 'resolved', label: 'Resolved' },
   { key: 'closed', label: 'Closed' }
 ];
@@ -39,7 +40,8 @@ export default function AllTickets() {
     }
   }, []);
 
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState('');             // committed search term (applied on submit)
+  const [searchInput, setSearchInput] = useState(''); // current text in the search box
   const [statusFilter, setStatusFilter] = useState(new Set()); // empty = all
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [assigneeFilter, setAssigneeFilter] = useState('all');
@@ -68,12 +70,7 @@ export default function AllTickets() {
       if (assigneeFilter !== 'all' && assigneeFilter !== 'unassigned' && t.assignee !== assigneeFilter) return false;
       if (!q) return true;
       const idStr = `t-${String(t.id).padStart(4, '0')}`;
-      return (
-        t.title.toLowerCase().includes(q) ||
-        idStr.includes(q) ||
-        (t.requester || '').toLowerCase().includes(q) ||
-        (t.assignee || '').toLowerCase().includes(q)
-      );
+      return t.title.toLowerCase().includes(q) || idStr.includes(q);
     });
 
     rows = [...rows].sort((a, b) => {
@@ -111,6 +108,7 @@ export default function AllTickets() {
 
   const clearFilters = () => {
     setQuery('');
+    setSearchInput('');
     setStatusFilter(new Set());
     setPriorityFilter('all');
     setAssigneeFilter('all');
@@ -118,7 +116,7 @@ export default function AllTickets() {
   };
 
   const counts = useMemo(() => {
-    const c = { open: 0, in_progress: 0, on_hold: 0, resolved: 0, closed: 0 };
+    const c = { open: 0, in_progress: 0, on_hold: 0, pending: 0, resolved: 0, closed: 0 };
     tickets.forEach((t) => { if (c[t.status] != null) c[t.status]++; });
     return c;
   }, [tickets]);
@@ -166,10 +164,11 @@ export default function AllTickets() {
           </div>
         </section>
 
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <section className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <SummaryTile label="Open" value={counts.open} tone="amber" active={statusFilter.has('open')} onClick={() => toggleStatus('open')} />
           <SummaryTile label="In Progress" value={counts.in_progress} tone="brand" active={statusFilter.has('in_progress')} onClick={() => toggleStatus('in_progress')} />
           <SummaryTile label="On Hold" value={counts.on_hold} tone="slate" active={statusFilter.has('on_hold')} onClick={() => toggleStatus('on_hold')} />
+          <SummaryTile label="Pending" value={counts.pending} tone="violet" active={statusFilter.has('pending')} onClick={() => toggleStatus('pending')} />
           <SummaryTile label="Resolved" value={counts.resolved} tone="accent" active={statusFilter.has('resolved')} onClick={() => toggleStatus('resolved')} />
           <SummaryTile label="Closed" value={counts.closed} tone="slate" active={statusFilter.has('closed')} onClick={() => toggleStatus('closed')} />
         </section>
@@ -193,19 +192,30 @@ export default function AllTickets() {
 
         <section className="rounded-lg border border-slate-200 bg-white shadow-card overflow-hidden">
           <div className="flex flex-col gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center">
-            <div className="relative flex-1">
-              <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="7" />
-                <path d="M21 21l-4.3-4.3" />
-              </svg>
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search by ID, title, requester, or assignee…"
-                className="block w-full rounded-md border border-slate-300 pl-9 pr-3 py-2 text-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
-              />
-            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setQuery(searchInput.trim());
+              }}
+              className="flex flex-1 gap-2"
+            >
+              <div className="relative flex-1">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="M21 21l-4.3-4.3" />
+                </svg>
+                <input
+                  type="text"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Search by ticket ID or title…"
+                  className="block w-full rounded-md border border-slate-300 pl-9 pr-3 py-2 text-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
+                />
+              </div>
+              <button type="submit" className="btn-primary !px-4 !py-2 text-xs whitespace-nowrap">
+                Search
+              </button>
+            </form>
             <div className="flex flex-wrap gap-2">
               <Select
                 value={priorityFilter}
@@ -378,6 +388,7 @@ function SummaryTile({ label, value, tone, active, onClick }) {
     amber: 'text-amber-700 ring-amber-200 bg-amber-50',
     brand: 'text-brand-800 ring-brand-200 bg-brand-50',
     accent: 'text-accent-700 ring-accent-200 bg-accent-50',
+    violet: 'text-violet-700 ring-violet-200 bg-violet-50',
     slate: 'text-slate-700 ring-slate-200 bg-slate-50'
   };
   return (
@@ -439,6 +450,7 @@ function StatusPill({ status }) {
     open: 'bg-amber-50 text-amber-700 ring-amber-200',
     in_progress: 'bg-brand-50 text-brand-800 ring-brand-200',
     on_hold: 'bg-slate-100 text-slate-700 ring-slate-200',
+    pending: 'bg-violet-50 text-violet-700 ring-violet-200',
     resolved: 'bg-accent-50 text-accent-700 ring-accent-200',
     closed: 'bg-slate-100 text-slate-600 ring-slate-200'
   };

@@ -118,6 +118,7 @@ export default function CreateIncident() {
   // People & links
   const [requester, setRequester] = useState(user?.name || user?.email || '');
   const [assignee, setAssignee] = useState('');
+  const [department, setDepartment] = useState('');
   const [assetId, setAssetId] = useState('');
 
   // Attachments
@@ -142,6 +143,37 @@ export default function CreateIncident() {
   const symptomsCount = symptoms.length;
   const titleTooLong = titleCount > TITLE_MAX;
   const symptomsTooLong = symptomsCount > TEXT_MAX;
+
+  // Regular users may only link assets assigned to them; staff see all assets.
+  const visibleAssets = useMemo(() => {
+    if (isStaff) return assets;
+    const mine = [user?.email, user?.name]
+      .filter(Boolean)
+      .map((v) => v.trim().toLowerCase());
+    return assets.filter(
+      (a) => a.assignee && mine.includes(a.assignee.trim().toLowerCase())
+    );
+  }, [assets, isStaff, user?.email, user?.name]);
+
+  // Departments that have at least one assignable user — picking one filters
+  // the assignee list to that department's people.
+  const departments = useMemo(
+    () => [...new Set(users.map((u) => u.department).filter(Boolean))].sort(),
+    [users]
+  );
+
+  const assigneeChoices = useMemo(
+    () => (department ? users.filter((u) => u.department === department) : users),
+    [users, department]
+  );
+
+  // Changing the department drops an assignee who isn't part of it.
+  const onDepartmentChange = (d) => {
+    setDepartment(d);
+    if (d && assignee && !users.some((u) => u.name === assignee && u.department === d)) {
+      setAssignee('');
+    }
+  };
 
   const canSubmit = useMemo(() => (
     title.trim().length >= 4 &&
@@ -208,6 +240,7 @@ export default function CreateIncident() {
       fd.append('priority', priority);
       fd.append('request_type', 'incident');
       fd.append('category', category);
+      if (department) fd.append('department', department);
       fd.append('requester', requester.trim());
       if (assignee.trim()) fd.append('assignee', assignee.trim());
       if (assetId) fd.append('asset_id', assetId);
@@ -463,20 +496,43 @@ export default function CreateIncident() {
                 {!isStaff && <p className="mt-1 text-[11px] text-slate-500">Requester is locked to your account.</p>}
               </Field>
 
+              <Field
+                label="Department"
+                hint={
+                  department
+                    ? `Assignee list is filtered to ${department}.`
+                    : 'Route this incident to a department. Optional.'
+                }
+              >
+                <select
+                  value={department}
+                  onChange={(e) => onDepartmentChange(e.target.value)}
+                  className={inputCls(false)}
+                >
+                  <option value="">Any department</option>
+                  {departments.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </Field>
+
               <Field label="Assignee" hint={isStaff ? 'Search and pick a responder, or leave for triage.' : 'IT will assign someone.'}>
-                <AssigneePicker value={assignee} users={users} onChange={setAssignee} disabled={!isStaff} />
+                <AssigneePicker value={assignee} users={assigneeChoices} onChange={setAssignee} disabled={!isStaff} />
               </Field>
             </Card>
 
             <Card title="Linked asset" subtitle="Optional — attach if the incident involves a specific device.">
               <select value={assetId} onChange={(e) => setAssetId(e.target.value)} className={inputCls(false)}>
                 <option value="">No asset linked</option>
-                {assets.map((a) => (
+                {visibleAssets.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.asset_tag} — {a.type}{a.model ? ` · ${a.model}` : ''}{a.assignee ? ` · ${a.assignee}` : ''}
                   </option>
                 ))}
               </select>
+              {!isStaff && visibleAssets.length === 0 && (
+                <p className="mt-1 text-[11px] text-slate-500">No assets are assigned to your account.</p>
+              )}
             </Card>
 
             {error && (

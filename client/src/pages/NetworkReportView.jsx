@@ -1,29 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
-import { emptyReport, getReport, healthTone, mergeIntoTemplate } from '../lib/networkReports.js';
+import { emptyReport, getReport, mergeIntoTemplate, TEMPLATE_FIELDS, templateTone } from '../lib/networkReports.js';
 import { getUser } from '../lib/auth.js';
 
-const STATUS_META = {
-  stable:   { label: 'Stable',   ring: 'bg-accent-50 text-accent-700 ring-accent-200',   dot: 'bg-accent-500' },
-  degraded: { label: 'Degraded', ring: 'bg-amber-50 text-amber-700 ring-amber-200',      dot: 'bg-amber-500'  },
-  incident: { label: 'Incident', ring: 'bg-rose-50 text-rose-700 ring-rose-200',         dot: 'bg-rose-500'   },
-};
-
-const HEALTH_TONE = {
+const TONE_PILL = {
   good:  'bg-accent-50 text-accent-700 ring-accent-200',
   warn:  'bg-amber-50 text-amber-700 ring-amber-200',
   bad:   'bg-rose-50 text-rose-700 ring-rose-200',
   muted: 'bg-slate-100 text-slate-600 ring-slate-200',
 };
-
-const HEALTH_FIELDS = [
-  { key: 'internet',  label: 'Internet Connectivity' },
-  { key: 'bandwidth', label: 'Bandwidth Usage' },
-  { key: 'wireless',  label: 'Wireless Connectivity' },
-  { key: 'gateway',   label: 'Gateway Status' },
-  { key: 'vlan',      label: 'VLAN Communication' },
-];
 
 function formatLongDate(iso) {
   if (!iso) return '';
@@ -198,13 +184,14 @@ export default function NetworkReportView() {
 }
 
 function ReportDocument({ report }) {
+  const t = report.template || {};
   return (
     <article className="nr-doc mx-auto max-w-[1100px] rounded-lg border border-slate-200 bg-white shadow-card overflow-hidden print:shadow-none print:border-0 print:rounded-none dark:border-slate-800 dark:bg-slate-900 print:bg-white print:dark:bg-white">
       <header className="bg-brand-900 px-6 py-5 text-white print:bg-white print:text-brand-900 print:border-b-4 print:border-brand-900">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-lg sm:text-xl font-bold tracking-wide uppercase">
-              Network Data Download/Upload Report
+              Daily Network Report
             </h1>
             <p className="mt-1 text-xs uppercase tracking-[0.2em] text-accent-300 print:text-accent-700">
               {formatLongDate(report.date)}
@@ -217,82 +204,12 @@ function ReportDocument({ report }) {
         </div>
       </header>
 
-      <Section title="Executive Summary">
-        <Paragraph text={report.executiveSummary} />
-      </Section>
-
-      <Section title="Network Performance Overview">
-        <div className="grid gap-4 lg:grid-cols-3">
-          <PerfBlock
-            heading="Peak Network Activity"
-            tone="accent"
-            time={report.performance.peak.time}
-            data={report.performance.peak}
-          />
-          <PerfBlock
-            heading="Network Interruption"
-            tone="rose"
-            time={report.performance.interruption.timeRange}
-            data={report.performance.interruption}
-          />
-          <PerfBlock
-            heading="Lowest Network Activity"
-            tone="brand"
-            time={report.performance.lowest.time}
-            data={report.performance.lowest}
-          />
-        </div>
-      </Section>
-
-      <div className="nr-cols grid md:grid-cols-2">
-        <div className="nr-col md:border-r md:border-slate-100 md:dark:border-slate-800 print:md:border-slate-200">
-          <Section title="Network Health Status" tight>
-            <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 print:border-slate-300">
-              <table className="min-w-full text-sm">
-                <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:bg-slate-800/60 dark:text-slate-300 print:bg-slate-100">
-                  <tr>
-                    <th className="px-4 py-2 text-left">Category</th>
-                    <th className="px-4 py-2 text-right">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 print:divide-slate-200">
-                  {HEALTH_FIELDS.map((f) => (
-                    <tr key={f.key}>
-                      <td className="px-4 py-2 text-slate-700 dark:text-slate-200 print:text-slate-800">{f.label}</td>
-                      <td className="px-4 py-2 text-right">
-                        <HealthPill value={report.health[f.key]} />
-                      </td>
-                    </tr>
-                  ))}
-                  <tr>
-                    <td className="px-4 py-2 text-slate-700 dark:text-slate-200 print:text-slate-800">Critical Downtime</td>
-                    <td className="px-4 py-2 text-right text-slate-800 dark:text-slate-200 print:text-slate-800">
-                      {report.health.criticalDowntime || 'None'}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </Section>
-          <Section title="Network Observations" tight>
-            <Paragraph text={report.observations} />
-          </Section>
-        </div>
-        <div className="nr-col">
-          <Section title="Client and Traffic Analysis" tight>
-            <Paragraph text={report.trafficAnalysis} />
-          </Section>
-          <Section title="Recommendations" tight>
-            <Paragraph text={report.recommendations} />
-          </Section>
-          <Section title="Incident Summary" tight>
-            <Paragraph text={report.incidentSummary} />
-          </Section>
-        </div>
-      </div>
-
-      <Section title="Network Traffic Overview">
-        <TrafficChart samples={report.trafficSamples} />
+      <Section title="Network Status Template">
+        <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+          {TEMPLATE_FIELDS.map((f) => (
+            <TemplateRow key={f.key} field={f} value={t[f.key]} />
+          ))}
+        </dl>
       </Section>
 
       <footer className="border-t border-slate-200 bg-slate-50 px-6 py-3 text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400 print:bg-white print:text-slate-600">
@@ -302,17 +219,53 @@ function ReportDocument({ report }) {
   );
 }
 
-function Section({ title, tight, children }) {
+function Section({ title, children }) {
   return (
-    <section className={`px-6 py-5 border-t border-slate-100 dark:border-slate-800 print:border-slate-200 ${tight ? '' : ''}`}>
+    <section className="px-6 py-5 border-t border-slate-100 dark:border-slate-800 print:border-slate-200">
       <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-accent-700 dark:text-accent-400 print:text-accent-700">
         {title}
       </h2>
-      <div className="mt-3 text-sm text-slate-700 dark:text-slate-200 print:text-slate-800">
+      <div className="mt-4 text-sm text-slate-700 dark:text-slate-200 print:text-slate-800">
         {children}
       </div>
     </section>
   );
+}
+
+function TemplateRow({ field, value }) {
+  const span = field.type === 'textarea' ? 'sm:col-span-2' : '';
+  return (
+    <div className={span}>
+      <dt className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 print:text-slate-600">
+        {field.label}
+      </dt>
+      <dd className="mt-1.5">
+        {field.type === 'select' ? (
+          <StatusPill value={value} />
+        ) : field.type === 'textarea' ? (
+          <Paragraph text={value} />
+        ) : (
+          <ValueText text={value} />
+        )}
+      </dd>
+    </div>
+  );
+}
+
+function StatusPill({ value }) {
+  const cls = TONE_PILL[templateTone(value)] || TONE_PILL.muted;
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ${cls}`}>
+      {value || 'N/A'}
+    </span>
+  );
+}
+
+function ValueText({ text }) {
+  if (!text || !text.trim()) {
+    return <span className="text-slate-400 italic dark:text-slate-500 print:text-slate-500">Not provided.</span>;
+  }
+  return <span className="font-medium text-slate-800 dark:text-slate-100 print:text-slate-900">{text}</span>;
 }
 
 function Paragraph({ text }) {
@@ -320,135 +273,4 @@ function Paragraph({ text }) {
     return <span className="text-slate-400 italic dark:text-slate-500 print:text-slate-500">Not provided.</span>;
   }
   return <div className="whitespace-pre-wrap leading-relaxed">{text}</div>;
-}
-
-function PerfBlock({ heading, tone, time, data }) {
-  const toneClass =
-    tone === 'accent' ? 'border-accent-200 bg-accent-50/50 dark:border-accent-500/30 dark:bg-accent-500/10 print:border-accent-300 print:bg-accent-50'
-    : tone === 'rose' ? 'border-rose-200 bg-rose-50/50 dark:border-rose-500/30 dark:bg-rose-500/10 print:border-rose-300 print:bg-rose-50'
-    : 'border-brand-200 bg-brand-50/50 dark:border-brand-500/30 dark:bg-brand-500/10 print:border-brand-300 print:bg-brand-50';
-  const headingTone =
-    tone === 'accent' ? 'text-accent-800 dark:text-accent-300 print:text-accent-800'
-    : tone === 'rose' ? 'text-rose-800 dark:text-rose-300 print:text-rose-800'
-    : 'text-brand-800 dark:text-brand-200 print:text-brand-800';
-
-  return (
-    <div className={`rounded-lg border p-4 ${toneClass}`}>
-      <h3 className={`text-[11px] font-bold uppercase tracking-wider ${headingTone}`}>{heading}</h3>
-      <p className="mt-1 text-2xl font-bold tabular-nums text-brand-900 dark:text-slate-100 print:text-brand-900">
-        {time || '—'}
-      </p>
-      <ul className="mt-3 space-y-1 text-xs text-slate-700 dark:text-slate-200 print:text-slate-800">
-        <li className="flex justify-between gap-2">
-          <span className="text-slate-500 dark:text-slate-400 print:text-slate-600">Network Clients</span>
-          <span className="font-semibold tabular-nums">{data.clients ?? 0}</span>
-        </li>
-        <li className="flex justify-between gap-2">
-          <span className="text-slate-500 dark:text-slate-400 print:text-slate-600">Avg Download</span>
-          <span className="font-semibold tabular-nums">{data.avgDownloadMbps ?? 0} Mbps</span>
-        </li>
-        <li className="flex justify-between gap-2">
-          <span className="text-slate-500 dark:text-slate-400 print:text-slate-600">Avg Upload</span>
-          <span className="font-semibold tabular-nums">{data.avgUploadKbps ?? 0} kbps</span>
-        </li>
-      </ul>
-      {data.observation && (
-        <div className="mt-3 border-t border-slate-200/70 pt-3 text-[11px] leading-relaxed text-slate-600 dark:border-slate-700 dark:text-slate-300 print:border-slate-300 print:text-slate-700">
-          <span className="block font-semibold uppercase tracking-wider text-[9px] text-slate-500 mb-1 print:text-slate-600">Observation</span>
-          {data.observation}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function HealthPill({ value }) {
-  const tone = healthTone(value);
-  const cls = HEALTH_TONE[tone] || HEALTH_TONE.muted;
-  return (
-    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${cls}`}>
-      {value || 'N/A'}
-    </span>
-  );
-}
-
-function TrafficChart({ samples }) {
-  const points = useMemo(() => (samples || []).filter((s) => s && s.time), [samples]);
-  if (points.length === 0) {
-    return (
-      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-400 print:bg-white print:text-slate-600">
-        No traffic samples recorded.
-      </div>
-    );
-  }
-
-  const W = 1000;
-  const H = 240;
-  const PAD_L = 44;
-  const PAD_R = 16;
-  const PAD_T = 16;
-  const PAD_B = 32;
-  const innerW = W - PAD_L - PAD_R;
-  const innerH = H - PAD_T - PAD_B;
-
-  const maxVal = Math.max(
-    1,
-    ...points.map((p) => Number(p.downloadMbps) || 0),
-    ...points.map((p) => Number(p.uploadMbps) || 0)
-  );
-
-  const xAt = (i) => PAD_L + (points.length === 1 ? innerW / 2 : (i * innerW) / (points.length - 1));
-  const yAt = (v) => PAD_T + innerH - ((Number(v) || 0) / maxVal) * innerH;
-
-  const buildPath = (key) =>
-    points
-      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xAt(i).toFixed(1)} ${yAt(p[key]).toFixed(1)}`)
-      .join(' ');
-
-  const buildArea = (key) => {
-    const top = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xAt(i).toFixed(1)} ${yAt(p[key]).toFixed(1)}`).join(' ');
-    return `${top} L ${xAt(points.length - 1).toFixed(1)} ${(PAD_T + innerH).toFixed(1)} L ${xAt(0).toFixed(1)} ${(PAD_T + innerH).toFixed(1)} Z`;
-  };
-
-  const yTicks = 4;
-  const ticks = Array.from({ length: yTicks + 1 }, (_, i) => Math.round((maxVal * i) / yTicks * 10) / 10);
-
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-950/40 print:border-slate-300 print:bg-white">
-      <div className="mb-2 flex items-center gap-4 text-[11px] text-slate-600 dark:text-slate-300 print:text-slate-700">
-        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-accent-500" /> Download</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-brand-500" /> Upload</span>
-        <span className="ml-auto font-mono text-[10px] text-slate-400 dark:text-slate-500 print:text-slate-500">Mbps</span>
-      </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
-        {ticks.map((t, i) => {
-          const y = yAt(t);
-          return (
-            <g key={i}>
-              <line x1={PAD_L} y1={y} x2={W - PAD_R} y2={y} stroke="currentColor" strokeWidth="0.5" className="text-slate-200 dark:text-slate-700" />
-              <text x={PAD_L - 6} y={y + 3} textAnchor="end" fontSize="10" className="fill-slate-400 dark:fill-slate-500">{t}</text>
-            </g>
-          );
-        })}
-        <path d={buildArea('downloadMbps')} fill="rgb(34 162 62 / 0.12)" />
-        <path d={buildPath('downloadMbps')} fill="none" stroke="#22a23e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        <path d={buildPath('uploadMbps')} fill="none" stroke="#3f5b95" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        {points.map((p, i) => (
-          <g key={`pt-${i}`}>
-            <circle cx={xAt(i)} cy={yAt(p.downloadMbps)} r="3" fill="#22a23e" />
-            <circle cx={xAt(i)} cy={yAt(p.uploadMbps)} r="3" fill="#3f5b95" />
-            <text
-              x={xAt(i)}
-              y={H - 10}
-              textAnchor="middle"
-              fontSize="10"
-              className="fill-slate-500 dark:fill-slate-400"
-            >
-              {p.time}
-            </text>
-          </g>
-        ))}
-      </svg>
-    </div>
-  );
 }
