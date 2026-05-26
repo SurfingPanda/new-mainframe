@@ -11,7 +11,6 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const ACCEPTED = '.png,.jpg,.jpeg,.gif,.webp,.heic,.pdf,.txt,.doc,.docx,.xls,.xlsx,.zip,image/*';
 
 const REQUEST_TYPES = [
-  { key: 'incident', label: 'Incident', desc: 'Something is broken or not working as expected.' },
   { key: 'service_request', label: 'Service Request', desc: 'Need access, equipment, or a setup.' },
   { key: 'question', label: 'Question / How-to', desc: 'You need information or guidance.' },
   { key: 'change', label: 'Change Request', desc: 'Request a configuration or system change.' }

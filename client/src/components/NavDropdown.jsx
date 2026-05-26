@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
-export default function NavDropdown({ label, basePath, sections }) {
+export default function NavDropdown({ label, basePath, sections, badge }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const buttonRef = useRef(null);
@@ -47,6 +47,11 @@ export default function NavDropdown({ label, basePath, sections }) {
         } ${open ? 'bg-slate-100' : 'hover:bg-slate-50'}`}
       >
         <span>{label}</span>
+        {badge && (
+          <span className="ml-0.5 rounded-full bg-accent-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-accent-700 ring-1 ring-inset ring-accent-200">
+            {badge}
+          </span>
+        )}
         <svg
           className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
           viewBox="0 0 24 24"
@@ -96,8 +101,13 @@ export default function NavDropdown({ label, basePath, sections }) {
                       <Icon name={item.icon} />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block font-medium text-slate-800 group-hover:text-brand-900">
-                        {item.label}
+                      <span className="flex items-center gap-2 font-medium text-slate-800 group-hover:text-brand-900">
+                        <span className="truncate">{item.label}</span>
+                        {Number(item.badge) > 0 && (
+                          <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white">
+                            {item.badge > 9 ? '9+' : item.badge}
+                          </span>
+                        )}
                       </span>
                       {item.desc && (
                         <span className="block text-xs text-slate-500 mt-0.5 truncate">
@@ -248,6 +258,29 @@ function Icon({ name }) {
           <rect x="6" y="4" width="12" height="17" rx="2" />
           <path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1" />
           <path d="M9 12h6M9 16h6" />
+        </svg>
+      );
+    case 'users':
+      return (
+        <svg {...common}>
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      );
+    case 'building':
+      return (
+        <svg {...common}>
+          <path d="M3 21h18M5 21V7l7-4 7 4v14" />
+          <path d="M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01" />
+        </svg>
+      );
+    case 'key':
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="15" r="3.5" />
+          <path d="M10 13l10-10" />
+          <path d="M16 7l3 3M14 9l3 3" />
         </svg>
       );
     default:

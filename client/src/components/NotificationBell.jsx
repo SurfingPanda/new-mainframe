@@ -18,6 +18,14 @@ function timeAgo(value) {
   return new Date(value).toLocaleDateString();
 }
 
+function dotColor(kind) {
+  switch (kind) {
+    case 'assigned': return 'bg-accent-500';
+    case 'password_reset': return 'bg-rose-500';
+    default: return 'bg-brand-500';
+  }
+}
+
 const bellPath = (
   <>
     <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
@@ -95,6 +103,18 @@ export default function NotificationBell() {
     }
   };
 
+  const hasUnread = items.some((n) => n.unread) || count > 0;
+
+  const markAllRead = async () => {
+    setCount(0);
+    setItems((prev) => prev.map((n) => (n.unread ? { ...n, unread: false } : n)));
+    try {
+      await api('/api/notifications/seen', { method: 'POST' });
+    } catch {
+      // ignore — the next poll will reconcile
+    }
+  };
+
   return (
     <div ref={wrapRef} className="relative">
       <button
@@ -127,13 +147,14 @@ export default function NotificationBell() {
         >
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
             <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">Notifications</span>
-            <Link
-              to="/tickets/my-queue"
-              onClick={() => setOpen(false)}
-              className="text-xs font-semibold text-accent-700 hover:underline dark:text-accent-400"
+            <button
+              type="button"
+              onClick={markAllRead}
+              disabled={!hasUnread}
+              className="text-xs font-semibold text-accent-700 hover:underline disabled:text-slate-400 disabled:no-underline disabled:cursor-not-allowed dark:text-accent-400 dark:disabled:text-slate-500"
             >
-              My Queue
-            </Link>
+              Mark all as read
+            </button>
           </div>
 
           <div className="max-h-96 overflow-y-auto">
@@ -150,37 +171,41 @@ export default function NotificationBell() {
               </div>
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {items.map((n) => (
-                  <li key={n.id}>
-                    <Link
-                      to={`/tickets/${n.ticketId}`}
-                      onClick={() => setOpen(false)}
-                      className={`flex gap-3 px-4 py-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
-                        n.unread ? 'bg-accent-50/50 dark:bg-accent-500/5' : ''
-                      }`}
-                    >
-                      <span
-                        className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                          n.kind === 'assigned' ? 'bg-accent-500' : 'bg-brand-500'
-                        } ${n.unread ? '' : 'opacity-30'}`}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm text-slate-800 dark:text-slate-100">{n.message}</span>
-                        <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
-                          #{n.ticketId} · {n.ticketTitle}
+                {items.map((n) => {
+                  const to = n.link || (n.ticketId ? `/tickets/${n.ticketId}` : '#');
+                  const subtitle = n.subtitle || (n.ticketId ? `#${n.ticketId} · ${n.ticketTitle}` : null);
+                  return (
+                    <li key={n.id}>
+                      <Link
+                        to={to}
+                        onClick={() => setOpen(false)}
+                        className={`flex gap-3 px-4 py-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
+                          n.unread ? 'bg-accent-50/50 dark:bg-accent-500/5' : ''
+                        }`}
+                      >
+                        <span
+                          className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dotColor(n.kind)} ${n.unread ? '' : 'opacity-30'}`}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm text-slate-800 dark:text-slate-100">{n.message}</span>
+                          {subtitle && (
+                            <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
+                              {subtitle}
+                            </span>
+                          )}
+                          <span className="mt-0.5 block text-[11px] text-slate-400 dark:text-slate-500">
+                            {timeAgo(n.createdAt)}
+                          </span>
                         </span>
-                        <span className="mt-0.5 block text-[11px] text-slate-400 dark:text-slate-500">
-                          {timeAgo(n.createdAt)}
-                        </span>
-                      </span>
-                      {n.unread && (
-                        <span className="mt-0.5 inline-flex h-fit items-center rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-rose-600 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30">
-                          New
-                        </span>
-                      )}
-                    </Link>
-                  </li>
-                ))}
+                        {n.unread && (
+                          <span className="mt-0.5 inline-flex h-fit items-center rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-rose-600 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30">
+                            New
+                          </span>
+                        )}
+                      </Link>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

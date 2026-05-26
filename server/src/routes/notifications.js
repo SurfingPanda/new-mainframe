@@ -84,7 +84,8 @@ router.get('/', requireAuth, async (req, res, next) => {
     const items = rows.map((r) => {
       const { kind, message } = describe(r, identitySet);
       return {
-        id: r.id,
+        id: `t-${r.id}`,
+        link: `/tickets/${r.ticket_id}`,
         ticketId: r.ticket_id,
         ticketTitle: r.ticket_title,
         kind,
@@ -94,6 +95,30 @@ router.get('/', requireAuth, async (req, res, next) => {
         unread: new Date(r.created_at).getTime() > seenMs,
       };
     });
+
+    // Admins also see pending password reset requests in the bell.
+    if (req.user?.permissions?.users?.manage) {
+      const [prRows] = await pool.query(
+        `SELECT id, email, created_at
+           FROM password_reset_requests
+          WHERE status = 'pending'
+          ORDER BY created_at DESC
+          LIMIT 25`
+      );
+      for (const r of prRows) {
+        items.push({
+          id: `pr-${r.id}`,
+          link: '/users/password-resets',
+          kind: 'password_reset',
+          message: 'Password reset requested',
+          subtitle: r.email,
+          createdAt: r.created_at,
+          unread: new Date(r.created_at).getTime() > seenMs,
+        });
+      }
+    }
+
+    items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
     res.json({
       seenAt,

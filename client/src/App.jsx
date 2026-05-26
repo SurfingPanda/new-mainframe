@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom';
 import Landing from './pages/Landing.jsx';
 import SignIn from './pages/SignIn.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import ModulePlaceholder from './pages/ModulePlaceholder.jsx';
 import AllTickets from './pages/AllTickets.jsx';
@@ -10,8 +11,11 @@ import CreateTicket from './pages/CreateTicket.jsx';
 import CreateIncident from './pages/CreateIncident.jsx';
 import TicketDetail from './pages/TicketDetail.jsx';
 import Users from './pages/Users.jsx';
+import Departments from './pages/Departments.jsx';
+import PasswordResetRequests from './pages/PasswordResetRequests.jsx';
 import Settings from './pages/Settings.jsx';
 import AllAssets from './pages/AllAssets.jsx';
+import AssignedAssets from './pages/AssignedAssets.jsx';
 import AddAsset from './pages/AddAsset.jsx';
 import AllArticles from './pages/AllArticles.jsx';
 import KbArticle from './pages/KbArticle.jsx';
@@ -22,6 +26,7 @@ import NetworkMonitoring from './pages/NetworkMonitoring.jsx';
 import NetworkReports from './pages/NetworkReports.jsx';
 import NetworkReportEditor from './pages/NetworkReportEditor.jsx';
 import NetworkReportView from './pages/NetworkReportView.jsx';
+import ChatRoom from './pages/ChatRoom.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 
 export default function App() {
@@ -29,6 +34,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/signin" element={<SignIn />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route
         path="/dashboard"
         element={
@@ -46,9 +52,17 @@ export default function App() {
         }
       />
       <Route
+        path="/chat"
+        element={
+          <ProtectedRoute>
+            <ChatRoom />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/network"
         element={
-          <ProtectedRoute role={['admin', 'agent']}>
+          <ProtectedRoute permission={['network', 'view']}>
             <NetworkMonitoring />
           </ProtectedRoute>
         }
@@ -56,7 +70,7 @@ export default function App() {
       <Route
         path="/network/reports"
         element={
-          <ProtectedRoute role={['admin', 'agent']}>
+          <ProtectedRoute permission={['network', 'view']}>
             <NetworkReports />
           </ProtectedRoute>
         }
@@ -64,7 +78,7 @@ export default function App() {
       <Route
         path="/network/reports/new"
         element={
-          <ProtectedRoute role={['admin', 'agent']}>
+          <ProtectedRoute permission={['network', 'manage']}>
             <NetworkReportEditor />
           </ProtectedRoute>
         }
@@ -72,7 +86,7 @@ export default function App() {
       <Route
         path="/network/reports/edit/:date"
         element={
-          <ProtectedRoute role={['admin', 'agent']}>
+          <ProtectedRoute permission={['network', 'manage']}>
             <NetworkReportEditor />
           </ProtectedRoute>
         }
@@ -80,7 +94,7 @@ export default function App() {
       <Route
         path="/network/reports/view/:date"
         element={
-          <ProtectedRoute role={['admin', 'agent']}>
+          <ProtectedRoute permission={['network', 'view']}>
             <NetworkReportView />
           </ProtectedRoute>
         }
@@ -134,6 +148,22 @@ export default function App() {
         }
       />
       <Route
+        path="/users/departments"
+        element={
+          <ProtectedRoute permission={['users', 'manage']}>
+            <Departments />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/users/password-resets"
+        element={
+          <ProtectedRoute permission={['users', 'manage']}>
+            <PasswordResetRequests />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/tickets/:id"
         element={
           <ProtectedRoute permission={['tickets', 'view']}>
@@ -154,6 +184,14 @@ export default function App() {
         element={
           <ProtectedRoute permission={['assets', 'view']}>
             <AllAssets />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/assets/assigned"
+        element={
+          <ProtectedRoute permission={['assets', 'view']}>
+            <AssignedAssets />
           </ProtectedRoute>
         }
       />

@@ -11,6 +11,9 @@ import tickets from './routes/tickets.js';
 import assets from './routes/assets.js';
 import kb from './routes/kb.js';
 import assetRequests from './routes/asset-requests.js';
+import departments from './routes/departments.js';
+import passwordResets from './routes/password-resets.js';
+import chat from './routes/chat.js';
 import network from './routes/network.js';
 import notifications from './routes/notifications.js';
 
@@ -37,6 +40,9 @@ app.use('/api/tickets', tickets);
 app.use('/api/assets', assets);
 app.use('/api/kb', kb);
 app.use('/api/asset-requests', assetRequests);
+app.use('/api/departments', departments);
+app.use('/api/password-resets', passwordResets);
+app.use('/api/chat', chat);
 app.use('/api/network', network);
 app.use('/api/notifications', notifications);
 

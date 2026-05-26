@@ -4,6 +4,7 @@ import { clearSession, getUser, hasPermission } from '../lib/auth.js';
 import { getTheme, toggleTheme } from '../lib/theme.js';
 import NavDropdown from './NavDropdown.jsx';
 import NotificationBell from './NotificationBell.jsx';
+import { usePendingResetCount } from '../lib/usePendingResetCount.js';
 import Modal from './Modal.jsx';
 
 function ticketsMenu(user) {
@@ -52,21 +53,37 @@ function assetsMenu(user) {
   return sections;
 }
 
-const NETWORK_MENU = [
-  {
-    heading: 'Live',
-    items: [
-      { to: '/network', label: 'Network Monitoring', desc: 'Reachability and latency', icon: 'wifi' }
-    ]
-  },
-  {
-    heading: 'Daily reports',
-    items: [
-      { to: '/network/reports', label: 'All Daily Reports', desc: 'Past network reports', icon: 'clipboard' },
-      { to: '/network/reports/new', label: "Today's Report", desc: 'Capture today on the network', icon: 'plus', tone: 'accent' }
-    ]
+function networkMenu(user) {
+  const sections = [
+    {
+      heading: 'Live',
+      items: [
+        { to: '/network', label: 'Network Monitoring', desc: 'Reachability and latency', icon: 'wifi' }
+      ]
+    }
+  ];
+  const reports = [
+    { to: '/network/reports', label: 'All Daily Reports', desc: 'Past network reports', icon: 'clipboard' }
+  ];
+  if (hasPermission('network', 'manage', user)) {
+    reports.push({ to: '/network/reports/new', label: "Today's Report", desc: 'Capture today on the network', icon: 'plus', tone: 'accent' });
   }
-];
+  sections.push({ heading: 'Daily reports', items: reports });
+  return sections;
+}
+
+function usersMenu(pendingResets = 0) {
+  return [
+    {
+      heading: 'Manage',
+      items: [
+        { to: '/users', label: 'Directory', desc: 'All Mainframe accounts and roles', icon: 'users' },
+        { to: '/users/departments', label: 'Departments', desc: 'Create and edit departments', icon: 'building' },
+        { to: '/users/password-resets', label: 'Password Resets', desc: 'Review and resolve reset requests', icon: 'key', badge: pendingResets }
+      ]
+    }
+  ];
+}
 
 const KB_MENU = [
   {
@@ -84,6 +101,9 @@ export default function DashboardHeader() {
   const navigate = useNavigate();
   const location = useLocation();
   const user = getUser();
+  const canManageUsers = hasPermission('users', 'manage', user);
+  const pendingResets = usePendingResetCount(canManageUsers);
+  const usersSections = usersMenu(pendingResets);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -118,7 +138,7 @@ export default function DashboardHeader() {
           </span>
         </Link>
 
-        <nav className="hidden md:flex items-center gap-1">
+        <nav className="hidden lg:flex items-center gap-1">
           <NavLink
             to="/dashboard"
             end
@@ -141,28 +161,23 @@ export default function DashboardHeader() {
           {hasPermission('kb', 'view', user) && (
             <NavDropdown label="Knowledge Base" basePath="/kb" sections={KB_MENU} />
           )}
-          {(user?.role === 'admin' || user?.role === 'agent') && (
-            <NavDropdown label="Network" basePath="/network" sections={NETWORK_MENU} />
+          {hasPermission('network', 'view', user) && (
+            <NavDropdown label="Network" basePath="/network" sections={networkMenu(user)} />
           )}
-          {hasPermission('users', 'manage', user) && (
-            <NavLink
-              to="/users"
-              className={({ isActive }) =>
-                `inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-sm font-medium transition-colors ${
-                  isActive ? 'text-brand-900 bg-slate-100' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                }`
-              }
-            >
-              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-              Users
-              <span className="ml-0.5 rounded-full bg-accent-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-accent-700 ring-1 ring-inset ring-accent-200">
-                Admin
-              </span>
-            </NavLink>
+          <NavLink
+            to="/chat"
+            className={({ isActive }) =>
+              `rounded-md px-2 py-1.5 text-sm font-medium transition-colors ${
+                isActive
+                  ? 'text-brand-900 bg-slate-100 dark:text-white dark:bg-slate-800'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800'
+              }`
+            }
+          >
+            Chat Room
+          </NavLink>
+          {canManageUsers && (
+            <NavDropdown label="Users" basePath="/users" sections={usersSections} badge="Admin" />
           )}
         </nav>
 
@@ -172,7 +187,7 @@ export default function DashboardHeader() {
             onClick={() => setMobileOpen((v) => !v)}
             aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
             aria-expanded={mobileOpen}
-            className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+            className="lg:hidden inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               {mobileOpen ? (
@@ -188,7 +203,7 @@ export default function DashboardHeader() {
       </div>
 
       {mobileOpen && (
-        <MobileNav user={user} onClose={() => setMobileOpen(false)} />
+        <MobileNav user={user} usersSections={usersSections} onClose={() => setMobileOpen(false)} />
       )}
     </header>
 
@@ -225,7 +240,7 @@ export default function DashboardHeader() {
   );
 }
 
-function MobileNav({ user, onClose }) {
+function MobileNav({ user, usersSections, onClose }) {
   const sections = [];
   sections.push({
     heading: 'Overview',
@@ -240,18 +255,22 @@ function MobileNav({ user, onClose }) {
   if (hasPermission('kb', 'view', user)) {
     sections.push({ heading: 'Knowledge Base', items: KB_MENU.flatMap((s) => s.items) });
   }
-  if (user?.role === 'admin' || user?.role === 'agent') {
-    sections.push({ heading: 'Network', items: NETWORK_MENU.flatMap((s) => s.items) });
+  if (hasPermission('network', 'view', user)) {
+    sections.push({ heading: 'Network', items: networkMenu(user).flatMap((s) => s.items) });
   }
+  sections.push({
+    heading: 'Chat',
+    items: [{ to: '/chat', label: 'Chat Room', desc: 'Team-wide messaging' }]
+  });
   if (hasPermission('users', 'manage', user)) {
     sections.push({
       heading: 'Admin',
-      items: [{ to: '/users', label: 'Users', desc: 'Manage user accounts' }]
+      items: usersSections.flatMap((s) => s.items)
     });
   }
 
   return (
-    <div className="md:hidden border-t border-slate-200 bg-white max-h-[calc(100vh-4rem)] overflow-y-auto dark:bg-slate-900 dark:border-slate-800">
+    <div className="lg:hidden border-t border-slate-200 bg-white max-h-[calc(100vh-4rem)] overflow-y-auto dark:bg-slate-900 dark:border-slate-800">
       <nav className="container-app py-3 space-y-1">
         {sections.map((section, sIdx) => (
           <div key={sIdx} className="pb-2">
@@ -266,7 +285,14 @@ function MobileNav({ user, onClose }) {
                     onClick={onClose}
                     className="block rounded-md px-2 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-brand-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
                   >
-                    <span className="block font-medium">{item.label}</span>
+                    <span className="flex items-center gap-2 font-medium">
+                      <span className="truncate">{item.label}</span>
+                      {Number(item.badge) > 0 && (
+                        <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white">
+                          {item.badge > 9 ? '9+' : item.badge}
+                        </span>
+                      )}
+                    </span>
                     {item.desc && (
                       <span className="block text-[11px] text-slate-500 mt-0.5 dark:text-slate-400">{item.desc}</span>
                     )}
@@ -336,7 +362,9 @@ function ProfileMenu({ user, initials, onSignOut }) {
       >
         <div className="hidden sm:flex flex-col items-end leading-tight">
           <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{user?.name}</span>
-          <span className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">{user?.role}</span>
+          <span className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            {user?.department || user?.role}
+          </span>
         </div>
         <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-brand-900 text-white text-sm font-bold dark:bg-brand-600">
           {initials}

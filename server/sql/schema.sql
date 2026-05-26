@@ -103,6 +103,64 @@ CREATE TABLE IF NOT EXISTS kb_articles (
   INDEX idx_kb_published (published)
 );
 
+CREATE TABLE IF NOT EXISTS chat_rooms (
+  id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  kind          VARCHAR(20) NOT NULL DEFAULT 'group',
+  name          VARCHAR(120),
+  created_by    INT UNSIGNED NOT NULL,
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_cr_kind (kind)
+);
+
+CREATE TABLE IF NOT EXISTS chat_room_members (
+  room_id       INT UNSIGNED NOT NULL,
+  user_id       INT UNSIGNED NOT NULL,
+  joined_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (room_id, user_id),
+  INDEX idx_crm_user (user_id)
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  room_key      VARCHAR(80) NOT NULL DEFAULT 'general',
+  user_id       INT UNSIGNED NOT NULL,
+  user_name     VARCHAR(120) NOT NULL,
+  user_role     VARCHAR(20),
+  user_department VARCHAR(80),
+  body          TEXT NOT NULL,
+  attachment_url      VARCHAR(255) NULL,
+  attachment_filename VARCHAR(255) NULL,
+  attachment_mime     VARCHAR(120) NULL,
+  attachment_size     INT UNSIGNED NULL,
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_cm_room_created (room_key, created_at),
+  INDEX idx_cm_user (user_id)
+);
+
+CREATE TABLE IF NOT EXISTS password_reset_requests (
+  id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id       INT UNSIGNED NOT NULL,
+  email         VARCHAR(160) NOT NULL,
+  status        ENUM('pending','resolved','denied') NOT NULL DEFAULT 'pending',
+  resolved_by   VARCHAR(120),
+  resolved_at   TIMESTAMP NULL,
+  admin_notes   TEXT,
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_prr_status (status),
+  INDEX idx_prr_user (user_id)
+);
+
+CREATE TABLE IF NOT EXISTS departments (
+  id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name          VARCHAR(80) NOT NULL UNIQUE,
+  description   VARCHAR(255),
+  is_active     TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_departments_active (is_active)
+);
+
 CREATE TABLE IF NOT EXISTS asset_requests (
   id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   requester_id    INT UNSIGNED NOT NULL,
@@ -142,6 +200,13 @@ INSERT INTO assets (asset_tag, type, model, assignee, location, status) VALUES
   ('MN-0014', 'Monitor', 'Dell U2723QE', 'jdoe', 'HQ — Floor 3', 'in_use'),
   ('LT-0002', 'Laptop', 'MacBook Pro 14', 'asmith', 'Remote', 'in_use')
 ON DUPLICATE KEY UPDATE asset_tag = asset_tag;
+
+INSERT INTO departments (name, description) VALUES
+  ('IT', 'Information Technology'),
+  ('HR', 'Human Resources'),
+  ('Finance', 'Finance and Accounting'),
+  ('Operations', 'Business Operations')
+ON DUPLICATE KEY UPDATE name = name;
 
 INSERT INTO kb_articles (title, slug, category, body, author) VALUES
   ('Resetting your company password', 'reset-password', 'Accounts',

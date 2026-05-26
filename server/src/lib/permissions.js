@@ -6,7 +6,8 @@ export const MODULES = {
   tickets: ['view', 'create'],
   assets:  ['view', 'manage'],
   kb:      ['view', 'manage'],
-  users:   ['manage']
+  users:   ['manage'],
+  network: ['view', 'manage']
 };
 
 export const ROLE_DEFAULTS = {
@@ -14,19 +15,22 @@ export const ROLE_DEFAULTS = {
     tickets: { view: true,  create: true  },
     assets:  { view: true,  manage: true  },
     kb:      { view: true,  manage: true  },
-    users:   { manage: true }
+    users:   { manage: true },
+    network: { view: true,  manage: true  }
   },
   agent: {
     tickets: { view: true,  create: true  },
     assets:  { view: true,  manage: true  },
     kb:      { view: true,  manage: true  },
-    users:   { manage: false }
+    users:   { manage: false },
+    network: { view: true,  manage: true  }
   },
   user: {
     tickets: { view: true,  create: true  },
     assets:  { view: true,  manage: false },
     kb:      { view: true,  manage: false },
-    users:   { manage: false }
+    users:   { manage: false },
+    network: { view: false, manage: false }
   }
 };
 

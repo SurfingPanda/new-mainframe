@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { getUnifi } from '../lib/unifi.js';
 
 const router = Router();
@@ -12,7 +12,7 @@ const router = Router();
 // a UniFi-shaped mock so the UI still renders in dev.
 // ---------------------------------------------------------------------------
 
-router.get('/dashboard', requireAuth, requireRole('admin', 'agent'), async (req, res) => {
+router.get('/dashboard', requireAuth, requirePermission('network', 'view'), async (req, res) => {
   const range = String(req.query.range || '1h');
   const unifi = getUnifi();
 
@@ -329,7 +329,7 @@ Rules:
 
 Output ONLY the JSON object.`;
 
-router.post('/extract-chart', requireAuth, requireRole('admin', 'agent'), (req, res) => {
+router.post('/extract-chart', requireAuth, requirePermission('network', 'manage'), (req, res) => {
   upload.single('image')(req, res, async (err) => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: 'No image provided. Upload as multipart field "image".' });

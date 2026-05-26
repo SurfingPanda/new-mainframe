@@ -87,6 +87,99 @@ export async function ensureSchema() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS chat_rooms (
+      id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      kind          VARCHAR(20) NOT NULL DEFAULT 'group',
+      name          VARCHAR(120),
+      created_by    INT UNSIGNED NOT NULL,
+      created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_cr_kind (kind)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS chat_room_members (
+      room_id       INT UNSIGNED NOT NULL,
+      user_id       INT UNSIGNED NOT NULL,
+      joined_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (room_id, user_id),
+      INDEX idx_crm_user (user_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      room_key      VARCHAR(80) NOT NULL DEFAULT 'general',
+      user_id       INT UNSIGNED NOT NULL,
+      user_name     VARCHAR(120) NOT NULL,
+      user_role     VARCHAR(20),
+      user_department VARCHAR(80),
+      body          TEXT NOT NULL,
+      created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_cm_room_created (room_key, created_at),
+      INDEX idx_cm_user (user_id)
+    )
+  `);
+
+  // chat_messages.room_key was added in a later iteration — add it idempotently
+  // for databases that pre-date it. Existing rows default to 'general'.
+  try {
+    await pool.query(
+      `ALTER TABLE chat_messages ADD COLUMN room_key VARCHAR(80) NOT NULL DEFAULT 'general' AFTER id`
+    );
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+  try {
+    await pool.query(`ALTER TABLE chat_messages ADD INDEX idx_cm_room_created (room_key, created_at)`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_KEYNAME') throw err;
+  }
+
+  // chat_messages attachment columns — also added later.
+  for (const stmt of [
+    `ALTER TABLE chat_messages ADD COLUMN attachment_url      VARCHAR(255) NULL`,
+    `ALTER TABLE chat_messages ADD COLUMN attachment_filename VARCHAR(255) NULL`,
+    `ALTER TABLE chat_messages ADD COLUMN attachment_mime     VARCHAR(120) NULL`,
+    `ALTER TABLE chat_messages ADD COLUMN attachment_size     INT UNSIGNED NULL`
+  ]) {
+    try {
+      await pool.query(stmt);
+    } catch (err) {
+      if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+    }
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS password_reset_requests (
+      id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id       INT UNSIGNED NOT NULL,
+      email         VARCHAR(160) NOT NULL,
+      status        ENUM('pending','resolved','denied') NOT NULL DEFAULT 'pending',
+      resolved_by   VARCHAR(120),
+      resolved_at   TIMESTAMP NULL,
+      admin_notes   TEXT,
+      created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_prr_status (status),
+      INDEX idx_prr_user (user_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS departments (
+      id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      name          VARCHAR(80) NOT NULL UNIQUE,
+      description   VARCHAR(255),
+      is_active     TINYINT(1) NOT NULL DEFAULT 1,
+      created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_departments_active (is_active)
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS asset_requests (
       id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
       requester_id    INT UNSIGNED NOT NULL,

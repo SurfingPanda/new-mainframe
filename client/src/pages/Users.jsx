@@ -37,6 +37,14 @@ const PERMISSION_MODULES = [
     actions: [
       { key: 'manage', label: 'Manage users' }
     ]
+  },
+  {
+    key: 'network',
+    label: 'Network',
+    actions: [
+      { key: 'view', label: 'View monitoring & reports' },
+      { key: 'manage', label: 'Create / edit reports' }
+    ]
   }
 ];
 
@@ -45,19 +53,22 @@ const ROLE_DEFAULTS = {
     tickets: { view: true,  create: true  },
     assets:  { view: true,  manage: true  },
     kb:      { view: true,  manage: true  },
-    users:   { manage: true }
+    users:   { manage: true },
+    network: { view: true,  manage: true  }
   },
   agent: {
     tickets: { view: true,  create: true  },
     assets:  { view: true,  manage: true  },
     kb:      { view: true,  manage: true  },
-    users:   { manage: false }
+    users:   { manage: false },
+    network: { view: true,  manage: true  }
   },
   user: {
     tickets: { view: true,  create: true  },
     assets:  { view: true,  manage: false },
     kb:      { view: true,  manage: false },
-    users:   { manage: false }
+    users:   { manage: false },
+    network: { view: false, manage: false }
   }
 };
 

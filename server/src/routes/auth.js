@@ -15,6 +15,13 @@ const loginLimiter = rateLimit({
   message: 'Too many login attempts. Please wait a few minutes and try again.'
 });
 
+// Throttle password-reset requests to discourage enumeration / spam.
+const forgotLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: 'Too many requests. Please wait a few minutes and try again.'
+});
+
 router.post('/login', loginLimiter, async (req, res, next) => {
   try {
     const { email, password } = req.body || {};
@@ -57,6 +64,49 @@ router.post('/login', loginLimiter, async (req, res, next) => {
         permissions
       }
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Always respond with success so attackers can't enumerate which emails have
+// accounts. If the email matches an active user we log the request server-side
+// so an IT admin can follow up via the Users page reset-password flow.
+router.post('/forgot-password', forgotLimiter, async (req, res, next) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const ok = res.json.bind(res, { ok: true });
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return ok();
+    }
+
+    const [rows] = await pool.query(
+      'SELECT id, email, name, is_active FROM users WHERE email = ? LIMIT 1',
+      [email]
+    );
+    const user = rows[0];
+    if (user && user.is_active) {
+      // Coalesce repeats: if this user already has a pending request, just
+      // bump it instead of stacking duplicate rows.
+      const [existing] = await pool.query(
+        `SELECT id FROM password_reset_requests
+          WHERE user_id = ? AND status = 'pending'
+          LIMIT 1`,
+        [user.id]
+      );
+      if (existing.length) {
+        await pool.query(
+          'UPDATE password_reset_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [existing[0].id]
+        );
+      } else {
+        await pool.query(
+          'INSERT INTO password_reset_requests (user_id, email) VALUES (?, ?)',
+          [user.id, user.email]
+        );
+      }
+    }
+    return ok();
   } catch (err) {
     next(err);
   }
