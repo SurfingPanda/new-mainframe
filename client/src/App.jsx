@@ -2,6 +2,7 @@ import { Routes, Route } from 'react-router-dom';
 import Landing from './pages/Landing.jsx';
 import SignIn from './pages/SignIn.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
+import ResetPassword from './pages/ResetPassword.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import ModulePlaceholder from './pages/ModulePlaceholder.jsx';
 import AllTickets from './pages/AllTickets.jsx';
@@ -35,6 +36,7 @@ export default function App() {
       <Route path="/" element={<Landing />} />
       <Route path="/signin" element={<SignIn />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route
         path="/dashboard"
         element={

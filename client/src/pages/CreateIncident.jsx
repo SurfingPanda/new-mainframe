@@ -126,12 +126,16 @@ export default function CreateIncident() {
 
   const [assets, setAssets] = useState([]);
   const [users, setUsers] = useState([]);
+  const [deptList, setDeptList] = useState([]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     api('/api/assets').then(setAssets).catch(() => setAssets([]));
     api('/api/users/assignable').then(setUsers).catch(() => setUsers([]));
+    api('/api/departments')
+      .then((rows) => setDeptList((rows || []).filter((d) => d.is_active).map((d) => d.name)))
+      .catch(() => setDeptList([]));
   }, []);
 
   // Auto-suggest priority from impact × urgency until the user manually picks one.
@@ -155,11 +159,12 @@ export default function CreateIncident() {
     );
   }, [assets, isStaff, user?.email, user?.name]);
 
-  // Departments that have at least one assignable user — picking one filters
-  // the assignee list to that department's people.
+  // Active departments from the admin list, unioned with any department a
+  // user already belongs to. Picking one filters the assignee list to that
+  // department's people.
   const departments = useMemo(
-    () => [...new Set(users.map((u) => u.department).filter(Boolean))].sort(),
-    [users]
+    () => [...new Set([...deptList, ...users.map((u) => u.department).filter(Boolean)])].sort(),
+    [deptList, users]
   );
 
   const assigneeChoices = useMemo(

@@ -23,7 +23,21 @@ const PORT = Number(process.env.PORT) || 4000;
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
-app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
+// Uploaded files are user-controlled content. Force the browser to download
+// them rather than render in-origin, and never MIME-sniff — otherwise a file
+// with a spoofed type/extension (e.g. .svg or .html that slipped past the
+// upload mime allowlist) could execute script on our own origin and read the
+// JWT from localStorage. Content-Disposition is ignored for <img> subresource
+// loads, so inline image previews still render.
+app.use(
+  '/uploads',
+  express.static(path.resolve(process.cwd(), 'uploads'), {
+    setHeaders: (res) => {
+      res.setHeader('Content-Disposition', 'attachment');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+    }
+  })
+);
 
 app.get('/api/health', async (req, res) => {
   try {

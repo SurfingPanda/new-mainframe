@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../config/db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { notifyAssetRequestDecision } from '../lib/ticket-emails.js';
 
 const router = Router();
 
@@ -91,6 +92,7 @@ router.patch('/:id', requireAuth, requireRole('admin', 'agent'), async (req, res
     if (r.affectedRows === 0) return res.status(404).json({ error: 'Request not found' });
 
     const [rows] = await pool.query('SELECT * FROM asset_requests WHERE id = ?', [id]);
+    notifyAssetRequestDecision(rows[0], req.user.name || req.user.email);
     res.json(rows[0]);
   } catch (err) {
     next(err);

@@ -1,9 +1,49 @@
 import { Router } from 'express';
+import multer from 'multer';
+import path from 'node:path';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { hasPermission } from '../lib/permissions.js';
 
 const router = Router();
+
+// ── Article media uploads (images + PDF), embedded inline in article markdown ──
+const KB_UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'kb');
+fs.mkdirSync(KB_UPLOAD_DIR, { recursive: true });
+
+const KB_ALLOWED_MIME = new Set([
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'
+]);
+
+const kbUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, KB_UPLOAD_DIR),
+    filename: (_req, file, cb) => {
+      const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
+      const stamp = Date.now().toString(36) + crypto.randomBytes(4).toString('hex');
+      cb(null, `${stamp}-${safe}`);
+    }
+  }),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (!KB_ALLOWED_MIME.has(file.mimetype)) {
+      return cb(new Error(`Unsupported file type: ${file.mimetype}. Allowed: images and PDF.`));
+    }
+    cb(null, true);
+  }
+});
+
+function kbUploadMiddleware(req, res, next) {
+  kbUpload.single('file')(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'File is larger than 10 MB.' });
+    }
+    return res.status(400).json({ error: err.message || 'Could not process the file.' });
+  });
+}
 
 const CATEGORIES = [
   'Accounts', 'Networking', 'Hardware', 'Software',
@@ -48,9 +88,14 @@ router.get('/', requireAuth, requirePermission('kb', 'view'), async (req, res, n
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const [rows] = await pool.query(
-      `SELECT id, title, slug, category, author, published, created_at, updated_at
-         FROM kb_articles ${where}
-        ORDER BY updated_at DESC
+      `SELECT a.id, a.title, a.slug, a.category, a.author, a.published,
+              a.created_at, a.updated_at,
+              COUNT(l.id) AS link_count
+         FROM kb_articles a
+         LEFT JOIN ticket_kb_links l ON l.article_id = a.id
+         ${where}
+        GROUP BY a.id
+        ORDER BY a.updated_at DESC
         LIMIT 200`,
       values
     );
@@ -64,6 +109,18 @@ router.get('/meta/categories', requireAuth, requirePermission('kb', 'view'), (_r
   res.json(CATEGORIES);
 });
 
+// Upload an image/PDF to embed in an article. Authors only. Returns a URL the
+// editor inserts into the markdown body.
+router.post('/upload', requireAuth, requirePermission('kb', 'manage'), kbUploadMiddleware, (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+  res.status(201).json({
+    url: `/uploads/kb/${req.file.filename}`,
+    filename: req.file.originalname,
+    mime: req.file.mimetype,
+    isImage: req.file.mimetype.startsWith('image/')
+  });
+});
+
 router.get('/:slug', requireAuth, requirePermission('kb', 'view'), async (req, res, next) => {
   try {
     const canManage = hasPermission(req.user, 'kb', 'manage');
@@ -75,6 +132,27 @@ router.get('/:slug', requireAuth, requirePermission('kb', 'view'), async (req, r
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Article not found' });
     res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Tickets that link to this article, shown on the article page to anyone who
+// can view the KB. Returns [] for an unknown slug or an article with no links.
+router.get('/:slug/tickets', requireAuth, requirePermission('kb', 'view'), async (req, res, next) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT t.id, t.title, t.status, t.priority, t.created_at,
+              l.created_at AS linked_at, l.linked_by
+         FROM kb_articles a
+         JOIN ticket_kb_links l ON l.article_id = a.id
+         JOIN tickets t ON t.id = l.ticket_id
+        WHERE a.slug = ?
+        ORDER BY l.created_at DESC
+        LIMIT 100`,
+      [req.params.slug]
+    );
+    res.json(rows);
   } catch (err) {
     next(err);
   }

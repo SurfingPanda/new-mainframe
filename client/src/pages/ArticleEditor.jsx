@@ -87,6 +87,13 @@ export default function ArticleEditor() {
     }
   };
 
+  // Upload an image/PDF for embedding; MarkdownEditor inserts the result.
+  const uploadMedia = async (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api('/api/kb/upload', { method: 'POST', body: fd });
+  };
+
   const wordCount = body.trim() ? body.trim().split(/\s+/).length : 0;
 
   if (loading) {
@@ -198,7 +205,7 @@ export default function ArticleEditor() {
               <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
                 Content <span className="text-rose-400">*</span>
               </label>
-              <MarkdownEditor value={body} onChange={setBody} minRows={24} />
+              <MarkdownEditor value={body} onChange={setBody} minRows={24} onUpload={uploadMedia} />
             </div>
           </div>
 
@@ -246,10 +253,12 @@ export default function ArticleEditor() {
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">Author</h3>
               <input
                 value={author}
-                onChange={(e) => setAuthor(e.target.value)}
-                placeholder="e.g. IT Team"
-                className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
+                readOnly
+                className="block w-full rounded-md border border-slate-300 bg-slate-50/60 px-3 py-2 text-sm text-slate-500 cursor-default focus:outline-none"
               />
+              <p className="mt-1.5 text-[11px] text-slate-400">
+                {isNew ? 'Set to your account.' : 'Original author — locked.'}
+              </p>
             </div>
 
             {/* Stats */}

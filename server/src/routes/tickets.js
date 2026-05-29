@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
 import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
+import { notifyTicketCreated, notifyTicketChanges, notifyTicketNote } from '../lib/ticket-emails.js';
 
 const router = Router();
 
@@ -282,6 +283,7 @@ router.patch('/:id', requireAuth, requireRole('admin', 'agent'), async (req, res
          FROM tickets WHERE id = ?`,
       [id]
     );
+    notifyTicketChanges(updatedRows[0], changes, actor);
     res.json(updatedRows[0]);
   } catch (err) {
     next(err);
@@ -396,7 +398,7 @@ router.post(
       }
 
       const [exists] = await pool.query(
-        'SELECT id, requester, assignee FROM tickets WHERE id = ? LIMIT 1',
+        'SELECT id, title, requester, assignee FROM tickets WHERE id = ? LIMIT 1',
         [id]
       );
       if (!exists.length) {
@@ -433,6 +435,8 @@ router.post(
          VALUES (?, 'note', ?, ?, ?)`,
         [id, actor, body ? body.slice(0, 4000) : null, attachmentId]
       );
+
+      if (body) notifyTicketNote(exists[0], body, actor);
 
       const [rows] = await pool.query(
         `SELECT a.id, a.type, a.actor, a.field, a.old_value, a.new_value, a.body,
@@ -762,6 +766,8 @@ router.post(
         size_bytes: a.size_bytes,
         uploaded_at: a.uploaded_at
       }));
+
+      notifyTicketCreated(ticket, req.user?.name || req.user?.email);
 
       res.status(201).json(ticket);
     } catch (err) {

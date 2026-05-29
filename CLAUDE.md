@@ -20,61 +20,98 @@ new-mainframe/
 │   └── src/
 │       ├── App.jsx            Router (react-router-dom v7)
 │       ├── main.jsx           Entry
-│       ├── components/        Shared UI: Navbar, Modal, ProtectedRoute, MarkdownEditor, etc.
-│       └── pages/             Route views: Landing, SignIn, Dashboard, AllTickets,
-│                              CreateTicket, TicketDetail, Users, AllAssets, AddAsset,
-│                              AllArticles, KbArticle, ArticleEditor, ModulePlaceholder
+│       ├── components/        Shared UI: Navbar, NavDropdown, Modal, ProtectedRoute,
+│       │                      MarkdownEditor, UserPicker, NotificationBell, DashboardHeader, etc.
+│       ├── lib/               Client helpers (e.g. networkReports.js — localStorage-backed)
+│       └── pages/             Route views: Landing, SignIn, ForgotPassword, Dashboard, Settings,
+│                              AllTickets, MyQueue, SubmittedTickets, CreateTicket, CreateIncident,
+│                              TicketDetail, Users, Departments, PasswordResetRequests, AllAssets,
+│                              AssignedAssets, AddAsset, AssetRequest, AllArticles, KbArticle,
+│                              KbCategory, ArticleEditor, ChatRoom, NetworkMonitoring, NetworkReports,
+│                              NetworkReportEditor, NetworkReportView, ModulePlaceholder
 ├── server/                    Node.js + Express API
 │   ├── sql/schema.sql         Database schema + seed data
-│   ├── uploads/               Ticket attachments (served via /uploads)
+│   ├── uploads/               Ticket + chat attachments (served via /uploads; chat/ subdir)
 │   └── src/
 │       ├── index.js           App bootstrap, route mounting, /api/health
-│       ├── config/db.js       mysql2 pool, pingDb, ensureSchema
-│       ├── middleware/auth.js JWT auth + role gates
-│       └── routes/            auth, users, tickets, assets, kb
+│       ├── config/db.js       mysql2 pool, pingDb, ensureSchema (idempotent migrations)
+│       ├── lib/               permissions.js (per-module access), unifi.js (UniFi client)
+│       ├── middleware/        auth.js (JWT auth + role/permission gates), rateLimit.js
+│       └── routes/            auth, users, tickets, assets, kb, asset-requests,
+│                              departments, password-resets, chat, network, notifications
 └── README.md
 ```
 
 ## Domain model (database)
 
-Schema lives in `server/sql/schema.sql`. Key tables:
+`server/sql/schema.sql` is the canonical build (tables + seed). `ensureSchema()` in `config/db.js` applies idempotent migrations on boot, so an existing DB is patched up to the current shape. Key tables:
 
-- **users** — id, email (unique), password_hash, name, `role` ENUM('admin','agent','user'), department, is_active, last_login_at
-- **tickets** — title, description, `status` ENUM('open','in_progress','on_hold','resolved','closed'), `priority` ENUM('low','normal','high','urgent'), `request_type` ENUM('incident','service_request','question','change'), category, requester, assignee, asset_id
-- **ticket_activity** — append-only audit log: type ('change'|'note'), field, old_value, new_value, body, attachment_id
+- **users** — id, email (unique), password_hash, name, `role` ENUM('admin','agent','user'), department, is_active, `permissions` (JSON, per-module overrides — see [Permissions](#permissions)), last_login_at, last_seen_at (chat presence), notifications_seen_at
+- **tickets** — title, description, `status` ENUM('open','in_progress','on_hold','pending','resolved','closed'), `priority` ENUM('low','normal','high','urgent'), `request_type` ENUM('incident','service_request','question','change'), category, department, requester, assignee, asset_id
+- **ticket_activity** — append-only audit log: type ('change'|'note'), field, old_value, new_value, body, attachment_id (also the source for notifications)
 - **ticket_kb_links** — many-to-many between tickets and KB articles
 - **ticket_attachments** — uploaded files (stored on disk under `server/uploads/`, served via `/uploads/...`)
 - **assets** — asset_tag (unique), type, model, serial_no, assignee, location, `status` ENUM('in_use','in_storage','repair','retired'), purchased_at
+- **asset_requests** — requester, asset_type, quantity, urgency, justification, department, `status` ENUM('pending','approved','denied','fulfilled'), reviewed_by, admin_notes
 - **kb_articles** — title, slug (unique), category, body (markdown, MEDIUMTEXT), author, published flag
+- **departments** — name (unique), description, is_active
+- **password_reset_requests** — user_id, email, `status` ENUM('pending','resolved','denied'), resolved_by, admin_notes (IT-mediated reset queue; no reset email is sent)
+- **chat_rooms / chat_room_members / chat_messages** — team chat. Messages carry denormalized author fields, an optional attachment, and soft-delete (`is_unsent`/`unsent_at`); the client polls (~5s) for new messages
 
 Database name: `mainframe_app` (utf8mb4_unicode_ci).
+
+> Daily **network reports** are currently stored client-side in `localStorage` (`client/src/lib/networkReports.js`) — there is no server table or route for them yet.
 
 ## API surface
 
 Mounted in `server/src/index.js` under `/api`:
 
-| Prefix          | File                          | Purpose                                  |
-| --------------- | ----------------------------- | ---------------------------------------- |
-| `/api/health`   | `index.js`                    | Service + DB ping                        |
-| `/api/auth`     | `routes/auth.js`              | Login, JWT issue                         |
-| `/api/users`    | `routes/users.js`             | User CRUD (admin)                        |
-| `/api/tickets`  | `routes/tickets.js`           | Tickets, activity, KB links, attachments |
-| `/api/assets`   | `routes/assets.js`            | Asset inventory                          |
-| `/api/kb`       | `routes/kb.js`                | KB articles (read by slug, list)         |
+| Prefix                 | File                        | Purpose                                          |
+| ---------------------- | --------------------------- | ------------------------------------------------ |
+| `/api/health`          | `index.js`                  | Service + DB ping                                |
+| `/api/auth`            | `routes/auth.js`            | Login, JWT issue, `/me`, change/forgot password  |
+| `/api/users`           | `routes/users.js`           | User CRUD + permission overrides (`users.manage`)|
+| `/api/tickets`         | `routes/tickets.js`         | Tickets, activity, KB links, attachments         |
+| `/api/assets`          | `routes/assets.js`          | Asset inventory                                  |
+| `/api/asset-requests`  | `routes/asset-requests.js`  | Asset request workflow (request → review)        |
+| `/api/kb`              | `routes/kb.js`              | KB articles (read by slug, list, CRUD)           |
+| `/api/departments`     | `routes/departments.js`     | Departments (list open; writes = `users.manage`) |
+| `/api/password-resets` | `routes/password-resets.js` | IT-mediated reset queue (`users.manage`)         |
+| `/api/chat`            | `routes/chat.js`            | Team chat rooms, messages, attachments           |
+| `/api/network`         | `routes/network.js`         | UniFi monitoring dashboard (live or mock)        |
+| `/api/notifications`   | `routes/notifications.js`   | Per-user notifications derived from ticket activity |
 
-Auth: JSON Web Tokens via `jsonwebtoken`, password hashing via `bcryptjs`. Middleware in `server/src/middleware/auth.js` enforces `requireAuth` and role-based gates.
+Auth: JSON Web Tokens via `jsonwebtoken`, password hashing via `bcryptjs`. Middleware in `server/src/middleware/auth.js` enforces `requireAuth`, `requireRole(...)`, and `requirePermission(module, action)`. `requireAuth` re-loads the user from the DB on every request, so role/permission/active-status changes take effect immediately (no waiting for token expiry).
 
-File uploads: `multer` for ticket attachments. Files saved under `server/uploads/` and served statically.
+Rate limiting: `server/src/middleware/rateLimit.js` — an in-memory, single-process fixed-window limiter throttles login and forgot-password.
+
+File uploads: `multer` for ticket attachments (`server/uploads/`) and chat attachments (`server/uploads/chat/`), served statically under `/uploads`.
 
 ## Frontend routing
 
-Routes defined in `client/src/App.jsx`. Most routes wrap pages in `<ProtectedRoute>`; some require specific roles:
+Routes defined in `client/src/App.jsx`. Most routes wrap pages in `<ProtectedRoute>`. Gating is now permission-based via the `permission={[module, action]}` prop (not raw roles):
 
-- `role="admin"` — `/users`
-- `role={['admin', 'agent']}` — `/assets/new`, `/assets/edit/:id`, `/kb/new`, `/kb/edit/:slug`
-- All other authenticated routes — any signed-in user
+- `permission={['users', 'manage']}` — `/users`, `/users/departments`, `/users/password-resets`
+- `permission={['assets', 'manage']}` — `/assets/new`, `/assets/edit/:id`
+- `permission={['kb', 'manage']}` — `/kb/new`, `/kb/edit/:slug`
+- `permission={['network', 'view' | 'manage']}` — `/network`, `/network/reports*` (manage to create/edit reports)
+- `permission={['tickets' | 'assets' | 'kb', 'view']}` — the corresponding list/detail/category pages
+- `/dashboard`, `/settings`, `/chat` — any signed-in user (no `permission` prop)
+- `/`, `/signin`, `/forgot-password` — public
 
-Vite dev server proxies `/api/*` to the backend on `:4000`, so the client can fetch without CORS configuration.
+`ProtectedRoute` is UX only — the server re-checks permissions on every request. Vite dev server proxies `/api/*` to the backend on `:4000`, so the client can fetch without CORS configuration.
+
+## Permissions
+
+Per-module access control lives in `server/src/lib/permissions.js`. Modules → actions:
+
+- `tickets`: view, create
+- `assets`: view, manage
+- `kb`: view, manage
+- `users`: manage
+- `network`: view, manage
+
+`ROLE_DEFAULTS` defines the baseline grant per role (admin / agent / user). A user's `permissions` JSON column overrides individual module/action flags; omitted keys fall back to the role default. `effectivePermissions(user)` merges the two and `hasPermission(user, module, action)` is the gate behind `requirePermission`. Login and `/api/auth/me` return the merged `permissions` object so the client can drive UI gating from the same source. When adding a new module/action, update `MODULES` and `ROLE_DEFAULTS` together — `sanitizePermissions` strips any keys not in `MODULES`.
 
 ## Goals for Claude
 
@@ -111,7 +148,7 @@ When helping in this repository, prioritize:
 - Use the shared mysql2 pool from `config/db.js`; do not create new connections per request.
 - Use parameterized queries (`?` placeholders) — never string-concatenate user input into SQL.
 - Handle errors explicitly; let the central error handler in `index.js` catch unexpected ones.
-- Apply `requireAuth` and role middleware on protected routes.
+- Apply `requireAuth` plus `requireRole(...)` or `requirePermission(module, action)` on protected routes (prefer permission gates for module access).
 - Keep route handlers thin; if logic grows, extract helpers near the route file.
 
 ### Frontend (client/)
@@ -119,7 +156,7 @@ When helping in this repository, prioritize:
 - Functional React components with hooks. No class components.
 - Tailwind utility classes for styling — match patterns already in `components/` and `pages/`.
 - Reuse `Modal`, `MarkdownEditor`, `Navbar`, `DashboardHeader`, `ProtectedRoute` rather than duplicating.
-- Wrap protected pages in `<ProtectedRoute>` (and pass `role` when admin/agent only).
+- Wrap protected pages in `<ProtectedRoute>` (pass `permission={[module, action]}` for module-gated pages).
 - Handle loading, empty, and error states for any data fetched from `/api/*`.
 - Use `react-router-dom` v7 patterns (`useNavigate`, `useParams`, `<Link>`).
 
@@ -141,7 +178,7 @@ cd client && npm install
 mysql -u root < server/sql/schema.sql
 ```
 
-This creates `mainframe_app` with seed assets, KB articles, and tickets. The server also calls `ensureSchema()` on boot.
+This creates `mainframe_app` with a seed admin user, sample assets, departments, and KB articles. The server also calls `ensureSchema()` on boot to apply incremental migrations to an existing DB.
 
 ### Run locally
 
@@ -161,7 +198,13 @@ cd client && npm run build
 
 ### Test / Lint
 
-No test runner or linter is configured yet. If adding tests, propose the framework before installing.
+Backend unit tests use Node's built-in runner (`node:test`) — no extra dependency. Test files live in `server/test/` as `*.test.js`. Run them with:
+
+```bash
+cd server && npm test
+```
+
+Currently covers the permission logic in `src/lib/permissions.js`. No linter is configured yet, and there is no frontend test runner — propose the framework before installing one.
 
 ## Database and migrations
 
@@ -178,11 +221,11 @@ No test runner or linter is configured yet. If adding tests, propose the framewo
 
 ## Security
 
-- Never hardcode secrets. The server reads `JWT_SECRET`, `DB_*`, and `PORT` from `.env` (see `server/.env.example`).
+- Never hardcode secrets. The server reads `JWT_SECRET`, `JWT_EXPIRES_IN`, `DB_*`, and `PORT` from `.env` (see `server/.env.example`). The UniFi integration adds `UNIFI_HOST`, `UNIFI_OS`, `UNIFI_INSECURE_TLS`, and either `UNIFI_COOKIE` or `UNIFI_USERNAME`/`UNIFI_PASSWORD`; when `UNIFI_HOST` is unset the network module falls back to mock data.
 - Always hash passwords with `bcryptjs` — never store plaintext.
 - Always use parameterized SQL queries.
-- Validate role on the server even when the client already gates the UI; `ProtectedRoute` is UX, not security.
-- Sanitize/validate file uploads (size, mime) before persisting.
+- Validate role/permission on the server even when the client already gates the UI; `ProtectedRoute` is UX, not security.
+- Sanitize/validate file uploads (size, mime) before persisting (ticket and chat uploads both enforce a mime allowlist + size cap).
 
 ## Performance
 

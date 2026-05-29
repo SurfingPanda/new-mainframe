@@ -6,7 +6,8 @@ export default function UserPicker({
   onChange,
   disabled,
   placeholder = 'Type to search users or enter a name',
-  className = ''
+  className = '',
+  id
 }) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
@@ -65,6 +66,7 @@ export default function UserPicker({
   return (
     <div ref={wrapRef} className="relative">
       <input
+        id={id}
         value={value}
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}

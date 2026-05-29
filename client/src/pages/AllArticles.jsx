@@ -222,6 +222,7 @@ export default function AllArticles() {
                       {a.category && <CategoryPill category={a.category} />}
                       {a.author && <span>by {a.author}</span>}
                       <span>Updated {relativeTime(a.updated_at)}</span>
+                      <LinkCount count={a.link_count} />
                     </div>
                   </div>
 
@@ -302,6 +303,22 @@ function StatCard({ label, value, tone }) {
       </div>
       <div className="mt-2 text-2xl font-bold text-brand-900 tabular-nums">{value}</div>
     </div>
+  );
+}
+
+function LinkCount({ count }) {
+  const n = Number(count) || 0;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 ${n > 0 ? 'text-slate-600' : 'text-slate-400'}`}
+      title={`Linked to ${n} ticket${n === 1 ? '' : 's'}`}
+    >
+      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+        <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+      </svg>
+      {n === 0 ? 'Not linked' : `${n} ticket${n === 1 ? '' : 's'}`}
+    </span>
   );
 }
 

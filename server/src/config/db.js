@@ -90,9 +90,16 @@ export async function ensureSchema() {
       linked_by   VARCHAR(120),
       created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY uk_ticket_article (ticket_id, article_id),
-      INDEX idx_tkl_ticket (ticket_id)
+      INDEX idx_tkl_ticket (ticket_id),
+      INDEX idx_tkl_article (article_id)
     )
   `);
+  // Index for counting how many tickets link a given article (KB list).
+  try {
+    await pool.query(`ALTER TABLE ticket_kb_links ADD INDEX idx_tkl_article (article_id)`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_KEYNAME') throw err;
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS chat_rooms (
@@ -186,6 +193,18 @@ export async function ensureSchema() {
       updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_prr_status (status),
       INDEX idx_prr_user (user_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id     INT UNSIGNED NOT NULL,
+      token_hash  CHAR(64) NOT NULL UNIQUE,
+      expires_at  TIMESTAMP NOT NULL,
+      used_at     TIMESTAMP NULL,
+      created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_prt_user (user_id)
     )
   `);
 

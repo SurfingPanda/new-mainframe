@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
   is_active             TINYINT(1) NOT NULL DEFAULT 1,
   permissions           JSON NULL,
   last_login_at         TIMESTAMP NULL,
+  last_seen_at          TIMESTAMP NULL,
   notifications_seen_at TIMESTAMP NULL,
   created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -58,7 +59,8 @@ CREATE TABLE IF NOT EXISTS ticket_kb_links (
   linked_by   VARCHAR(120),
   created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uk_ticket_article (ticket_id, article_id),
-  INDEX idx_tkl_ticket (ticket_id)
+  INDEX idx_tkl_ticket (ticket_id),
+  INDEX idx_tkl_article (article_id)
 );
 
 CREATE TABLE IF NOT EXISTS ticket_attachments (
@@ -132,6 +134,8 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   attachment_filename VARCHAR(255) NULL,
   attachment_mime     VARCHAR(120) NULL,
   attachment_size     INT UNSIGNED NULL,
+  is_unsent     TINYINT(1) NOT NULL DEFAULT 0,
+  unsent_at     TIMESTAMP NULL,
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_cm_room_created (room_key, created_at),
   INDEX idx_cm_user (user_id)
@@ -149,6 +153,16 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
   updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_prr_status (status),
   INDEX idx_prr_user (user_id)
+);
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id     INT UNSIGNED NOT NULL,
+  token_hash  CHAR(64) NOT NULL UNIQUE,
+  expires_at  TIMESTAMP NOT NULL,
+  used_at     TIMESTAMP NULL,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_prt_user (user_id)
 );
 
 CREATE TABLE IF NOT EXISTS departments (

@@ -37,6 +37,10 @@ const CATEGORIES = [
 
 const SLA_DAYS = { low: 7, normal: 3, high: 2, urgent: 1 };
 const RESOLVED_STATUSES = new Set(['resolved', 'closed']);
+// Statuses during which the SLA clock pauses — the elapsed time isn't the
+// agent's: waiting on the customer (pending), parked (on_hold), or done
+// (resolved/closed, which matters once a ticket is reopened).
+const SLA_PAUSED_STATUSES = new Set(['pending', 'on_hold', ...RESOLVED_STATUSES]);
 
 const DRAFT_FIELDS = [
   'description', 'status', 'priority', 'request_type',
@@ -61,6 +65,7 @@ export default function TicketDetail() {
   const [kbLinks, setKbLinks] = useState([]);
   const [assignableUsers, setAssignableUsers] = useState([]);
   const [directoryUsers, setDirectoryUsers] = useState([]);
+  const [deptList, setDeptList] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -81,9 +86,10 @@ export default function TicketDetail() {
       api(`/api/tickets/${id}/activity`).catch(() => []),
       api(`/api/tickets/${id}/kb`).catch(() => []),
       api('/api/users/assignable').catch(() => []),
-      api('/api/users/directory').catch(() => [])
+      api('/api/users/directory').catch(() => []),
+      api('/api/departments').catch(() => [])
     ])
-      .then(([t, acts, kb, users, dir]) => {
+      .then(([t, acts, kb, users, dir, depts]) => {
         if (!active) return;
         setTicket(t);
         setDraft(makeDraft(t));
@@ -91,6 +97,7 @@ export default function TicketDetail() {
         setKbLinks(kb);
         setAssignableUsers(users);
         setDirectoryUsers(dir);
+        setDeptList((depts || []).filter((d) => d.is_active).map((d) => d.name));
         setError('');
       })
       .catch((e) => active && setError(e.message))
@@ -117,9 +124,11 @@ export default function TicketDetail() {
 
   // Department routing — selecting a department filters the assignee list to
   // that department's users.
+  // Active departments from the admin list, unioned with any department an
+  // assignable user already belongs to (covers legacy/mismatched data).
   const departments = useMemo(
-    () => [...new Set(assignableUsers.map((u) => u.department).filter(Boolean))].sort(),
-    [assignableUsers]
+    () => [...new Set([...deptList, ...assignableUsers.map((u) => u.department).filter(Boolean)])].sort(),
+    [deptList, assignableUsers]
   );
   // Keep the ticket's saved department selectable even if no current user
   // sits in it (e.g. the last member left that department).
@@ -784,7 +793,7 @@ function SlaBanner({ ticket, activity }) {
   if (!sla) return null;
 
   const tone = sla.resolved
-    ? 'accent'
+    ? sla.overdue ? 'rose' : 'accent'
     : sla.percent >= 100
       ? 'rose'
       : sla.percent >= 75
@@ -806,7 +815,9 @@ function SlaBanner({ ticket, activity }) {
   }[tone];
 
   const headline = sla.resolved
-    ? `Resolved within SLA · ${SLA_DAYS[ticket.priority]}-day target`
+    ? sla.overdue
+      ? `SLA breached · resolved ${formatDuration(-sla.remainingMs)} late`
+      : `Resolved within SLA · ${SLA_DAYS[ticket.priority]}-day target`
     : sla.overdue
       ? `Overdue by ${formatDuration(-sla.remainingMs)}`
       : `${formatDuration(sla.remainingMs)} remaining`;
@@ -817,14 +828,19 @@ function SlaBanner({ ticket, activity }) {
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
             SLA · {ticket.priority?.toUpperCase()} · {SLA_DAYS[ticket.priority]}-day target
-            {sla.graceMs > 0 && (
-              <span className="text-violet-600"> · +72h pending extension</span>
+            {sla.pausedMs > 0 && (
+              <span className="text-violet-600"> · clock paused {formatDuration(sla.pausedMs)}</span>
             )}
           </p>
           <p className="mt-0.5 text-sm font-semibold text-brand-900">{headline}</p>
-          {sla.isPending && (
+          {ticket.status === 'pending' && (
             <p className="mt-0.5 text-xs font-medium text-violet-700">
-              Waiting for customer response — 72 hours added to the SLA target.
+              Waiting for customer response — SLA clock paused.
+            </p>
+          )}
+          {ticket.status === 'on_hold' && (
+            <p className="mt-0.5 text-xs font-medium text-violet-700">
+              On hold — SLA clock paused.
             </p>
           )}
         </div>
@@ -846,40 +862,80 @@ function SlaBanner({ ticket, activity }) {
   );
 }
 
-const PENDING_GRACE_MS = 72 * 60 * 60 * 1000;
+// Reconstruct the ordered status-change timeline from the activity log so we
+// can measure how long the ticket actually spent in each status.
+function statusChanges(activity) {
+  return (activity || [])
+    .filter((a) => a.type === 'change' && a.field === 'status' && a.new_value)
+    .map((a) => ({ at: new Date(a.created_at).getTime(), status: a.new_value, prev: a.old_value }))
+    .filter((c) => !Number.isNaN(c.at))
+    .sort((a, b) => a.at - b.at);
+}
 
-// A ticket earns a one-time 72-hour SLA extension once it has been set to
-// "Pending - Waiting for Customer". The extension sticks even after the ticket
-// leaves that status, so it's detected from the current status plus the
-// status-change history in the activity log.
-function hasBeenPending(ticket, activity) {
-  if (ticket.status === 'pending') return true;
-  return (activity || []).some(
-    (a) => a.type === 'change' && a.field === 'status' &&
-           (a.new_value === 'pending' || a.old_value === 'pending')
-  );
+// The actual resolution time: the most recent transition into a resolved/closed
+// status. Falls back to updated_at only when the log doesn't record it. Using
+// the log (not updated_at) means a later edit to a resolved ticket can't move
+// the resolution time.
+function resolvedAtMs(ticket, activity) {
+  let latest = null;
+  for (const c of statusChanges(activity)) {
+    if (RESOLVED_STATUSES.has(c.status) && (latest === null || c.at > latest)) latest = c.at;
+  }
+  if (latest !== null) return latest;
+  const u = new Date(ticket.updated_at).getTime();
+  return Number.isNaN(u) ? Date.now() : u;
+}
+
+// Total time the ticket spent in a paused status (see SLA_PAUSED_STATUSES),
+// clamped to [opened, until]. The SLA clock only runs while the ticket is
+// actively being worked (open / in_progress), so reopening resumes the clock
+// where it left off rather than counting the closed gap.
+function pausedDurationMs(ticket, activity, opened, until) {
+  const changes = statusChanges(activity);
+  let segStart = opened;
+  let segStatus = changes.length ? (changes[0].prev || 'open') : ticket.status;
+  let paused = 0;
+  const accrue = (from, to, status) => {
+    if (!SLA_PAUSED_STATUSES.has(status)) return;
+    const lo = Math.max(from, opened);
+    const hi = Math.min(to, until);
+    if (hi > lo) paused += hi - lo;
+  };
+  for (const c of changes) {
+    accrue(segStart, c.at, segStatus);
+    segStart = c.at;
+    segStatus = c.status;
+  }
+  accrue(segStart, until, segStatus);
+  return paused;
 }
 
 function computeSla(ticket, activity = []) {
   const days = SLA_DAYS[ticket.priority];
   if (!days || !ticket.created_at) return null;
   const opened = new Date(ticket.created_at).getTime();
-  const graceMs = hasBeenPending(ticket, activity) ? PENDING_GRACE_MS : 0;
-  const totalMs = days * 24 * 60 * 60 * 1000 + graceMs;
-  const dueAt = opened + totalMs;
+  if (Number.isNaN(opened)) return null;
+
   const resolved = RESOLVED_STATUSES.has(ticket.status);
-  const referencePoint = resolved ? new Date(ticket.updated_at).getTime() : Date.now();
-  const elapsed = referencePoint - opened;
-  const percent = (elapsed / totalMs) * 100;
-  const remainingMs = dueAt - referencePoint;
+  // Freeze resolved/closed tickets at the real resolution time; running tickets
+  // measure against now.
+  const referencePoint = resolved ? resolvedAtMs(ticket, activity) : Date.now();
+  // Subtract paused time (waiting on customer, on hold, or previously
+  // resolved/closed) so only active working time counts against the target.
+  const pausedMs = pausedDurationMs(ticket, activity, opened, referencePoint);
+
+  const totalMs = days * 24 * 60 * 60 * 1000;
+  const elapsedMs = Math.max(0, referencePoint - opened - pausedMs);
+  const remainingMs = totalMs - elapsedMs;
+  const percent = (elapsedMs / totalMs) * 100;
+
   return {
-    dueAt: new Date(dueAt),
+    dueAt: new Date(opened + totalMs + pausedMs),
     percent,
     remainingMs,
     overdue: remainingMs < 0,
     resolved,
-    graceMs,
-    isPending: ticket.status === 'pending'
+    pausedMs
   };
 }
 

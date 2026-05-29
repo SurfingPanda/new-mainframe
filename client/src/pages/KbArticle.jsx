@@ -12,6 +12,8 @@ export default function KbArticle() {
   const [article, setArticle] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [linkedTickets, setLinkedTickets] = useState([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -19,6 +21,15 @@ export default function KbArticle() {
       .then((data) => { setArticle(data); setError(''); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+  }, [slug]);
+
+  // Which tickets link to this article (shown to all signed-in users).
+  useEffect(() => {
+    setTicketsLoading(true);
+    api(`/api/kb/${slug}/tickets`)
+      .then((list) => setLinkedTickets(Array.isArray(list) ? list : []))
+      .catch(() => setLinkedTickets([]))
+      .finally(() => setTicketsLoading(false));
   }, [slug]);
 
   const handleTogglePublish = async () => {
@@ -61,7 +72,8 @@ export default function KbArticle() {
         )}
 
         {article && !loading && (
-          <div className="max-w-3xl mx-auto">
+          <div className="mx-auto max-w-6xl grid gap-6 lg:grid-cols-3 items-start">
+            <div className="lg:col-span-2">
             {/* Article card */}
             <article className="rounded-xl border border-slate-200 bg-white shadow-card overflow-hidden">
               {/* Header */}
@@ -112,6 +124,11 @@ export default function KbArticle() {
                 </Link>
               </div>
             )}
+            </div>
+
+            <aside className="lg:col-span-1">
+              <LinkedTickets tickets={linkedTickets} loading={ticketsLoading} />
+            </aside>
           </div>
         )}
       </main>
@@ -214,9 +231,9 @@ function MarkdownBody({ body }) {
 }
 
 function inlineFormat(text) {
-  // Bold **text**, italic *text*, inline code `code`
+  // Bold, italic, strikethrough, inline code, images ![alt](url), links [text](url)
   const parts = [];
-  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
+  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|~~(.+?)~~|`(.+?)`|!\[(.*?)\]\((.+?)\)|\[(.+?)\]\((.+?)\))/g;
   let last = 0;
   let m;
   let key = 0;
@@ -224,11 +241,79 @@ function inlineFormat(text) {
     if (m.index > last) parts.push(text.slice(last, m.index));
     if (m[2]) parts.push(<strong key={key++} className="font-semibold text-slate-900">{m[2]}</strong>);
     else if (m[3]) parts.push(<em key={key++} className="italic">{m[3]}</em>);
-    else if (m[4]) parts.push(<code key={key++} className="rounded bg-slate-100 px-1 py-0.5 text-[11px] font-mono text-rose-600">{m[4]}</code>);
+    else if (m[4]) parts.push(<del key={key++} className="line-through text-slate-400">{m[4]}</del>);
+    else if (m[5]) parts.push(<code key={key++} className="rounded bg-slate-100 px-1 py-0.5 text-[11px] font-mono text-rose-600">{m[5]}</code>);
+    else if (m[7] !== undefined) parts.push(<img key={key++} src={m[7]} alt={m[6] || ''} className="my-3 max-w-full rounded-lg border border-slate-200" />);
+    else if (m[9] !== undefined) parts.push(<a key={key++} href={m[9]} className="text-accent-700 underline underline-offset-2 hover:text-accent-900" target="_blank" rel="noreferrer">{m[8]}</a>);
     last = m.index + m[0].length;
   }
   if (last < text.length) parts.push(text.slice(last));
   return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : parts;
+}
+
+const TICKET_STATUS_META = {
+  open: { label: 'Open', dot: 'bg-sky-500' },
+  in_progress: { label: 'In Progress', dot: 'bg-amber-500' },
+  on_hold: { label: 'On Hold', dot: 'bg-slate-400' },
+  pending: { label: 'Pending', dot: 'bg-violet-500' },
+  resolved: { label: 'Resolved', dot: 'bg-emerald-500' },
+  closed: { label: 'Closed', dot: 'bg-slate-500' }
+};
+
+const TICKET_PRIORITY_TONE = {
+  low: 'text-slate-500',
+  normal: 'text-brand-700',
+  high: 'text-amber-600',
+  urgent: 'text-rose-600'
+};
+
+function LinkedTickets({ tickets, loading }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white shadow-card overflow-hidden lg:sticky lg:top-6">
+      <header className="px-4 py-3 border-b border-slate-100">
+        <h2 className="text-sm font-semibold text-brand-900">Linked tickets</h2>
+        <p className="mt-0.5 text-xs text-slate-500">
+          {loading
+            ? 'Loading…'
+            : `${tickets.length} ticket${tickets.length === 1 ? '' : 's'} reference this article`}
+        </p>
+      </header>
+      {loading ? (
+        <div className="px-4 py-10 text-center text-xs text-slate-500">Loading…</div>
+      ) : tickets.length === 0 ? (
+        <div className="px-4 py-10 text-center text-xs text-slate-500">
+          No tickets are linked to this article yet.
+        </div>
+      ) : (
+        <ul className="divide-y divide-slate-100 max-h-[30rem] overflow-y-auto">
+          {tickets.map((t) => {
+            const status = TICKET_STATUS_META[t.status] || { label: t.status, dot: 'bg-slate-400' };
+            return (
+              <li key={t.id}>
+                <Link to={`/tickets/${t.id}`} className="block px-4 py-3 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold tabular-nums text-slate-400">
+                      T-{String(t.id).padStart(4, '0')}
+                    </span>
+                    <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
+                    <span className="text-[11px] text-slate-500">{status.label}</span>
+                  </div>
+                  <p className="mt-1 text-sm font-medium text-brand-900">{t.title}</p>
+                  <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
+                    <span className={`font-semibold uppercase tracking-wide ${TICKET_PRIORITY_TONE[t.priority] || 'text-slate-500'}`}>
+                      {t.priority}
+                    </span>
+                    <span>·</span>
+                    <span>linked {new Date(t.linked_at).toLocaleDateString()}</span>
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
 }
 
 function CategoryPill({ category }) {

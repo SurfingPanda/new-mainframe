@@ -17,6 +17,18 @@ router.get('/', requireAuth, requirePermission('assets', 'view'), async (req, re
     const conditions = [];
     const values = [];
 
+    // Non-staff may only see assets assigned to them — staff (admin/agent) see
+    // everything. This enforces server-side what the UI does client-side, so a
+    // regular user can't read the full inventory by calling the API directly.
+    const isStaff = req.user.role === 'admin' || req.user.role === 'agent';
+    if (!isStaff) {
+      conditions.push('LOWER(assignee) IN (?, ?)');
+      values.push(
+        String(req.user.email || '').toLowerCase(),
+        String(req.user.name || '').toLowerCase()
+      );
+    }
+
     if (status && STATUSES.includes(status)) {
       conditions.push('status = ?'); values.push(status);
     }
@@ -54,7 +66,18 @@ router.get('/:id', requireAuth, requirePermission('assets', 'view'), async (req,
       [Number(req.params.id)]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Asset not found' });
-    res.json(rows[0]);
+
+    // Non-staff may only read an asset assigned to them. Return 404 (not 403)
+    // so the endpoint can't be used to probe which asset ids exist.
+    const asset = rows[0];
+    const isStaff = req.user.role === 'admin' || req.user.role === 'agent';
+    if (!isStaff) {
+      const mine = [req.user.email, req.user.name].map((v) => String(v || '').toLowerCase());
+      if (!asset.assignee || !mine.includes(String(asset.assignee).toLowerCase())) {
+        return res.status(404).json({ error: 'Asset not found' });
+      }
+    }
+    res.json(asset);
   } catch (err) {
     next(err);
   }

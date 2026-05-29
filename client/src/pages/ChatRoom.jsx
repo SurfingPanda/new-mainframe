@@ -73,6 +73,9 @@ export default function ChatRoom() {
 
   const scrollRef = useRef(null);
   const stickyToBottom = useRef(true);
+  // Highest message id we've loaded — the poll cursor. Held in a ref so the
+  // poll interval can read it without re-subscribing on every new message.
+  const lastSeenIdRef = useRef(0);
 
   // Refresh "online" calculation on a clock independent of the rooms poll so
   // people drop offline ~ONLINE_WINDOW_MS after they stop pinging the API.
@@ -151,14 +154,22 @@ export default function ChatRoom() {
     return () => { cancelled = true; };
   }, [activeKey]);
 
-  // Poll for new messages in the active room. The response may also include
-  // older messages that were just unsent — merge them in by upsert so the
-  // local copy flips to the "unsent" placeholder.
+  // Keep the poll cursor in sync with the loaded messages. This lets the poll
+  // effect below depend only on `activeKey` — one stable interval per room —
+  // instead of tearing down and recreating the timer on every new message.
+  useEffect(() => {
+    lastSeenIdRef.current = messages.length ? messages[messages.length - 1].id : 0;
+  }, [messages]);
+
+  // Poll for new messages in the active room. When the thread is empty the
+  // cursor is 0, so we poll with since=0 and still pick up the first message
+  // that arrives into a previously-empty room (e.g. a fresh DM). The response
+  // may also include older messages that were just unsent — merge them in by
+  // upsert so the local copy flips to the "unsent" placeholder.
   useEffect(() => {
     const id = setInterval(async () => {
-      if (messages.length === 0) return;
       try {
-        const since = messages[messages.length - 1].id;
+        const since = lastSeenIdRef.current;
         const fresh = await api(`/api/chat/messages?room=${encodeURIComponent(activeKey)}&since=${since}`);
         if (Array.isArray(fresh) && fresh.length) {
           setMessages((prev) => {
@@ -177,7 +188,7 @@ export default function ChatRoom() {
       }
     }, MESSAGE_POLL_MS);
     return () => clearInterval(id);
-  }, [messages, activeKey]);
+  }, [activeKey]);
 
   // Pin to bottom only when the user is already there
   const onScroll = () => {

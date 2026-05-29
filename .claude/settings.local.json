@@ -48,7 +48,9 @@
       "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -e 'SELECT asset_tag, assignee FROM assets ORDER BY asset_tag; SELECT email,name,role FROM users WHERE email LIKE '\\\\''verify.%'\\\\'';')",
       "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -e 'SELECT asset_tag, assignee FROM assets ORDER BY asset_tag; SELECT COUNT\\(*\\) AS leftover_test_users FROM users WHERE email LIKE '\\\\''verify.%'\\\\'';')",
       "Bash(PORT=4100 node *)",
-      "Bash(del *)"
+      "Bash(del *)",
+      "Bash(npm test *)",
+      "Bash(PORT=4099 node src/index.js)"
     ]
   }
 }

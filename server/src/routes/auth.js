@@ -1,10 +1,13 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool } from '../config/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { effectivePermissions } from '../lib/permissions.js';
+import { sendMailSafe, appUrl } from '../lib/mailer.js';
+import { passwordResetLink } from '../lib/email-templates.js';
 
 const router = Router();
 
@@ -105,8 +108,64 @@ router.post('/forgot-password', forgotLimiter, async (req, res, next) => {
           [user.id, user.email]
         );
       }
+
+      // Issue a single-use, 1-hour self-service reset link. Only the SHA-256
+      // hash is stored; the raw token lives only in the emailed URL.
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+      await pool.query(
+        'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)',
+        [user.id, tokenHash, expiresAt]
+      );
+      sendMailSafe({
+        to: user.email,
+        ...passwordResetLink(user.name, appUrl(`/reset-password?token=${rawToken}`))
+      });
     }
     return ok();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Self-service reset: consume a token from the emailed link and set a new
+// password. Public + rate-limited. Errors are generic (no enumeration).
+router.post('/reset-password', forgotLimiter, async (req, res, next) => {
+  try {
+    const token = String(req.body?.token || '').trim();
+    const newPassword = req.body?.new_password;
+    if (!token || !newPassword) {
+      return res.status(400).json({ error: 'token and new_password are required' });
+    }
+    if (String(newPassword).length < 8) {
+      return res.status(400).json({ error: 'new password must be at least 8 characters' });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const [rows] = await pool.query(
+      `SELECT id, user_id FROM password_reset_tokens
+        WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW()
+        LIMIT 1`,
+      [tokenHash]
+    );
+    const row = rows[0];
+    if (!row) {
+      return res.status(400).json({ error: 'This reset link is invalid or has expired. Please request a new one.' });
+    }
+
+    const hash = await bcrypt.hash(String(newPassword), 10);
+    await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [hash, row.user_id]);
+    await pool.query('UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?', [row.id]);
+    // Close any pending IT-queue request now that the user reset it themselves.
+    await pool.query(
+      `UPDATE password_reset_requests
+          SET status = 'resolved', resolved_by = 'self-service', resolved_at = CURRENT_TIMESTAMP
+        WHERE user_id = ? AND status = 'pending'`,
+      [row.user_id]
+    );
+
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }

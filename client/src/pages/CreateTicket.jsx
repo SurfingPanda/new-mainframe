@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import UserPicker from '../components/UserPicker.jsx';
@@ -39,6 +39,14 @@ export default function CreateTicket() {
   const user = getUser();
   const isStaff = user?.role === 'admin' || user?.role === 'agent';
 
+  const titleId = useId();
+  const requestTypeId = useId();
+  const categoryId = useId();
+  const descId = useId();
+  const requesterId = useId();
+  const departmentId = useId();
+  const assigneeId = useId();
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [requestType, setRequestType] = useState('service_request');
@@ -53,19 +61,28 @@ export default function CreateTicket() {
   const [assets, setAssets] = useState([]);
   const [assignableUsers, setAssignableUsers] = useState([]);
   const [directoryUsers, setDirectoryUsers] = useState([]);
+  const [deptList, setDeptList] = useState([]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     api('/api/assets').then(setAssets).catch(() => setAssets([]));
-    api('/api/users/assignable').then(setAssignableUsers).catch(() => setAssignableUsers([]));
-    api('/api/users/directory').then(setDirectoryUsers).catch(() => setDirectoryUsers([]));
-  }, []);
+    api('/api/departments')
+      .then((rows) => setDeptList((rows || []).filter((d) => d.is_active).map((d) => d.name)))
+      .catch(() => setDeptList([]));
+    // Only staff use these — non-staff have a read-only requester and can't
+    // pick an assignee, so skip the fetches for them.
+    if (isStaff) {
+      api('/api/users/assignable').then(setAssignableUsers).catch(() => setAssignableUsers([]));
+      api('/api/users/directory').then(setDirectoryUsers).catch(() => setDirectoryUsers([]));
+    }
+  }, [isStaff]);
 
   const titleCount = title.length;
   const descCount = description.length;
   const titleTooLong = titleCount > TITLE_MAX;
   const descTooLong = descCount > DESC_MAX;
+  const titleTooShort = title.trim().length > 0 && title.trim().length < 4;
 
   // Regular users may only link assets assigned to them; staff see all assets.
   const visibleAssets = useMemo(() => {
@@ -80,9 +97,11 @@ export default function CreateTicket() {
 
   // Departments that have at least one assignable user — picking one filters
   // the assignee list to that department's people.
+  // Active departments from the admin list, unioned with any department an
+  // assignable user already belongs to (covers legacy/mismatched data).
   const departments = useMemo(
-    () => [...new Set(assignableUsers.map((u) => u.department).filter(Boolean))].sort(),
-    [assignableUsers]
+    () => [...new Set([...deptList, ...assignableUsers.map((u) => u.department).filter(Boolean)])].sort(),
+    [deptList, assignableUsers]
   );
 
   const assigneeChoices = useMemo(
@@ -103,11 +122,43 @@ export default function CreateTicket() {
     [title, requester, titleTooLong, descTooLong, submitting]
   );
 
+  const isDirty = useMemo(
+    () =>
+      title.trim() !== '' ||
+      description.trim() !== '' ||
+      category !== '' ||
+      department !== '' ||
+      assignee.trim() !== '' ||
+      assetId !== '' ||
+      requestType !== 'service_request' ||
+      priority !== 'normal' ||
+      files.length > 0 ||
+      requester.trim() !== (user?.email || '').trim(),
+    [title, description, category, department, assignee, assetId, requestType, priority, files, requester, user?.email]
+  );
+
+  // Warn before a full-page unload (refresh / close / external link) when the
+  // form has unsaved input. In-app Cancel goes through handleCancel below.
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
+
+  const handleCancel = () => {
+    if (isDirty && !window.confirm('Discard this ticket? Your changes will be lost.')) return;
+    navigate('/tickets/all');
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     setError('');
     if (!canSubmit) {
-      setError('Add a title (at least 4 characters) and confirm the requester before submitting.');
+      if (!title.trim()) setError('Please add a title before submitting.');
+      else if (title.trim().length < 4) setError('Title needs at least 4 characters.');
+      else if (!requester.trim()) setError('Please confirm the requester before submitting.');
+      else setError('Please fix the highlighted fields before submitting.');
       return;
     }
     setSubmitting(true);
@@ -163,9 +214,9 @@ export default function CreateTicket() {
               Describe the issue or request. The IT team will triage and respond based on priority.
             </p>
           </div>
-          <Link to="/tickets/all" className="btn-ghost !px-3 !py-2 text-xs self-start md:self-auto">
+          <button type="button" onClick={handleCancel} className="btn-ghost !px-3 !py-2 text-xs self-start md:self-auto">
             Cancel
-          </Link>
+          </button>
         </section>
 
         <form onSubmit={submit} className="grid gap-6 lg:grid-cols-3">
@@ -173,23 +224,29 @@ export default function CreateTicket() {
             <Card title="Issue details">
               <Field
                 label="Title"
+                htmlFor={titleId}
                 hint="A short summary of the issue. Be specific."
+                error={titleTooShort ? 'Title needs at least 4 characters.' : ''}
                 required
                 trailing={<CharCount value={titleCount} max={TITLE_MAX} />}
               >
                 <input
+                  id={titleId}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="e.g. Outlook keeps asking for credentials"
-                  maxLength={TITLE_MAX + 50}
-                  className={inputCls(titleTooLong)}
+                  maxLength={TITLE_MAX}
+                  className={inputCls(titleTooLong || titleTooShort)}
+                  aria-required="true"
+                  aria-invalid={titleTooShort || titleTooLong}
                   autoFocus
                 />
               </Field>
 
               <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="Request Type" hint="What kind of ticket is this?" required>
+                <Field label="Request Type" htmlFor={requestTypeId} hint="What kind of ticket is this?" required>
                   <select
+                    id={requestTypeId}
                     value={requestType}
                     onChange={(e) => setRequestType(e.target.value)}
                     className={inputCls(false)}
@@ -203,8 +260,9 @@ export default function CreateTicket() {
                   </p>
                 </Field>
 
-                <Field label="Category" hint="Helps route the ticket to the right team.">
+                <Field label="Category" htmlFor={categoryId} hint="Helps route the ticket to the right team.">
                   <select
+                    id={categoryId}
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
                     className={inputCls(false)}
@@ -219,15 +277,19 @@ export default function CreateTicket() {
 
               <Field
                 label="Description"
+                htmlFor={descId}
                 hint="Steps to reproduce, error messages, screenshot links — anything that helps."
+                error={descTooLong ? `Description is over the ${DESC_MAX}-character limit.` : ''}
                 trailing={<CharCount value={descCount} max={DESC_MAX} />}
               >
                 <textarea
+                  id={descId}
                   rows={8}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder={descPlaceholder}
                   className={`${inputCls(descTooLong)} resize-y leading-relaxed`}
+                  aria-invalid={descTooLong}
                 />
               </Field>
             </Card>
@@ -270,9 +332,10 @@ export default function CreateTicket() {
             </Card>
 
             <Card title="People">
-              <Field label="Requester" hint="Person reporting the issue." required>
+              <Field label="Requester" htmlFor={requesterId} hint="Person reporting the issue." required>
                 {isStaff ? (
                   <UserPicker
+                    id={requesterId}
                     value={requester}
                     users={directoryUsers}
                     onChange={setRequester}
@@ -281,10 +344,12 @@ export default function CreateTicket() {
                 ) : (
                   <>
                     <input
+                      id={requesterId}
                       value={requester}
                       onChange={(e) => setRequester(e.target.value)}
                       placeholder="username or email"
                       className={inputCls(false)}
+                      aria-required="true"
                       readOnly
                     />
                     <p className="mt-1 text-[11px] text-slate-500">Requester is locked to your account.</p>
@@ -294,6 +359,7 @@ export default function CreateTicket() {
 
               <Field
                 label="Department"
+                htmlFor={departmentId}
                 hint={
                   department
                     ? `Assignee list is filtered to ${department}.`
@@ -301,6 +367,7 @@ export default function CreateTicket() {
                 }
               >
                 <select
+                  id={departmentId}
                   value={department}
                   onChange={(e) => onDepartmentChange(e.target.value)}
                   className={inputCls(false)}
@@ -314,9 +381,11 @@ export default function CreateTicket() {
 
               <Field
                 label="Assignee"
+                htmlFor={assigneeId}
                 hint={isStaff ? 'Leave blank to triage later.' : 'IT will assign someone.'}
               >
                 <UserPicker
+                  id={assigneeId}
                   value={assignee}
                   users={assigneeChoices}
                   onChange={setAssignee}
@@ -327,13 +396,13 @@ export default function CreateTicket() {
             </Card>
 
             {error && (
-              <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">
+              <div role="alert" className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">
                 {error}
               </div>
             )}
 
             <div className="flex flex-col gap-2 lg:sticky lg:top-20">
-              <button type="submit" disabled={!canSubmit} className="btn-primary w-full disabled:opacity-60 disabled:cursor-not-allowed">
+              <button type="submit" disabled={submitting} className="btn-primary w-full disabled:opacity-60 disabled:cursor-not-allowed">
                 {submitting ? (
                   <>
                     <svg className="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24" fill="none">
@@ -346,9 +415,9 @@ export default function CreateTicket() {
                   'Create ticket'
                 )}
               </button>
-              <Link to="/tickets/all" className="btn-secondary w-full text-center">
+              <button type="button" onClick={handleCancel} className="btn-secondary w-full text-center">
                 Cancel
-              </Link>
+              </button>
               <p className="text-[11px] text-slate-500 text-center mt-1">
                 You'll be redirected to the ticket list after submission.
               </p>
@@ -388,18 +457,22 @@ function Card({ title, subtitle, children }) {
   );
 }
 
-function Field({ label, hint, required, trailing, children }) {
+function Field({ label, hint, required, trailing, htmlFor, error, children }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <label className="text-xs font-semibold text-slate-700">
+        <label htmlFor={htmlFor} className="text-xs font-semibold text-slate-700">
           {label}
           {required && <span className="text-rose-500 ml-0.5">*</span>}
         </label>
         {trailing}
       </div>
       {children}
-      {hint && <p className="mt-1 text-[11px] text-slate-500">{hint}</p>}
+      {error ? (
+        <p className="mt-1 text-[11px] font-medium text-rose-600">{error}</p>
+      ) : (
+        hint && <p className="mt-1 text-[11px] text-slate-500">{hint}</p>
+      )}
     </div>
   );
 }

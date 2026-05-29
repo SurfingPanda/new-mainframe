@@ -3,7 +3,7 @@ import { useCallback, useRef, useState } from 'react';
 /* ─── Inline markdown renderer (shared with KbArticle) ─── */
 function inlineFormat(text) {
   const parts = [];
-  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|~~(.+?)~~|`(.+?)`|\[(.+?)\]\((.+?)\))/g;
+  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|~~(.+?)~~|`(.+?)`|!\[(.*?)\]\((.+?)\)|\[(.+?)\]\((.+?)\))/g;
   let last = 0, m, key = 0;
   while ((m = regex.exec(text)) !== null) {
     if (m.index > last) parts.push(text.slice(last, m.index));
@@ -11,7 +11,8 @@ function inlineFormat(text) {
     else if (m[3]) parts.push(<em key={key++} className="italic">{m[3]}</em>);
     else if (m[4]) parts.push(<del key={key++} className="line-through text-slate-400">{m[4]}</del>);
     else if (m[5]) parts.push(<code key={key++} className="rounded bg-slate-100 px-1 py-0.5 text-[11px] font-mono text-rose-600">{m[5]}</code>);
-    else if (m[6]) parts.push(<a key={key++} href={m[7]} className="text-accent-700 underline underline-offset-2 hover:text-accent-900" target="_blank" rel="noreferrer">{m[6]}</a>);
+    else if (m[7] !== undefined) parts.push(<img key={key++} src={m[7]} alt={m[6] || ''} className="my-2 max-w-full rounded-lg border border-slate-200" />);
+    else if (m[9] !== undefined) parts.push(<a key={key++} href={m[9]} className="text-accent-700 underline underline-offset-2 hover:text-accent-900" target="_blank" rel="noreferrer">{m[8]}</a>);
     last = m.index + m[0].length;
   }
   if (last < text.length) parts.push(text.slice(last));
@@ -93,9 +94,12 @@ function TBtn({ title, onClick, active, children, divider }) {
 }
 
 /* ─── Main editor ─── */
-export default function MarkdownEditor({ value, onChange, minRows = 18 }) {
+export default function MarkdownEditor({ value, onChange, minRows = 18, onUpload }) {
   const taRef = useRef(null);
+  const fileRef = useRef(null);
   const [tab, setTab] = useState('write'); // 'write' | 'preview'
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState('');
 
   const words = value.trim() ? value.trim().split(/\s+/).length : 0;
   const chars = value.length;
@@ -143,6 +147,23 @@ export default function MarkdownEditor({ value, onChange, minRows = 18 }) {
     onChange(next);
     requestAnimationFrame(() => { ta.focus(); });
   }, [value, onChange]);
+
+  // Upload a file via the host-provided handler and insert it into the body:
+  // images embed inline, everything else becomes a download link.
+  const handleFile = useCallback(async (file) => {
+    if (!file || !onUpload) return;
+    setUploading(true);
+    setUploadMsg('');
+    try {
+      const res = await onUpload(file); // { url, filename, isImage }
+      const label = res.filename || 'attachment';
+      insertBlock(res.isImage ? `![${label}](${res.url})` : `[${label}](${res.url})`);
+    } catch (e) {
+      setUploadMsg(e.message || 'Upload failed.');
+    } finally {
+      setUploading(false);
+    }
+  }, [onUpload, insertBlock]);
 
   const handleKeyDown = (e) => {
     if ((e.ctrlKey || e.metaKey)) {
@@ -214,6 +235,17 @@ export default function MarkdownEditor({ value, onChange, minRows = 18 }) {
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </TBtn>
 
+        {/* Attach image / PDF */}
+        {onUpload && (
+          <TBtn title="Attach image or PDF" onClick={() => { if (!uploading) fileRef.current?.click(); }} divider>
+            {uploading ? (
+              <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25"/><path d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/></svg>
+            ) : (
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.6"/><path d="M21 15l-5-5L5 21"/></svg>
+            )}
+          </TBtn>
+        )}
+
         {/* View tabs — pushed right */}
         <div className="ml-auto flex items-center bg-slate-200 rounded-md p-0.5 gap-0.5">
           <button
@@ -232,6 +264,20 @@ export default function MarkdownEditor({ value, onChange, minRows = 18 }) {
           </button>
         </div>
       </div>
+
+      {/* Hidden file input + upload error */}
+      {onUpload && (
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp,application/pdf"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleFile(f); }}
+        />
+      )}
+      {uploadMsg && (
+        <div className="bg-rose-50 border-b border-rose-200 px-3 py-1.5 text-[11px] text-rose-700">{uploadMsg}</div>
+      )}
 
       {/* Editor / Preview area */}
       {tab === 'write' ? (
