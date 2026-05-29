@@ -120,7 +120,7 @@ router.get('/rooms', requireAuth, async (req, res, next) => {
 
     // Last message in the general channel
     const [genRows] = await pool.query(
-      `SELECT body, user_name, created_at FROM chat_messages
+      `SELECT body, user_name, created_at, is_unsent FROM chat_messages
         WHERE room_key = ?
         ORDER BY id DESC LIMIT 1`,
       [GENERAL_ROOM]
@@ -166,7 +166,7 @@ router.get('/rooms', requireAuth, async (req, res, next) => {
     let membersByGroup = new Map();
     if (groupIds.length) {
       const [memberRows] = await pool.query(
-        `SELECT m.room_id, u.id, u.name, u.email, u.role, u.department
+        `SELECT m.room_id, u.id, u.name, u.email, u.role, u.department, u.last_seen_at
            FROM chat_room_members m
            JOIN users u ON u.id = m.user_id
           WHERE m.room_id IN (?)
@@ -180,7 +180,8 @@ router.get('/rooms', requireAuth, async (req, res, next) => {
           name: r.name,
           email: r.email,
           role: r.role,
-          department: r.department
+          department: r.department,
+          last_seen_at: r.last_seen_at
         });
       }
     }
@@ -190,7 +191,7 @@ router.get('/rooms', requireAuth, async (req, res, next) => {
     if (myDms.length) {
       const otherIds = [...new Set(myDms.map((d) => d.otherId))];
       const [userRows] = await pool.query(
-        'SELECT id, name, email, role, department FROM users WHERE id IN (?)',
+        'SELECT id, name, email, role, department, last_seen_at FROM users WHERE id IN (?)',
         [otherIds]
       );
       userById = new Map(userRows.map((u) => [u.id, u]));
@@ -207,7 +208,7 @@ router.get('/rooms', requireAuth, async (req, res, next) => {
       if (maxRows.length) {
         const ids = maxRows.map((r) => r.max_id);
         const [lastRows] = await pool.query(
-          `SELECT id, room_key, body, user_name, created_at FROM chat_messages WHERE id IN (?)`,
+          `SELECT id, room_key, body, user_name, created_at, is_unsent FROM chat_messages WHERE id IN (?)`,
           [ids]
         );
         lastByKey = new Map(lastRows.map((l) => [l.room_key, l]));
@@ -341,23 +342,34 @@ router.get('/messages', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'not in room' });
     }
 
+    const COLS = `id, room_key, user_id, user_name, user_role, user_department, body,
+                  attachment_url, attachment_filename, attachment_mime, attachment_size,
+                  is_unsent, unsent_at, created_at`;
+
     const since = Math.max(0, Number(req.query.since) || 0);
     if (since > 0) {
-      const [rows] = await pool.query(
-        `SELECT id, room_key, user_id, user_name, user_role, user_department, body,
-              attachment_url, attachment_filename, attachment_mime, attachment_size, created_at
-           FROM chat_messages
+      // New messages since the last poll plus any older messages that were
+      // unsent in the last minute, so the other end's UI catches the change.
+      const [newRows] = await pool.query(
+        `SELECT ${COLS} FROM chat_messages
           WHERE room_key = ? AND id > ?
           ORDER BY id ASC
           LIMIT ${POLL_LIMIT}`,
         [room, since]
       );
-      return res.json(rows);
+      const [unsentRows] = await pool.query(
+        `SELECT ${COLS} FROM chat_messages
+          WHERE room_key = ? AND id <= ? AND is_unsent = 1
+                AND unsent_at IS NOT NULL
+                AND unsent_at > DATE_SUB(NOW(), INTERVAL 60 SECOND)
+          ORDER BY id ASC
+          LIMIT ${POLL_LIMIT}`,
+        [room, since]
+      );
+      return res.json([...unsentRows, ...newRows]);
     }
     const [rows] = await pool.query(
-      `SELECT id, room_key, user_id, user_name, user_role, user_department, body,
-              attachment_url, attachment_filename, attachment_mime, attachment_size, created_at
-         FROM chat_messages
+      `SELECT ${COLS} FROM chat_messages
         WHERE room_key = ?
         ORDER BY id DESC
         LIMIT ${PAGE_LIMIT}`,
@@ -436,7 +448,8 @@ router.post('/messages', requireAuth, attachmentMiddleware, async (req, res, nex
 
     const [rows] = await pool.query(
       `SELECT id, room_key, user_id, user_name, user_role, user_department, body,
-              attachment_url, attachment_filename, attachment_mime, attachment_size, created_at
+              attachment_url, attachment_filename, attachment_mime, attachment_size,
+              is_unsent, unsent_at, created_at
          FROM chat_messages WHERE id = ?`,
       [result.insertId]
     );
@@ -447,14 +460,18 @@ router.post('/messages', requireAuth, attachmentMiddleware, async (req, res, nex
   }
 });
 
+// "Unsend" — soft-deletes the message so the row stays in place as a
+// placeholder ("You unsent a message"). Body + attachment metadata get
+// wiped, and the file on disk is removed too.
 router.delete('/messages/:id', requireAuth, async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const [[msg]] = await pool.query(
-      'SELECT user_id, attachment_url FROM chat_messages WHERE id = ? LIMIT 1',
+      'SELECT user_id, attachment_url, is_unsent FROM chat_messages WHERE id = ? LIMIT 1',
       [id]
     );
     if (!msg) return res.status(404).json({ error: 'Message not found' });
+    if (msg.is_unsent) return res.json({ ok: true });
 
     const isOwn = msg.user_id === req.user.sub;
     const isAdmin = req.user.role === 'admin';
@@ -462,10 +479,21 @@ router.delete('/messages/:id', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Cannot delete this message' });
     }
 
-    await pool.query('DELETE FROM chat_messages WHERE id = ?', [id]);
+    await pool.query(
+      `UPDATE chat_messages
+          SET is_unsent = 1,
+              unsent_at = CURRENT_TIMESTAMP,
+              body = '',
+              attachment_url = NULL,
+              attachment_filename = NULL,
+              attachment_mime = NULL,
+              attachment_size = NULL
+        WHERE id = ?`,
+      [id]
+    );
 
-    // If there was an attachment, remove the file from disk. Resolve the path
-    // explicitly against UPLOAD_DIR so a tampered DB value can't escape it.
+    // Remove the file from disk too. Resolve explicitly against UPLOAD_DIR so a
+    // tampered DB value can't escape it.
     if (msg.attachment_url) {
       const filename = path.basename(msg.attachment_url);
       const filePath = path.join(UPLOAD_DIR, filename);

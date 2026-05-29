@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, getUser } from '../lib/auth.js';
+import { api, getUser, hasPermission } from '../lib/auth.js';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 
 export default function Dashboard() {
@@ -16,6 +16,7 @@ function StaffDashboard({ user }) {
   const [kb, setKb] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const canViewAssets = hasPermission('assets', 'view', user);
 
   useEffect(() => {
     Promise.all([api('/api/tickets'), api('/api/assets'), api('/api/kb')])
@@ -91,13 +92,15 @@ function StaffDashboard({ user }) {
               </svg>
               Report Incident
             </Link>
-            <Link to="/assets/request" className="btn-secondary !px-3.5 !py-2 text-xs">
-              <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 13h5l2 3h4l2-3h5" />
-                <path d="M5 13V5h14v8" />
-              </svg>
-              Request Asset
-            </Link>
+            {canViewAssets && (
+              <Link to="/assets/request" className="btn-secondary !px-3.5 !py-2 text-xs">
+                <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 13h5l2 3h4l2-3h5" />
+                  <path d="M5 13V5h14v8" />
+                </svg>
+                Request Asset
+              </Link>
+            )}
           </div>
         </section>
 
@@ -272,11 +275,12 @@ function UserDashboard({ user }) {
   const [kb, setKb] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const canViewAssets = hasPermission('assets', 'view', user);
 
   useEffect(() => {
     Promise.all([
       api('/api/tickets'),
-      api('/api/asset-requests'),
+      canViewAssets ? api('/api/asset-requests') : Promise.resolve([]),
       api('/api/kb')
     ])
       .then(([t, r, k]) => {
@@ -286,7 +290,7 @@ function UserDashboard({ user }) {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [canViewAssets]);
 
   const identities = [user?.name, user?.email].filter(Boolean);
   const mine = tickets;
@@ -325,13 +329,15 @@ function UserDashboard({ user }) {
               </svg>
               Report Incident
             </Link>
-            <Link to="/assets/request" className="btn-secondary !px-3.5 !py-2 text-xs">
-              <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 13h5l2 3h4l2-3h5" />
-                <path d="M5 13V5h14v8" />
-              </svg>
-              Request Asset
-            </Link>
+            {canViewAssets && (
+              <Link to="/assets/request" className="btn-secondary !px-3.5 !py-2 text-xs">
+                <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 13h5l2 3h4l2-3h5" />
+                  <path d="M5 13V5h14v8" />
+                </svg>
+                Request Asset
+              </Link>
+            )}
           </div>
         </section>
 
@@ -341,7 +347,7 @@ function UserDashboard({ user }) {
           </div>
         )}
 
-        <section className="grid gap-5 md:grid-cols-3">
+        <section className={`grid gap-5 ${canViewAssets ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
           <StatCard
             label="Your open tickets"
             value={openMine.length}
@@ -353,18 +359,20 @@ function UserDashboard({ user }) {
               </svg>
             }
           />
-          <StatCard
-            label="Asset requests"
-            value={pendingRequests.length}
-            sub={`${requests.length} total · ${pendingRequests.length} pending review`}
-            tone="brand"
-            icon={
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 13h5l2 3h4l2-3h5" />
-                <path d="M5 13V5h14v8" />
-              </svg>
-            }
-          />
+          {canViewAssets && (
+            <StatCard
+              label="Asset requests"
+              value={pendingRequests.length}
+              sub={`${requests.length} total · ${pendingRequests.length} pending review`}
+              tone="brand"
+              icon={
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 13h5l2 3h4l2-3h5" />
+                  <path d="M5 13V5h14v8" />
+                </svg>
+              }
+            />
+          )}
           <StatCard
             label="KB articles"
             value={kb.length}
@@ -457,6 +465,7 @@ function UserDashboard({ user }) {
           </div>
         </section>
 
+        {canViewAssets && (
         <section className="rounded-lg border border-slate-200 bg-white shadow-card dark:bg-slate-900 dark:border-slate-800">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
             <div>
@@ -502,6 +511,7 @@ function UserDashboard({ user }) {
             </ul>
           )}
         </section>
+        )}
       </main>
     </div>
   );

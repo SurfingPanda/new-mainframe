@@ -2,6 +2,23 @@ import jwt from 'jsonwebtoken';
 import { pool } from '../config/db.js';
 import { hasPermission, effectivePermissions } from '../lib/permissions.js';
 
+// In-memory throttle so we don't UPDATE users.last_seen_at on every single
+// authenticated request — once every 30s per user is plenty for an "online"
+// indicator with a 90s online window.
+const PRESENCE_THROTTLE_MS = 30_000;
+const lastBumpAt = new Map();
+
+function bumpPresence(userId) {
+  const now = Date.now();
+  const prev = lastBumpAt.get(userId) || 0;
+  if (now - prev < PRESENCE_THROTTLE_MS) return;
+  lastBumpAt.set(userId, now);
+  // Fire-and-forget — never block the request on this write.
+  pool
+    .query('UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?', [userId])
+    .catch(() => { /* presence is best-effort */ });
+}
+
 // Verifies the JWT, then re-loads the user from the database so role,
 // permissions, and active status reflect the current state — not whatever was
 // true when the token was issued. A deactivated account or a changed
@@ -44,6 +61,7 @@ export async function requireAuth(req, res, next) {
       role: user.role,
       permissions: effectivePermissions(user)
     };
+    bumpPresence(user.id);
     next();
   } catch (err) {
     next(err);

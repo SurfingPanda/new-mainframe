@@ -36,6 +36,14 @@ export async function ensureSchema() {
     if (err.code !== 'ER_DUP_FIELDNAME') throw err;
   }
 
+  // users.last_seen_at is bumped on each authenticated request to power the
+  // chat presence indicator. Anyone seen within ~90s shows as online.
+  try {
+    await pool.query(`ALTER TABLE users ADD COLUMN last_seen_at TIMESTAMP NULL AFTER last_login_at`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
   // tickets.status gained a 'pending' value (Pending - Waiting for Customer).
   // MODIFY with the full enum is idempotent — re-running it is a harmless no-op.
   await pool.query(`
@@ -143,6 +151,20 @@ export async function ensureSchema() {
     `ALTER TABLE chat_messages ADD COLUMN attachment_filename VARCHAR(255) NULL`,
     `ALTER TABLE chat_messages ADD COLUMN attachment_mime     VARCHAR(120) NULL`,
     `ALTER TABLE chat_messages ADD COLUMN attachment_size     INT UNSIGNED NULL`
+  ]) {
+    try {
+      await pool.query(stmt);
+    } catch (err) {
+      if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+    }
+  }
+
+  // chat_messages.is_unsent / unsent_at — message deletion is now a soft
+  // "unsend" so the placeholder ("You unsent a message") can propagate to
+  // the other end via the existing 5s poll.
+  for (const stmt of [
+    `ALTER TABLE chat_messages ADD COLUMN is_unsent TINYINT(1) NOT NULL DEFAULT 0`,
+    `ALTER TABLE chat_messages ADD COLUMN unsent_at TIMESTAMP NULL`
   ]) {
     try {
       await pool.query(stmt);

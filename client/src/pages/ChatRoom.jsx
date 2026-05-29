@@ -9,6 +9,17 @@ const MAX_LEN = 2000;
 const GENERAL_KEY = 'general';
 const LS_ARCHIVE = 'mf_chat_archived';
 const LS_MUTE = 'mf_chat_muted';
+// A user is considered online if we've seen them within this window. The
+// presence ping in middleware/auth.js bumps last_seen_at every 30s, so 90s
+// gives a couple of tolerant misses before we mark someone offline.
+const ONLINE_WINDOW_MS = 90_000;
+
+function isOnline(lastSeenAt, now) {
+  if (!lastSeenAt) return false;
+  const t = new Date(lastSeenAt).getTime();
+  if (Number.isNaN(t)) return false;
+  return now - t < ONLINE_WINDOW_MS;
+}
 
 function loadKeySet(key) {
   try {
@@ -62,6 +73,14 @@ export default function ChatRoom() {
 
   const scrollRef = useRef(null);
   const stickyToBottom = useRef(true);
+
+  // Refresh "online" calculation on a clock independent of the rooms poll so
+  // people drop offline ~ONLINE_WINDOW_MS after they stop pinging the API.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(id);
+  }, []);
 
   // Keep an object URL alive for image previews; revoke when it changes.
   useEffect(() => {
@@ -132,7 +151,9 @@ export default function ChatRoom() {
     return () => { cancelled = true; };
   }, [activeKey]);
 
-  // Poll for new messages in the active room
+  // Poll for new messages in the active room. The response may also include
+  // older messages that were just unsent — merge them in by upsert so the
+  // local copy flips to the "unsent" placeholder.
   useEffect(() => {
     const id = setInterval(async () => {
       if (messages.length === 0) return;
@@ -141,9 +162,14 @@ export default function ChatRoom() {
         const fresh = await api(`/api/chat/messages?room=${encodeURIComponent(activeKey)}&since=${since}`);
         if (Array.isArray(fresh) && fresh.length) {
           setMessages((prev) => {
-            const known = new Set(prev.map((m) => m.id));
-            const add = fresh.filter((m) => !known.has(m.id));
-            return add.length ? [...prev, ...add] : prev;
+            const byId = new Map(prev.map((m) => [m.id, m]));
+            let changed = false;
+            for (const m of fresh) {
+              const cur = byId.get(m.id);
+              if (!cur) { byId.set(m.id, m); changed = true; }
+              else if (cur.is_unsent !== m.is_unsent) { byId.set(m.id, m); changed = true; }
+            }
+            return changed ? Array.from(byId.values()).sort((a, b) => a.id - b.id) : prev;
           });
         }
       } catch {
@@ -232,10 +258,25 @@ export default function ChatRoom() {
     if (!deleteTarget) return;
     try {
       await api(`/api/chat/messages/${deleteTarget.id}`, { method: 'DELETE' });
-      setMessages((prev) => prev.filter((m) => m.id !== deleteTarget.id));
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === deleteTarget.id
+            ? {
+                ...m,
+                is_unsent: 1,
+                body: '',
+                attachment_url: null,
+                attachment_filename: null,
+                attachment_mime: null,
+                attachment_size: null,
+                unsent_at: new Date().toISOString()
+              }
+            : m
+        )
+      );
       setDeleteTarget(null);
     } catch (e) {
-      setError(e.message || 'Could not delete message.');
+      setError(e.message || 'Could not unsend message.');
       setDeleteTarget(null);
     }
   };
@@ -301,7 +342,13 @@ export default function ChatRoom() {
       setPendingRoom({
         key,
         kind: 'dm',
-        other: { id: user.id, name: user.name, role: user.role, department: user.department },
+        other: {
+          id: user.id,
+          name: user.name,
+          role: user.role,
+          department: user.department,
+          last_seen_at: user.last_seen_at
+        },
         last: null
       });
     }
@@ -469,6 +516,7 @@ export default function ChatRoom() {
                           muted={muted.has(r.key)}
                           archived={false}
                           isAdmin={isAdmin}
+                          now={now}
                           onClick={() => openConversation(r.key)}
                           onToggleMute={() => toggleMuted(r.key)}
                           onToggleArchive={() => toggleArchived(r.key)}
@@ -505,6 +553,7 @@ export default function ChatRoom() {
                               muted={muted.has(r.key)}
                               archived={true}
                               isAdmin={isAdmin}
+                              now={now}
                               onClick={() => openConversation(r.key)}
                               onToggleMute={() => toggleMuted(r.key)}
                               onToggleArchive={() => toggleArchived(r.key)}
@@ -529,8 +578,11 @@ export default function ChatRoom() {
                             onClick={() => startDmWith(u)}
                             className="w-full text-left flex items-center gap-3 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
                           >
-                            <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 text-xs font-bold ring-1 ring-inset ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700">
-                              {initials(u.name)}
+                            <span className="relative flex-none">
+                              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 text-xs font-bold ring-1 ring-inset ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700">
+                                {initials(u.name)}
+                              </span>
+                              {isOnline(u.last_seen_at, now) && <OnlineDot title="Online" />}
                             </span>
                             <span className="min-w-0 flex-1">
                               <span className="block text-sm font-medium text-slate-800 truncate dark:text-slate-200">{u.name}</span>
@@ -573,23 +625,31 @@ export default function ChatRoom() {
                     <path d="M19 12H5M12 5l-7 7 7 7" />
                   </svg>
                 </button>
-                <span
-                  className={`inline-flex h-10 w-10 flex-none items-center justify-center rounded-full text-sm font-bold text-white ${
-                    activeRoom.kind === 'channel' ? 'bg-accent-600' : activeRoom.kind === 'group' ? 'bg-brand-700 dark:bg-brand-500' : 'bg-brand-900 dark:bg-brand-600'
-                  }`}
-                >
-                  {activeRoom.kind === 'channel' ? (
-                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M21 15a4 4 0 0 1-4 4H8l-5 4V6a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v9z" />
-                    </svg>
-                  ) : activeRoom.kind === 'group' ? (
-                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                      <circle cx="9" cy="7" r="4" />
-                      <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-                    </svg>
-                  ) : (
-                    initials(activeRoom.other?.name)
+                <span className="relative flex-none">
+                  <span
+                    className={`inline-flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold text-white ${
+                      activeRoom.kind === 'channel' ? 'bg-accent-600' : activeRoom.kind === 'group' ? 'bg-brand-700 dark:bg-brand-500' : 'bg-brand-900 dark:bg-brand-600'
+                    }`}
+                  >
+                    {activeRoom.kind === 'channel' ? (
+                      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15a4 4 0 0 1-4 4H8l-5 4V6a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v9z" />
+                      </svg>
+                    ) : activeRoom.kind === 'group' ? (
+                      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                      </svg>
+                    ) : (
+                      initials(activeRoom.other?.name)
+                    )}
+                  </span>
+                  {activeRoom.kind === 'dm' && isOnline(activeRoom.other?.last_seen_at, now) && (
+                    <OnlineDot title="Online" />
+                  )}
+                  {activeRoom.kind === 'group' && (activeRoom.members || []).some((m) => m.id !== myId && isOnline(m.last_seen_at, now)) && (
+                    <OnlineDot title="Members online" />
                   )}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -743,6 +803,7 @@ function ConversationRow({
   muted,
   archived,
   isAdmin,
+  now,
   onClick,
   onToggleMute,
   onToggleArchive,
@@ -751,8 +812,15 @@ function ConversationRow({
   const isChannel = room.kind === 'channel';
   const isGroup = room.kind === 'group';
   const title = isChannel ? room.label : isGroup ? room.name : room.other?.name || 'Unknown';
+  const dmOnline = !isChannel && !isGroup && isOnline(room.other?.last_seen_at, now);
+  const groupOnlineCount = isGroup
+    ? (room.members || []).filter((m) => isOnline(m.last_seen_at, now)).length
+    : 0;
+  const lastPreview = room.last?.is_unsent
+    ? 'Message unsent'
+    : room.last?.body;
   const sub = room.last
-    ? `${room.last.user_name ? `${room.last.user_name}: ` : ''}${room.last.body}`
+    ? `${room.last.user_name ? `${room.last.user_name}: ` : ''}${lastPreview || ''}`
     : isChannel
       ? room.sub
       : isGroup
@@ -771,23 +839,29 @@ function ConversationRow({
         onClick={onClick}
         className="flex-1 min-w-0 text-left flex items-start gap-3 px-4 py-2.5"
       >
-        <span
-          className={`inline-flex h-10 w-10 flex-none items-center justify-center rounded-full text-xs font-bold text-white ${
-            isChannel ? 'bg-accent-600' : isGroup ? 'bg-brand-700 dark:bg-brand-500' : 'bg-brand-900 dark:bg-brand-600'
-          }`}
-        >
-          {isChannel ? (
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15a4 4 0 0 1-4 4H8l-5 4V6a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v9z" />
-            </svg>
-          ) : isGroup ? (
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-              <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-            </svg>
-          ) : (
-            initials(room.other?.name)
+        <span className="relative flex-none">
+          <span
+            className={`inline-flex h-10 w-10 items-center justify-center rounded-full text-xs font-bold text-white ${
+              isChannel ? 'bg-accent-600' : isGroup ? 'bg-brand-700 dark:bg-brand-500' : 'bg-brand-900 dark:bg-brand-600'
+            }`}
+          >
+            {isChannel ? (
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a4 4 0 0 1-4 4H8l-5 4V6a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v9z" />
+              </svg>
+            ) : isGroup ? (
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+            ) : (
+              initials(room.other?.name)
+            )}
+          </span>
+          {dmOnline && <OnlineDot title="Online" />}
+          {isGroup && groupOnlineCount > 0 && (
+            <OnlineDot title={`${groupOnlineCount} online`} />
           )}
         </span>
         <span className="min-w-0 flex-1">
@@ -1112,29 +1186,48 @@ function MessageGroup({ group, isMe, canDelete, onDelete }) {
         </div>
         <div className={`mt-1 flex flex-col gap-1 ${isMe ? 'items-end' : 'items-start'}`}>
           {group.messages.map((m) => (
-            <div key={m.id} className="group relative max-w-full">
-              {m.attachment_url && (
-                <AttachmentBubble message={m} isMe={isMe} />
-              )}
-              {m.body && (
+            <div
+              key={m.id}
+              className={`group relative max-w-full flex flex-col gap-1 ${isMe ? 'items-end' : 'items-start'}`}
+            >
+              {m.is_unsent ? (
                 <div
-                  className={`whitespace-pre-wrap break-words text-sm rounded-2xl px-3 py-2 ${
-                    m.attachment_url ? 'mt-1' : ''
-                  } ${
+                  className={`max-w-full w-fit inline-flex items-center gap-1.5 text-xs italic rounded-2xl px-3 py-2 ring-1 ring-inset ${
                     isMe
-                      ? 'bg-accent-600 text-white rounded-tr-sm'
-                      : 'bg-slate-100 text-slate-800 rounded-tl-sm dark:bg-slate-800 dark:text-slate-100'
+                      ? 'bg-accent-50 text-accent-700 ring-accent-200 rounded-tr-sm dark:bg-accent-500/10 dark:text-accent-300 dark:ring-accent-500/30'
+                      : 'bg-slate-50 text-slate-500 ring-slate-200 rounded-tl-sm dark:bg-slate-800 dark:text-slate-400 dark:ring-slate-700'
                   }`}
                 >
-                  {m.body}
+                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M4.93 4.93l14.14 14.14" />
+                  </svg>
+                  {isMe ? 'You unsent a message' : `${group.user_name || 'Someone'} unsent a message`}
                 </div>
+              ) : (
+                <>
+                  {m.attachment_url && (
+                    <AttachmentBubble message={m} isMe={isMe} />
+                  )}
+                  {m.body && (
+                    <div
+                      className={`max-w-full w-fit whitespace-pre-wrap break-words text-sm rounded-2xl px-3 py-2 ${
+                        isMe
+                          ? 'bg-accent-600 text-white rounded-tr-sm'
+                          : 'bg-slate-100 text-slate-800 rounded-tl-sm dark:bg-slate-800 dark:text-slate-100'
+                      }`}
+                    >
+                      {m.body}
+                    </div>
+                  )}
+                </>
               )}
-              {canDelete(m) && (
+              {!m.is_unsent && canDelete(m) && (
                 <button
                   type="button"
                   onClick={() => onDelete(m)}
-                  aria-label="Delete message"
-                  title="Delete"
+                  aria-label="Unsend message"
+                  title="Unsend"
                   className={`absolute top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded-md bg-white text-slate-500 shadow-sm ring-1 ring-slate-200 opacity-0 group-hover:opacity-100 hover:text-rose-700 transition-opacity dark:bg-slate-900 dark:ring-slate-700 dark:text-slate-400 ${
                     isMe ? '-left-7' : '-right-7'
                   }`}
@@ -1175,20 +1268,22 @@ function DeleteConfirm({ message, onCancel, onConfirm }) {
         className="w-full max-w-sm rounded-xl bg-white shadow-elevated border border-slate-200 p-5 dark:bg-slate-900 dark:border-slate-700"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-base font-semibold text-brand-900 dark:text-slate-100">Delete message?</h3>
+        <h3 className="text-base font-semibold text-brand-900 dark:text-slate-100">Unsend message?</h3>
         <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
-          This will remove the message for everyone. This action cannot be undone.
+          Everyone in this chat will see "You unsent a message" in its place. This can't be undone.
         </p>
-        <div className="mt-3 max-h-32 overflow-y-auto rounded-md bg-slate-50 ring-1 ring-slate-200 px-3 py-2 text-xs text-slate-700 whitespace-pre-wrap break-words dark:bg-slate-800 dark:ring-slate-700 dark:text-slate-300">
-          {message.body}
-        </div>
+        {(message.body || message.attachment_filename) && (
+          <div className="mt-3 max-h-32 overflow-y-auto rounded-md bg-slate-50 ring-1 ring-slate-200 px-3 py-2 text-xs text-slate-700 whitespace-pre-wrap break-words dark:bg-slate-800 dark:ring-slate-700 dark:text-slate-300">
+            {message.body || message.attachment_filename}
+          </div>
+        )}
         <div className="mt-4 flex justify-end gap-2">
           <button onClick={onCancel} className="btn-ghost !px-3.5 !py-2 text-xs">Cancel</button>
           <button
             onClick={onConfirm}
             className="!px-3.5 !py-2 text-xs inline-flex items-center justify-center rounded-md font-semibold text-white bg-rose-600 hover:bg-rose-700 shadow-sm transition-colors"
           >
-            Delete
+            Unsend
           </button>
         </div>
       </div>
@@ -1492,6 +1587,16 @@ function formatBytes(bytes) {
 
 function initials(name) {
   return (name || 'U').split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+}
+
+function OnlineDot({ title = 'Online' }) {
+  return (
+    <span
+      title={title}
+      aria-label={title}
+      className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-accent-500 ring-2 ring-white dark:ring-slate-900"
+    />
+  );
 }
 
 function timeLabel(ts) {

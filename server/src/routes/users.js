@@ -34,7 +34,7 @@ router.get('/assignable', requireAuth, async (_req, res, next) => {
 router.get('/directory', requireAuth, async (_req, res, next) => {
   try {
     const [rows] = await pool.query(
-      `SELECT id, name, email, role, department
+      `SELECT id, name, email, role, department, last_seen_at
          FROM users
         WHERE is_active = 1
         ORDER BY name ASC`
