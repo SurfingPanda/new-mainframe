@@ -32,10 +32,12 @@ CREATE TABLE IF NOT EXISTS tickets (
   requester     VARCHAR(120) NOT NULL,
   assignee      VARCHAR(120),
   asset_id      INT UNSIGNED NULL,
+  schedule_id   INT UNSIGNED NULL,
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_tickets_status (status),
-  INDEX idx_tickets_assignee (assignee)
+  INDEX idx_tickets_assignee (assignee),
+  INDEX idx_tickets_schedule (schedule_id)
 );
 
 CREATE TABLE IF NOT EXISTS ticket_activity (
@@ -89,6 +91,31 @@ CREATE TABLE IF NOT EXISTS assets (
   updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_assets_type (type),
   INDEX idx_assets_status (status)
+);
+
+-- Recurring work orders (preventive maintenance). Each row is a template + a
+-- cadence; the scheduler auto-generates a ticket into `tickets` when due.
+CREATE TABLE IF NOT EXISTS maintenance_schedules (
+  id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  title          VARCHAR(200) NOT NULL,
+  description    TEXT,
+  priority       ENUM('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
+  request_type   ENUM('incident','service_request','question','change') NOT NULL DEFAULT 'service_request',
+  category       VARCHAR(80) NULL,
+  department     VARCHAR(80) NULL,
+  assignee       VARCHAR(120) NULL,
+  asset_id       INT UNSIGNED NULL,
+  cadence        ENUM('daily','weekly','monthly','quarterly','yearly') NOT NULL,
+  interval_count SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  start_date     DATE NOT NULL,
+  next_run_at    DATE NOT NULL,
+  last_run_at    DATE NULL,
+  is_active      TINYINT(1) NOT NULL DEFAULT 1,
+  created_by     VARCHAR(120),
+  created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_ms_active_next (is_active, next_run_at),
+  INDEX idx_ms_asset (asset_id)
 );
 
 CREATE TABLE IF NOT EXISTS kb_articles (

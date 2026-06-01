@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { pool } from '../config/db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
@@ -6,6 +7,16 @@ import { effectivePermissions, sanitizePermissions } from '../lib/permissions.js
 
 const router = Router();
 const ROLES = ['admin', 'agent', 'user'];
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Readable random password (no ambiguous chars) for bulk-imported accounts.
+function generatePassword(len = 12) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const bytes = crypto.randomBytes(len);
+  let out = '';
+  for (let i = 0; i < len; i++) out += chars[bytes[i] % chars.length];
+  return out;
+}
 
 function decoratePermissions(row) {
   if (!row) return row;
@@ -97,6 +108,80 @@ router.post('/', async (req, res, next) => {
     if (err.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ error: 'A user with that email already exists' });
     }
+    next(err);
+  }
+});
+
+// Bulk-create users from a parsed spreadsheet (CSV/XLSX parsed client-side).
+// Body: { users: [{ name, email, department?, role? }, ...] }. A random
+// password is generated per user and returned once so the admin can distribute
+// it — passwords are never stored in plaintext. Each row reports its own
+// outcome so a few bad rows don't fail the whole batch.
+router.post('/import', async (req, res, next) => {
+  try {
+    const list = Array.isArray(req.body?.users) ? req.body.users : null;
+    if (!list || !list.length) {
+      return res.status(400).json({ error: 'users array is required' });
+    }
+    if (list.length > 500) {
+      return res.status(400).json({ error: 'too many rows (max 500 per import)' });
+    }
+
+    const results = [];
+    const seen = new Set();
+
+    for (let i = 0; i < list.length; i++) {
+      const raw = list[i] || {};
+      const rowNum = i + 1;
+      const name = typeof raw.name === 'string' ? raw.name.trim() : '';
+      const email = typeof raw.email === 'string' ? raw.email.trim().toLowerCase() : '';
+      const role = raw.role ? String(raw.role).trim().toLowerCase() : 'user';
+      const department = raw.department ? String(raw.department).trim().slice(0, 80) : null;
+      const base = { row: rowNum, name, email, department, role };
+
+      if (!name || !email) {
+        results.push({ ...base, status: 'error', error: 'name and email are required' });
+        continue;
+      }
+      if (!EMAIL_RE.test(email)) {
+        results.push({ ...base, status: 'error', error: 'invalid email' });
+        continue;
+      }
+      if (!ROLES.includes(role)) {
+        results.push({ ...base, status: 'error', error: `invalid role "${role}"` });
+        continue;
+      }
+      if (seen.has(email)) {
+        results.push({ ...base, status: 'skipped', error: 'duplicate email within file' });
+        continue;
+      }
+      seen.add(email);
+
+      const password = generatePassword();
+      try {
+        const hash = await bcrypt.hash(password, 10);
+        await pool.query(
+          `INSERT INTO users (email, password_hash, name, role, department, is_active)
+           VALUES (?, ?, ?, ?, ?, 1)`,
+          [email, hash, name.slice(0, 120), role, department]
+        );
+        results.push({ ...base, status: 'created', password });
+      } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') {
+          results.push({ ...base, status: 'skipped', error: 'email already exists' });
+        } else {
+          results.push({ ...base, status: 'error', error: 'could not create user' });
+        }
+      }
+    }
+
+    res.json({
+      created: results.filter((r) => r.status === 'created').length,
+      skipped: results.filter((r) => r.status === 'skipped').length,
+      failed: results.filter((r) => r.status === 'error').length,
+      results
+    });
+  } catch (err) {
     next(err);
   }
 });

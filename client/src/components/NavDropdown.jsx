@@ -283,6 +283,15 @@ function Icon({ name }) {
           <path d="M16 7l3 3M14 9l3 3" />
         </svg>
       );
+    case 'chart':
+      return (
+        <svg {...common}>
+          <path d="M3 3v18h18" />
+          <rect x="7" y="11" width="3" height="6" />
+          <rect x="12" y="7" width="3" height="10" />
+          <rect x="17" y="13" width="3" height="4" />
+        </svg>
+      );
     default:
       return (
         <svg {...common}>

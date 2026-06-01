@@ -5,9 +5,11 @@ import cors from 'cors';
 import morgan from 'morgan';
 
 import { pingDb, ensureSchema } from './config/db.js';
+import { startMaintenanceScheduler } from './lib/maintenance-scheduler.js';
 import auth from './routes/auth.js';
 import users from './routes/users.js';
 import tickets from './routes/tickets.js';
+import maintenance from './routes/maintenance.js';
 import assets from './routes/assets.js';
 import kb from './routes/kb.js';
 import assetRequests from './routes/asset-requests.js';
@@ -51,6 +53,7 @@ app.get('/api/health', async (req, res) => {
 app.use('/api/auth', auth);
 app.use('/api/users', users);
 app.use('/api/tickets', tickets);
+app.use('/api/maintenance', maintenance);
 app.use('/api/assets', assets);
 app.use('/api/kb', kb);
 app.use('/api/asset-requests', assetRequests);
@@ -67,7 +70,9 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-ensureSchema().catch((err) => console.error('schema bootstrap failed:', err));
+ensureSchema()
+  .then(() => startMaintenanceScheduler())
+  .catch((err) => console.error('schema bootstrap failed:', err));
 
 app.listen(PORT, () => {
   console.log(`Mainframe API listening on http://localhost:${PORT}`);

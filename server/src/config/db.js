@@ -240,4 +240,43 @@ export async function ensureSchema() {
       INDEX idx_ar_status (status)
     )
   `);
+
+  // Recurring work orders (preventive maintenance). The scheduler in
+  // lib/maintenance-scheduler.js reads is_active + next_run_at to generate WOs.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS maintenance_schedules (
+      id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      title          VARCHAR(200) NOT NULL,
+      description    TEXT,
+      priority       ENUM('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
+      request_type   ENUM('incident','service_request','question','change') NOT NULL DEFAULT 'service_request',
+      category       VARCHAR(80) NULL,
+      department     VARCHAR(80) NULL,
+      assignee       VARCHAR(120) NULL,
+      asset_id       INT UNSIGNED NULL,
+      cadence        ENUM('daily','weekly','monthly','quarterly','yearly') NOT NULL,
+      interval_count SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+      start_date     DATE NOT NULL,
+      next_run_at    DATE NOT NULL,
+      last_run_at    DATE NULL,
+      is_active      TINYINT(1) NOT NULL DEFAULT 1,
+      created_by     VARCHAR(120),
+      created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_ms_active_next (is_active, next_run_at),
+      INDEX idx_ms_asset (asset_id)
+    )
+  `);
+
+  // tickets.schedule_id links an auto-generated work order back to its schedule.
+  try {
+    await pool.query(`ALTER TABLE tickets ADD COLUMN schedule_id INT UNSIGNED NULL AFTER asset_id`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+  try {
+    await pool.query(`ALTER TABLE tickets ADD INDEX idx_tickets_schedule (schedule_id)`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_KEYNAME') throw err;
+  }
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import * as XLSX from 'xlsx';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import Modal from '../components/Modal.jsx';
 import { api, getUser } from '../lib/auth.js';
@@ -86,6 +87,7 @@ export default function Users() {
   const [editTarget, setEditTarget] = useState(null);   // null | 'new' | user object
   const [resetTarget, setResetTarget] = useState(null); // user object
   const [confirm, setConfirm] = useState(null);         // { user, message, action, label }
+  const [showImport, setShowImport] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -200,12 +202,20 @@ export default function Users() {
               Manage Mainframe accounts, roles, and access for the Eljin Corp directory.
             </p>
           </div>
-          <button onClick={() => setEditTarget('new')} className="btn-primary !px-3.5 !py-2 text-xs self-start md:self-auto">
-            <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            Add user
-          </button>
+          <div className="flex items-center gap-2 self-start md:self-auto">
+            <button onClick={() => setShowImport(true)} className="btn-secondary !px-3.5 !py-2 text-xs">
+              <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+              </svg>
+              Import CSV/XLSX
+            </button>
+            <button onClick={() => setEditTarget('new')} className="btn-primary !px-3.5 !py-2 text-xs">
+              <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              Add user
+            </button>
+          </div>
         </section>
 
         {banner && (
@@ -362,6 +372,16 @@ export default function Users() {
           onCancel={() => setConfirm(null)}
         />
       )}
+
+      {showImport && (
+        <ImportUsersModal
+          onClose={() => setShowImport(false)}
+          onImported={(summary) => {
+            load();
+            setBanner({ type: 'success', text: `Import complete: ${summary.created} created, ${summary.skipped} skipped, ${summary.failed} failed.` });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -373,7 +393,14 @@ function UserFormModal({ target, onClose, onSave, isSelf }) {
   const [password, setPassword] = useState('');
   const [role, setRole] = useState(isNew ? 'user' : target.role || 'user');
   const [department, setDepartment] = useState(isNew ? '' : target.department || '');
+  const [departments, setDepartments] = useState([]);
   const [isActive, setIsActive] = useState(isNew ? true : !!target.is_active);
+
+  useEffect(() => {
+    api('/api/departments')
+      .then((list) => setDepartments(Array.isArray(list) ? list.map((d) => d.name) : []))
+      .catch(() => {});
+  }, []);
   // null = inherit from role; an object = explicit overrides per module/action
   const [permissions, setPermissions] = useState(isNew ? null : target.permissions || null);
   const [submitting, setSubmitting] = useState(false);
@@ -456,7 +483,15 @@ function UserFormModal({ target, onClose, onSave, isSelf }) {
             {isSelf && <p className="text-[11px] text-slate-500 mt-1">You cannot change your own role.</p>}
           </FormField>
           <FormField label="Department">
-            <input value={department} onChange={(e) => setDepartment(e.target.value)} className={inputCls()} placeholder="e.g. IT" />
+            <select value={department} onChange={(e) => setDepartment(e.target.value)} className={inputCls()}>
+              <option value="">— None —</option>
+              {/* Keep the user's current department selectable even if it's no
+                  longer in the active list. */}
+              {department && !departments.includes(department) && (
+                <option value={department}>{department}</option>
+              )}
+              {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
           </FormField>
         </div>
 
@@ -561,6 +596,250 @@ function PermissionsPanel({ role, permissions, onChange, onReset, disabled }) {
         </div>
       )}
     </div>
+  );
+}
+
+const IMPORT_HEADER_MAP = {
+  name: 'name', 'full name': 'name', fullname: 'name', full_name: 'name',
+  email: 'email', 'work email': 'email', work_email: 'email', 'e-mail': 'email',
+  department: 'department', dept: 'department',
+  role: 'role'
+};
+const IMPORT_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeImportRow(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    const key = IMPORT_HEADER_MAP[String(k).trim().toLowerCase()];
+    if (key && (out[key] == null || out[key] === '')) {
+      out[key] = typeof v === 'string' ? v.trim() : v == null ? '' : String(v).trim();
+    }
+  }
+  return out;
+}
+
+function rowProblem(r) {
+  if (!r.name || !r.email) return 'Missing name or email';
+  if (!IMPORT_EMAIL_RE.test(r.email)) return 'Invalid email';
+  if (r.role && !ROLES.includes(String(r.role).toLowerCase())) return `Invalid role "${r.role}"`;
+  return null;
+}
+
+function csvCell(value) {
+  const t = String(value ?? '');
+  return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+}
+
+function downloadCsv(filename, rows) {
+  const blob = new Blob([rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function ImportUsersModal({ onClose, onImported }) {
+  const [fileName, setFileName] = useState('');
+  const [rows, setRows] = useState([]);
+  const [parseError, setParseError] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState('');
+  const [results, setResults] = useState(null);
+
+  const validRows = rows.filter((r) => !rowProblem(r));
+
+  const handleFile = async (file) => {
+    setParseError(''); setError(''); setResults(null); setRows([]); setFileName('');
+    if (!file) return;
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+      const mapped = json.map(normalizeImportRow).filter((r) => r.name || r.email);
+      if (!mapped.length) {
+        setParseError('No rows found. The first row must have headers: name, email, department, role.');
+        return;
+      }
+      setRows(mapped);
+      setFileName(file.name);
+    } catch {
+      setParseError('Could not read that file. Use a .csv or .xlsx with a header row.');
+    }
+  };
+
+  const doImport = async () => {
+    setImporting(true); setError('');
+    try {
+      const payload = {
+        users: rows.map((r) => ({
+          name: r.name,
+          email: r.email,
+          department: r.department || null,
+          role: r.role ? String(r.role).toLowerCase() : 'user'
+        }))
+      };
+      const res = await api('/api/users/import', { method: 'POST', body: JSON.stringify(payload) });
+      setResults(res);
+      onImported(res);
+    } catch (e) {
+      setError(e.message || 'Import failed.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const downloadTemplate = () => {
+    downloadCsv('user-import-template.csv', [
+      'name,email,department,role',
+      'Jane Doe,jane.doe@eljin.corp,IT,user',
+      'John Cruz,john.cruz@eljin.corp,Finance,agent'
+    ]);
+  };
+
+  const downloadCredentials = () => {
+    const created = results.results.filter((r) => r.status === 'created');
+    downloadCsv(
+      'imported-users-credentials.csv',
+      ['name,email,password'].concat(created.map((r) => [csvCell(r.name), csvCell(r.email), csvCell(r.password)].join(',')))
+    );
+  };
+
+  return (
+    <Modal open onClose={onClose} title="Import users" size="lg">
+      {!results ? (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            Upload a <strong>.csv</strong> or <strong>.xlsx</strong> file with a header row. Columns:
+            {' '}<code className="text-xs bg-slate-100 rounded px-1">name</code>,
+            {' '}<code className="text-xs bg-slate-100 rounded px-1">email</code> (required),
+            {' '}<code className="text-xs bg-slate-100 rounded px-1">department</code>,
+            {' '}<code className="text-xs bg-slate-100 rounded px-1">role</code> (optional, defaults to user).
+            A random password is generated for each user.
+          </p>
+
+          <div className="flex items-center gap-3">
+            <label className="btn-secondary !px-3.5 !py-2 text-xs cursor-pointer">
+              Choose file
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                onChange={(e) => handleFile(e.target.files?.[0])}
+              />
+            </label>
+            <button onClick={downloadTemplate} type="button" className="text-xs font-semibold text-accent-700 hover:text-accent-800">
+              Download template
+            </button>
+            {fileName && <span className="text-xs text-slate-500 truncate">{fileName}</span>}
+          </div>
+
+          {parseError && (
+            <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">{parseError}</div>
+          )}
+          {error && (
+            <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>
+          )}
+
+          {rows.length > 0 && (
+            <>
+              <div className="text-xs text-slate-600">
+                {rows.length} row{rows.length === 1 ? '' : 's'} found · <span className="text-accent-700 font-semibold">{validRows.length} ready</span>
+                {rows.length - validRows.length > 0 && <span className="text-rose-600 font-semibold"> · {rows.length - validRows.length} with problems</span>}
+              </div>
+              <div className="max-h-64 overflow-auto rounded-lg border border-slate-200">
+                <table className="min-w-full text-xs">
+                  <thead className="bg-slate-50 text-left font-semibold text-slate-500 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-2">Name</th>
+                      <th className="px-3 py-2">Email</th>
+                      <th className="px-3 py-2">Department</th>
+                      <th className="px-3 py-2">Role</th>
+                      <th className="px-3 py-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {rows.map((r, i) => {
+                      const problem = rowProblem(r);
+                      return (
+                        <tr key={i} className={problem ? 'bg-rose-50/40' : ''}>
+                          <td className="px-3 py-1.5 text-slate-700">{r.name || <span className="text-slate-400">—</span>}</td>
+                          <td className="px-3 py-1.5 text-slate-700">{r.email || <span className="text-slate-400">—</span>}</td>
+                          <td className="px-3 py-1.5 text-slate-600">{r.department || <span className="text-slate-400">—</span>}</td>
+                          <td className="px-3 py-1.5 text-slate-600">{(r.role || 'user').toLowerCase()}</td>
+                          <td className="px-3 py-1.5">
+                            {problem
+                              ? <span className="text-rose-600">{problem}</span>
+                              : <span className="text-accent-700">Ready</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button onClick={onClose} className="btn-ghost !px-4 !py-2 text-sm">Cancel</button>
+            <button
+              onClick={doImport}
+              disabled={importing || validRows.length === 0}
+              className="btn-primary !px-4 !py-2 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {importing ? 'Importing…' : `Import ${validRows.length} user${validRows.length === 1 ? '' : 's'}`}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-2 text-sm">
+            <span className="rounded-full bg-accent-50 text-accent-800 ring-1 ring-accent-200 px-3 py-1 font-medium">{results.created} created</span>
+            <span className="rounded-full bg-slate-100 text-slate-600 ring-1 ring-slate-200 px-3 py-1 font-medium">{results.skipped} skipped</span>
+            <span className="rounded-full bg-rose-50 text-rose-700 ring-1 ring-rose-200 px-3 py-1 font-medium">{results.failed} failed</span>
+          </div>
+
+          {results.created > 0 && (
+            <div className="rounded-md bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-xs text-amber-800">
+              Generated passwords are shown only now. Download them and share securely — they can't be retrieved later.
+              <button onClick={downloadCredentials} className="ml-2 font-semibold underline">Download credentials CSV</button>
+            </div>
+          )}
+
+          <div className="max-h-72 overflow-auto rounded-lg border border-slate-200">
+            <table className="min-w-full text-xs">
+              <thead className="bg-slate-50 text-left font-semibold text-slate-500 sticky top-0">
+                <tr>
+                  <th className="px-3 py-2">Email</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Password / note</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {results.results.map((r, i) => (
+                  <tr key={i}>
+                    <td className="px-3 py-1.5 text-slate-700">{r.email || `Row ${r.row}`}</td>
+                    <td className="px-3 py-1.5">
+                      {r.status === 'created' && <span className="text-accent-700 font-medium">Created</span>}
+                      {r.status === 'skipped' && <span className="text-slate-500 font-medium">Skipped</span>}
+                      {r.status === 'error' && <span className="text-rose-600 font-medium">Error</span>}
+                    </td>
+                    <td className="px-3 py-1.5 font-mono text-slate-600">{r.status === 'created' ? r.password : <span className="font-sans text-slate-400">{r.error}</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <button onClick={onClose} className="btn-primary !px-4 !py-2 text-sm">Done</button>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 

@@ -11,7 +11,11 @@ import SubmittedTickets from './pages/SubmittedTickets.jsx';
 import CreateTicket from './pages/CreateTicket.jsx';
 import CreateIncident from './pages/CreateIncident.jsx';
 import TicketDetail from './pages/TicketDetail.jsx';
+import WorkOrderReports from './pages/WorkOrderReports.jsx';
+import MaintenanceSchedules from './pages/MaintenanceSchedules.jsx';
+import MaintenanceScheduleEditor from './pages/MaintenanceScheduleEditor.jsx';
 import Users from './pages/Users.jsx';
+import UserReports from './pages/UserReports.jsx';
 import Departments from './pages/Departments.jsx';
 import PasswordResetRequests from './pages/PasswordResetRequests.jsx';
 import Settings from './pages/Settings.jsx';
@@ -142,10 +146,50 @@ export default function App() {
         }
       />
       <Route
+        path="/tickets/reports"
+        element={
+          <ProtectedRoute role={['admin', 'agent']}>
+            <WorkOrderReports />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tickets/maintenance"
+        element={
+          <ProtectedRoute role={['admin', 'agent']}>
+            <MaintenanceSchedules />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tickets/maintenance/new"
+        element={
+          <ProtectedRoute role={['admin', 'agent']}>
+            <MaintenanceScheduleEditor />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tickets/maintenance/:id"
+        element={
+          <ProtectedRoute role={['admin', 'agent']}>
+            <MaintenanceScheduleEditor />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/users"
         element={
           <ProtectedRoute permission={['users', 'manage']}>
             <Users />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/users/reports"
+        element={
+          <ProtectedRoute permission={['users', 'manage']}>
+            <UserReports />
           </ProtectedRoute>
         }
       />
