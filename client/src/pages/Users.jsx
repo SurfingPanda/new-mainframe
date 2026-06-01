@@ -9,10 +9,10 @@ const ROLES = ['admin', 'agent', 'user'];
 const PERMISSION_MODULES = [
   {
     key: 'tickets',
-    label: 'Tickets',
+    label: 'Work Orders',
     actions: [
-      { key: 'view', label: 'View tickets' },
-      { key: 'create', label: 'Create / edit tickets' }
+      { key: 'view', label: 'View work orders' },
+      { key: 'create', label: 'Create / edit work orders' }
     ]
   },
   {

@@ -12,9 +12,9 @@ function ticketsMenu(user) {
     {
       heading: 'Views',
       items: [
-        { to: '/tickets/my-queue', label: 'My Queue', desc: 'Tickets assigned to you', icon: 'queue' },
-        { to: '/tickets/submitted', label: 'Submitted Tickets', desc: 'Tickets you own or were filed for you', icon: 'submitted' },
-        { to: '/tickets/all', label: 'All Tickets', desc: 'Every ticket in the system', icon: 'list' }
+        { to: '/tickets/my-queue', label: 'My Queue', desc: 'Work orders assigned to you', icon: 'queue' },
+        { to: '/tickets/submitted', label: 'Submitted Work Orders', desc: 'Work orders you own or were filed for you', icon: 'submitted' },
+        { to: '/tickets/all', label: 'All Work Orders', desc: 'Every work order in the system', icon: 'list' }
       ]
     }
   ];
@@ -23,7 +23,7 @@ function ticketsMenu(user) {
       heading: 'Create',
       items: [
         { to: '/tickets/create-incident', label: 'Create Incident', desc: 'Report an outage or service issue', icon: 'alert', tone: 'accent' },
-        { to: '/tickets/create', label: 'Create New Ticket', desc: 'Open a standard support request', icon: 'plus', tone: 'accent' }
+        { to: '/tickets/create', label: 'Create New Work Order', desc: 'Open a standard support request', icon: 'plus', tone: 'accent' }
       ]
     });
   }
@@ -153,7 +153,7 @@ export default function DashboardHeader() {
             Overview
           </NavLink>
           {hasPermission('tickets', 'view', user) && (
-            <NavDropdown label="Tickets" basePath="/tickets" sections={ticketsMenu(user)} />
+            <NavDropdown label="Work Orders" basePath="/tickets" sections={ticketsMenu(user)} />
           )}
           {hasPermission('assets', 'view', user) && (
             <NavDropdown label="Assets" basePath="/assets" sections={assetsMenu(user)} />
@@ -247,7 +247,7 @@ function MobileNav({ user, usersSections, onClose }) {
     items: [{ to: '/dashboard', label: 'Overview', desc: 'Dashboard home' }]
   });
   if (hasPermission('tickets', 'view', user)) {
-    sections.push({ heading: 'Tickets', items: ticketsMenu(user).flatMap((s) => s.items) });
+    sections.push({ heading: 'Work Orders', items: ticketsMenu(user).flatMap((s) => s.items) });
   }
   if (hasPermission('assets', 'view', user)) {
     sections.push({ heading: 'Assets', items: assetsMenu(user).flatMap((s) => s.items) });

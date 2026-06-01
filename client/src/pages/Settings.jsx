@@ -4,7 +4,7 @@ import DashboardHeader from '../components/DashboardHeader.jsx';
 import { api, getUser } from '../lib/auth.js';
 
 const PERMISSION_MODULES = [
-  { key: 'tickets', label: 'Tickets', actions: ['view', 'create'] },
+  { key: 'tickets', label: 'Work Orders', actions: ['view', 'create'] },
   { key: 'assets',  label: 'Assets',  actions: ['view', 'manage'] },
   { key: 'kb',      label: 'Knowledge base', actions: ['view', 'manage'] },
   { key: 'users',   label: 'User management', actions: ['manage'] }

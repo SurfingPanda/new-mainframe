@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import UserPicker from '../components/UserPicker.jsx';
 import { api, getUser } from '../lib/auth.js';
+import { formatTicketId } from '../lib/ticket.js';
 
 const STATUSES = [
   { key: 'open', label: 'Open' },
@@ -250,20 +251,20 @@ export default function TicketDetail() {
         <nav className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 print:hidden">
           <Link to="/dashboard" className="hover:text-slate-800">Dashboard</Link>
           <span className="text-slate-300">/</span>
-          <Link to="/tickets/all" className="hover:text-slate-800">Tickets</Link>
+          <Link to="/tickets/all" className="hover:text-slate-800">Work Orders</Link>
           <span className="text-slate-300">/</span>
-          <span className="text-accent-700">T-{String(id).padStart(4, '0')}</span>
+          <span className="text-accent-700">{formatTicketId(id)}</span>
         </nav>
 
         {loading && (
-          <div className="py-24 text-center text-sm text-slate-500">Loading ticket…</div>
+          <div className="py-24 text-center text-sm text-slate-500">Loading work order…</div>
         )}
 
         {error && !loading && !ticket && (
           <div className="rounded-xl border border-dashed border-rose-200 bg-white p-12 text-center">
             <p className="text-sm font-semibold text-rose-700">{error}</p>
             <Link to="/tickets/all" className="mt-4 inline-flex text-xs font-semibold text-accent-700 hover:text-accent-800">
-              ← Back to all tickets
+              ← Back to all work orders
             </Link>
           </div>
         )}
@@ -274,7 +275,7 @@ export default function TicketDetail() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-mono text-xs text-slate-500">
-                    T-{String(ticket.id).padStart(4, '0')}
+                    {formatTicketId(ticket.id)}
                   </span>
                   <StatusPill status={ticket.status} />
                   <PriorityPill priority={ticket.priority} />
@@ -313,7 +314,7 @@ export default function TicketDetail() {
                   Print 3×5
                 </button>
                 <Link to="/tickets/all" className="btn-ghost !px-3.5 !py-2 text-xs">
-                  ← All tickets
+                  ← All work orders
                 </Link>
               </div>
             </header>
@@ -329,7 +330,7 @@ export default function TicketDetail() {
             <div className="grid gap-6 lg:grid-cols-3">
               {/* LEFT: editable ticket fields */}
               <div className="lg:col-span-2 space-y-6">
-                <Card title="Ticket details">
+                <Card title="Work order details">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <SelectField
                       label="Status"
@@ -508,12 +509,12 @@ function PrintableTicket({ ticket }) {
           <img src="/images/logo.png" alt="Eljin Corp" className="pt-logo" />
           <div className="pt-brand-text">
             <div className="pt-brand-name">Eljin Corp</div>
-            <div className="pt-brand-sub">IT Service Ticket</div>
+            <div className="pt-brand-sub">IT Service Work Order</div>
           </div>
         </div>
         <div className="pt-ticket-id">
-          <div className="pt-id-label">Ticket No.</div>
-          <div className="pt-id">T-{String(ticket.id).padStart(4, '0')}</div>
+          <div className="pt-id-label">Work Order No.</div>
+          <div className="pt-id">{formatTicketId(ticket.id)}</div>
         </div>
       </header>
 
@@ -981,7 +982,7 @@ function ActivityPanel({ activity, canPost, onAddNote, ticketId }) {
       <header className="px-5 py-4 border-b border-slate-100">
         <h2 className="text-sm font-semibold text-brand-900">Activity & notes</h2>
         <p className="text-xs text-slate-500 mt-0.5">
-          Every change to this ticket is logged here.
+          Every change to this work order is logged here.
         </p>
       </header>
 
@@ -1056,7 +1057,7 @@ function ActivityPanel({ activity, canPost, onAddNote, ticketId }) {
       <div className="max-h-[36rem] overflow-y-auto scrollbar-pretty print:max-h-none print:overflow-visible">
         {activity.length === 0 ? (
           <p className="px-5 py-12 text-center text-xs italic text-slate-400">
-            No activity yet for T-{String(ticketId).padStart(4, '0')}.
+            No activity yet for {formatTicketId(ticketId)}.
           </p>
         ) : (
           <ol className="relative px-5 py-4 space-y-4">
@@ -1135,7 +1136,7 @@ function ActivityItem({ item }) {
 
         {isCreation && (
           <p className="mt-1 text-xs text-slate-600 leading-snug">
-            opened the ticket
+            opened the work order
             {item.new_value && (
               <>{' '}<ChangeValue value={item.new_value} field="title" highlight /></>
             )}

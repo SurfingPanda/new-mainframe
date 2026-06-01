@@ -311,13 +311,13 @@ function LinkCount({ count }) {
   return (
     <span
       className={`inline-flex items-center gap-1 ${n > 0 ? 'text-slate-600' : 'text-slate-400'}`}
-      title={`Linked to ${n} ticket${n === 1 ? '' : 's'}`}
+      title={`Linked to ${n} work order${n === 1 ? '' : 's'}`}
     >
       <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
         <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
       </svg>
-      {n === 0 ? 'Not linked' : `${n} ticket${n === 1 ? '' : 's'}`}
+      {n === 0 ? 'Not linked' : `${n} work order${n === 1 ? '' : 's'}`}
     </span>
   );
 }

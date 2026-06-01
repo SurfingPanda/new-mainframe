@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import { api } from '../lib/auth.js';
+import { formatTicketId } from '../lib/ticket.js';
 
 const STATUSES = [
   { key: 'open', label: 'Open' },
@@ -69,7 +70,7 @@ export default function AllTickets() {
       if (assigneeFilter === 'unassigned' && t.assignee) return false;
       if (assigneeFilter !== 'all' && assigneeFilter !== 'unassigned' && t.assignee !== assigneeFilter) return false;
       if (!q) return true;
-      const idStr = `t-${String(t.id).padStart(4, '0')}`;
+      const idStr = formatTicketId(t.id).toLowerCase();
       return t.title.toLowerCase().includes(q) || idStr.includes(q);
     });
 
@@ -132,19 +133,19 @@ export default function AllTickets() {
         <nav className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
           <Link to="/dashboard" className="hover:text-slate-800">Dashboard</Link>
           <span className="text-slate-300">/</span>
-          <span className="text-slate-700">Tickets</span>
+          <span className="text-slate-700">Work Orders</span>
           <span className="text-slate-300">/</span>
-          <span className="text-accent-700">All Tickets</span>
+          <span className="text-accent-700">All Work Orders</span>
         </nav>
 
         <section className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <span className="eyebrow">Ticketing</span>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900">All Tickets</h1>
+            <span className="eyebrow">Work Orders</span>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900">All Work Orders</h1>
             <p className="mt-1 text-slate-600">
               {loading
-                ? 'Loading tickets…'
-                : `${filtered.length} of ${tickets.length} ${tickets.length === 1 ? 'ticket' : 'tickets'} shown`}
+                ? 'Loading work orders…'
+                : `${filtered.length} of ${tickets.length} ${tickets.length === 1 ? 'work order' : 'work orders'} shown`}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -159,7 +160,7 @@ export default function AllTickets() {
               <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 5v14M5 12h14" />
               </svg>
-              New Ticket
+              New Work Order
             </Link>
           </div>
         </section>
@@ -208,7 +209,7 @@ export default function AllTickets() {
                   type="text"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Search by ticket ID or title…"
+                  placeholder="Search by work order ID or title…"
                   className="block w-full rounded-md border border-slate-300 pl-9 pr-3 py-2 text-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
                 />
               </div>
@@ -294,21 +295,21 @@ export default function AllTickets() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
-                  <tr><td colSpan={7} className="px-5 py-12 text-center text-sm text-slate-500">Loading tickets…</td></tr>
+                  <tr><td colSpan={7} className="px-5 py-12 text-center text-sm text-slate-500">Loading work orders…</td></tr>
                 ) : pageRows.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-5 py-12 text-center">
                       <p className="text-sm font-semibold text-slate-700">
-                        {tickets.length === 0 ? 'No tickets yet' : 'No tickets match your filters'}
+                        {tickets.length === 0 ? 'No work orders yet' : 'No work orders match your filters'}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
                         {tickets.length === 0
-                          ? 'Open the first ticket to get started.'
+                          ? 'Open the first work order to get started.'
                           : 'Try clearing filters or broadening your search.'}
                       </p>
                       <div className="mt-4">
                         {tickets.length === 0 ? (
-                          <Link to="/tickets/create" className="btn-primary !px-3.5 !py-2 text-xs">Create ticket</Link>
+                          <Link to="/tickets/create" className="btn-primary !px-3.5 !py-2 text-xs">Create work order</Link>
                         ) : (
                           <button onClick={clearFilters} className="btn-secondary !px-3.5 !py-2 text-xs">Clear filters</button>
                         )}
@@ -320,7 +321,7 @@ export default function AllTickets() {
                     <tr key={t.id} className="hover:bg-slate-50/60">
                       <td className="px-5 py-3">
                         <Link to={`/tickets/${t.id}`} className="font-mono text-xs text-accent-700 hover:text-accent-800">
-                          T-{String(t.id).padStart(4, '0')}
+                          {formatTicketId(t.id)}
                         </Link>
                       </td>
                       <td className="px-5 py-3 max-w-md">

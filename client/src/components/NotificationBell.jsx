@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { api } from '../lib/auth.js';
+import { formatTicketId } from '../lib/ticket.js';
 
 const POLL_MS = 45_000;
 
@@ -173,7 +174,7 @@ export default function NotificationBell() {
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {items.map((n) => {
                   const to = n.link || (n.ticketId ? `/tickets/${n.ticketId}` : '#');
-                  const subtitle = n.subtitle || (n.ticketId ? `#${n.ticketId} · ${n.ticketTitle}` : null);
+                  const subtitle = n.subtitle || (n.ticketId ? `${formatTicketId(n.ticketId)} · ${n.ticketTitle}` : null);
                   return (
                     <li key={n.id}>
                       <Link

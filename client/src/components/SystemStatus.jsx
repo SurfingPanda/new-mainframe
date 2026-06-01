@@ -1,5 +1,5 @@
 const services = [
-  { name: 'Ticketing service', state: 'Operational', detail: 'Last incident: none in 30 days' },
+  { name: 'Work order service', state: 'Operational', detail: 'Last incident: none in 30 days' },
   { name: 'Asset Inventory', state: 'Operational', detail: 'Sync completed 12 min ago' },
   { name: 'Knowledge Base', state: 'Operational', detail: '317 published articles' },
   { name: 'Authentication (SSO)', state: 'Operational', detail: 'Eljin directory sync active' }

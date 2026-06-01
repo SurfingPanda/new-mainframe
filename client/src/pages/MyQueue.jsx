@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import { api, getUser } from '../lib/auth.js';
+import { formatTicketId } from '../lib/ticket.js';
 
 const STATUSES = [
   { key: 'open', label: 'Open' },
@@ -65,7 +66,7 @@ export default function MyQueue() {
       if (statusFilter.size && !statusFilter.has(t.status)) return false;
       if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
       if (!q) return true;
-      const idStr = `t-${String(t.id).padStart(4, '0')}`;
+      const idStr = formatTicketId(t.id).toLowerCase();
       return (
         t.title.toLowerCase().includes(q) ||
         idStr.includes(q) ||
@@ -131,21 +132,21 @@ export default function MyQueue() {
         <nav className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
           <Link to="/dashboard" className="hover:text-slate-800">Dashboard</Link>
           <span className="text-slate-300">/</span>
-          <span className="text-slate-700">Tickets</span>
+          <span className="text-slate-700">Work Orders</span>
           <span className="text-slate-300">/</span>
           <span className="text-accent-700">My Queue</span>
         </nav>
 
         <section className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <span className="eyebrow">Ticketing</span>
+            <span className="eyebrow">Work Orders</span>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900">My Queue</h1>
             <p className="mt-1 text-slate-600">
               {loading
-                ? 'Loading your tickets…'
+                ? 'Loading your work orders…'
                 : me
-                  ? `${activeCount} active ${activeCount === 1 ? 'ticket' : 'tickets'} assigned to you${myTickets.length !== activeCount ? ` · ${myTickets.length} total` : ''}`
-                  : 'Sign in to see tickets assigned to you.'}
+                  ? `${activeCount} active ${activeCount === 1 ? 'work order' : 'work orders'} assigned to you${myTickets.length !== activeCount ? ` · ${myTickets.length} total` : ''}`
+                  : 'Sign in to see work orders assigned to you.'}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -153,13 +154,13 @@ export default function MyQueue() {
               <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 6h18M3 12h18M3 18h18" />
               </svg>
-              All Tickets
+              All Work Orders
             </Link>
             <Link to="/tickets/create" className="btn-primary !px-3.5 !py-2 text-xs">
               <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 5v14M5 12h14" />
               </svg>
-              New Ticket
+              New Work Order
             </Link>
           </div>
         </section>
@@ -258,23 +259,23 @@ export default function MyQueue() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
-                  <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500">Loading your tickets…</td></tr>
+                  <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500">Loading your work orders…</td></tr>
                 ) : pageRows.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-5 py-12 text-center">
                       <p className="text-sm font-semibold text-slate-700">
                         {myTickets.length === 0
                           ? 'Nothing in your queue'
-                          : 'No tickets match your filters'}
+                          : 'No work orders match your filters'}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
                         {myTickets.length === 0
-                          ? `No tickets are currently assigned to ${me || 'you'}.`
+                          ? `No work orders are currently assigned to ${me || 'you'}.`
                           : 'Try clearing filters or broadening your search.'}
                       </p>
                       <div className="mt-4">
                         {myTickets.length === 0 ? (
-                          <Link to="/tickets/all" className="btn-secondary !px-3.5 !py-2 text-xs">Browse all tickets</Link>
+                          <Link to="/tickets/all" className="btn-secondary !px-3.5 !py-2 text-xs">Browse all work orders</Link>
                         ) : (
                           <button onClick={clearFilters} className="btn-secondary !px-3.5 !py-2 text-xs">Clear filters</button>
                         )}
@@ -286,7 +287,7 @@ export default function MyQueue() {
                     <tr key={t.id} className={`hover:bg-slate-50/60 ${ACTIVE_STATUSES.has(t.status) ? '' : 'opacity-70'}`}>
                       <td className="px-5 py-3">
                         <Link to={`/tickets/${t.id}`} className="font-mono text-xs text-accent-700 hover:text-accent-800">
-                          T-{String(t.id).padStart(4, '0')}
+                          {formatTicketId(t.id)}
                         </Link>
                       </td>
                       <td className="px-5 py-3 max-w-md">

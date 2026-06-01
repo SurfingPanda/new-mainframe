@@ -131,7 +131,7 @@ export default function Departments() {
             <span className="eyebrow">Administration</span>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900">Departments</h1>
             <p className="mt-1 text-slate-600">
-              Manage the departments used to organise users, tickets, and asset assignments.
+              Manage the departments used to organise users, work orders, and asset assignments.
             </p>
           </div>
           <button onClick={() => setEditTarget('new')} className="btn-primary !px-3.5 !py-2 text-xs self-start md:self-auto">

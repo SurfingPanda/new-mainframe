@@ -61,7 +61,7 @@ export default function SignIn() {
             Welcome to <span className="text-accent-400">Mainframe</span>.
           </h1>
           <p className="mt-4 text-slate-300 leading-relaxed">
-            Submit and track support tickets, manage corporate assets, and reference internal documentation —
+            Submit and track support work orders, manage corporate assets, and reference internal documentation —
             all from a single secure portal.
           </p>
 

@@ -14,7 +14,7 @@ export default function Hero() {
             Mainframe
           </h1>
           <p className="mt-4 text-lg text-slate-600 max-w-2xl leading-relaxed">
-            The IT department's operations portal. Submit and track support tickets, manage the corporate
+            The IT department's operations portal. Submit and track support work orders, manage the corporate
             asset inventory, and reference internal documentation — all in one place.
           </p>
 
@@ -29,7 +29,7 @@ export default function Hero() {
           </div>
 
           <dl className="mt-12 grid grid-cols-3 gap-6 max-w-lg border-t border-slate-200 pt-6">
-            <Stat label="Open tickets" value="42" />
+            <Stat label="Open work orders" value="42" />
             <Stat label="Assets tracked" value="1,284" />
             <Stat label="KB articles" value="317" />
           </dl>
@@ -49,11 +49,11 @@ export default function Hero() {
               </div>
               <div className="p-5 space-y-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Recent tickets</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Recent work orders</p>
                   <ul className="divide-y divide-slate-100 rounded-md border border-slate-100">
-                    <TicketRow id="T-1042" title="Outlook prompts for credentials" priority="Normal" tone="amber" />
-                    <TicketRow id="T-1041" title="Replace dock — monitor flicker" priority="Low" tone="slate" />
-                    <TicketRow id="T-1039" title="VPN client install — Sales team" priority="High" tone="rose" />
+                    <TicketRow id="WO00001042" title="Outlook prompts for credentials" priority="Normal" tone="amber" />
+                    <TicketRow id="WO00001041" title="Replace dock — monitor flicker" priority="Low" tone="slate" />
+                    <TicketRow id="WO00001039" title="VPN client install — Sales team" priority="High" tone="rose" />
                   </ul>
                 </div>
                 <div className="flex items-center justify-between rounded-md bg-accent-50 px-3 py-2.5 text-sm ring-1 ring-inset ring-accent-100">

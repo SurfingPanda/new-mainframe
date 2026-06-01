@@ -19,7 +19,7 @@ const URGENCY_LABELS = {
 };
 
 function ticketCode(id) {
-  return `T-${String(id).padStart(4, '0')}`;
+  return `WO${String(id).padStart(8, '0')}`;
 }
 
 function escapeHtml(s) {
@@ -46,12 +46,12 @@ function layout(heading, bodyHtml, cta) {
 export function ticketCreated(ticket) {
   const code = ticketCode(ticket.id);
   return {
-    subject: `[${code}] We received your ticket: ${ticket.title}`,
-    text: `Your ticket ${code} "${ticket.title}" has been received. The IT team will triage and respond based on priority (${ticket.priority}).\n\nView it: ${ticket.url}`,
+    subject: `[${code}] We received your work order: ${ticket.title}`,
+    text: `Your work order ${code} "${ticket.title}" has been received. The IT team will triage and respond based on priority (${ticket.priority}).\n\nView it: ${ticket.url}`,
     html: layout(
-      `Ticket ${code} received`,
-      `<p>Hi,</p><p>Your ticket <strong>${code}</strong> — "${escapeHtml(ticket.title)}" — has been received. The IT team will triage and respond based on priority (<strong>${escapeHtml(ticket.priority)}</strong>).</p>`,
-      { label: 'View ticket', url: ticket.url }
+      `Work order ${code} received`,
+      `<p>Hi,</p><p>Your work order <strong>${code}</strong> — "${escapeHtml(ticket.title)}" — has been received. The IT team will triage and respond based on priority (<strong>${escapeHtml(ticket.priority)}</strong>).</p>`,
+      { label: 'View work order', url: ticket.url }
     )
   };
 }
@@ -60,11 +60,11 @@ export function ticketAssigned(ticket) {
   const code = ticketCode(ticket.id);
   return {
     subject: `[${code}] Assigned to you: ${ticket.title}`,
-    text: `Ticket ${code} "${ticket.title}" has been assigned to you (priority ${ticket.priority}).\n\nView it: ${ticket.url}`,
+    text: `Work order ${code} "${ticket.title}" has been assigned to you (priority ${ticket.priority}).\n\nView it: ${ticket.url}`,
     html: layout(
-      `Ticket ${code} assigned to you`,
-      `<p>Ticket <strong>${code}</strong> — "${escapeHtml(ticket.title)}" — has been assigned to you. Priority: <strong>${escapeHtml(ticket.priority)}</strong>.</p>`,
-      { label: 'Open ticket', url: ticket.url }
+      `Work order ${code} assigned to you`,
+      `<p>Work order <strong>${code}</strong> — "${escapeHtml(ticket.title)}" — has been assigned to you. Priority: <strong>${escapeHtml(ticket.priority)}</strong>.</p>`,
+      { label: 'Open work order', url: ticket.url }
     )
   };
 }
@@ -75,11 +75,11 @@ export function ticketStatusChanged(ticket, oldStatus, newStatus) {
   const oldLabel = STATUS_LABELS[oldStatus] || oldStatus || '—';
   return {
     subject: `[${code}] Status: ${label} — ${ticket.title}`,
-    text: `Your ticket ${code} "${ticket.title}" changed status from ${oldLabel} to ${label}.\n\nView it: ${ticket.url}`,
+    text: `Your work order ${code} "${ticket.title}" changed status from ${oldLabel} to ${label}.\n\nView it: ${ticket.url}`,
     html: layout(
-      `Ticket ${code} is now ${escapeHtml(label)}`,
-      `<p>Your ticket <strong>${code}</strong> — "${escapeHtml(ticket.title)}" — changed status from <strong>${escapeHtml(oldLabel)}</strong> to <strong>${escapeHtml(label)}</strong>.</p>`,
-      { label: 'View ticket', url: ticket.url }
+      `Work order ${code} is now ${escapeHtml(label)}`,
+      `<p>Your work order <strong>${code}</strong> — "${escapeHtml(ticket.title)}" — changed status from <strong>${escapeHtml(oldLabel)}</strong> to <strong>${escapeHtml(label)}</strong>.</p>`,
+      { label: 'View work order', url: ticket.url }
     )
   };
 }
@@ -88,12 +88,12 @@ export function ticketNote(ticket, body, author) {
   const code = ticketCode(ticket.id);
   return {
     subject: `[${code}] New note — ${ticket.title}`,
-    text: `${author || 'Someone'} added a note to ticket ${code} "${ticket.title}":\n\n${body}\n\nView it: ${ticket.url}`,
+    text: `${author || 'Someone'} added a note to work order ${code} "${ticket.title}":\n\n${body}\n\nView it: ${ticket.url}`,
     html: layout(
-      `New note on ticket ${code}`,
+      `New note on work order ${code}`,
       `<p><strong>${escapeHtml(author || 'Someone')}</strong> added a note to "${escapeHtml(ticket.title)}":</p>
        <blockquote style="margin:12px 0;padding:8px 14px;border-left:3px solid #cbd5e1;color:#475569;white-space:pre-wrap;">${escapeHtml(body)}</blockquote>`,
-      { label: 'View ticket', url: ticket.url }
+      { label: 'View work order', url: ticket.url }
     )
   };
 }

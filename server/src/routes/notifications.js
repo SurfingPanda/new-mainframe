@@ -23,9 +23,9 @@ function describe(row, identitySet) {
 
   let message;
   if (row.field === 'created') {
-    message = 'New ticket assigned to you';
+    message = 'New work order assigned to you';
   } else if (row.field === 'assignee') {
-    message = `${actor} assigned this ticket to you`;
+    message = `${actor} assigned this work order to you`;
   } else if (row.type === 'note') {
     message = `${actor} added a note`;
   } else if (row.field === 'status') {
@@ -41,7 +41,7 @@ function describe(row, identitySet) {
   } else if (row.field) {
     message = `${actor} updated the ${row.field.replace(/_/g, ' ')}`;
   } else {
-    message = `${actor} updated this ticket`;
+    message = `${actor} updated this work order`;
   }
 
   return { kind: assigned ? 'assigned' : 'update', message };

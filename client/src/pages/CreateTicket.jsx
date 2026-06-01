@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import UserPicker from '../components/UserPicker.jsx';
 import { api, getUser } from '../lib/auth.js';
+import { formatTicketId } from '../lib/ticket.js';
 
 const TITLE_MAX = 200;
 const DESC_MAX = 4000;
@@ -118,8 +119,8 @@ export default function CreateTicket() {
   };
 
   const canSubmit = useMemo(
-    () => title.trim().length >= 4 && requester.trim() && !titleTooLong && !descTooLong && !submitting,
-    [title, requester, titleTooLong, descTooLong, submitting]
+    () => title.trim().length >= 4 && requester.trim() && department && !titleTooLong && !descTooLong && !submitting,
+    [title, requester, department, titleTooLong, descTooLong, submitting]
   );
 
   const isDirty = useMemo(
@@ -147,7 +148,7 @@ export default function CreateTicket() {
   }, [isDirty]);
 
   const handleCancel = () => {
-    if (isDirty && !window.confirm('Discard this ticket? Your changes will be lost.')) return;
+    if (isDirty && !window.confirm('Discard this work order? Your changes will be lost.')) return;
     navigate('/tickets/all');
   };
 
@@ -158,6 +159,7 @@ export default function CreateTicket() {
       if (!title.trim()) setError('Please add a title before submitting.');
       else if (title.trim().length < 4) setError('Title needs at least 4 characters.');
       else if (!requester.trim()) setError('Please confirm the requester before submitting.');
+      else if (!department) setError('Please select a department before submitting.');
       else setError('Please fix the highlighted fields before submitting.');
       return;
     }
@@ -180,14 +182,14 @@ export default function CreateTicket() {
         state: {
           banner: {
             type: 'success',
-            text: `Ticket T-${String(created.id).padStart(4, '0')} created${
+            text: `Work order ${formatTicketId(created.id)} created${
               files.length ? ` with ${files.length} attachment${files.length === 1 ? '' : 's'}` : ''
             }.`
           }
         }
       });
     } catch (err) {
-      setError(err.message || 'Could not create the ticket.');
+      setError(err.message || 'Could not create the work order.');
     } finally {
       setSubmitting(false);
     }
@@ -201,15 +203,15 @@ export default function CreateTicket() {
         <nav className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
           <Link to="/dashboard" className="hover:text-slate-800">Dashboard</Link>
           <span className="text-slate-300">/</span>
-          <Link to="/tickets/all" className="hover:text-slate-800">Tickets</Link>
+          <Link to="/tickets/all" className="hover:text-slate-800">Work Orders</Link>
           <span className="text-slate-300">/</span>
-          <span className="text-accent-700">Create New Ticket</span>
+          <span className="text-accent-700">Create New Work Order</span>
         </nav>
 
         <section className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <span className="eyebrow">Ticketing</span>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900">Create New Ticket</h1>
+            <span className="eyebrow">Work Orders</span>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900">Create New Work Order</h1>
             <p className="mt-1 text-slate-600">
               Describe the issue or request. The IT team will triage and respond based on priority.
             </p>
@@ -244,7 +246,7 @@ export default function CreateTicket() {
               </Field>
 
               <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="Request Type" htmlFor={requestTypeId} hint="What kind of ticket is this?" required>
+                <Field label="Request Type" htmlFor={requestTypeId} hint="What kind of work order is this?" required>
                   <select
                     id={requestTypeId}
                     value={requestType}
@@ -260,7 +262,7 @@ export default function CreateTicket() {
                   </p>
                 </Field>
 
-                <Field label="Category" htmlFor={categoryId} hint="Helps route the ticket to the right team.">
+                <Field label="Category" htmlFor={categoryId} hint="Helps route the work order to the right team.">
                   <select
                     id={categoryId}
                     value={category}
@@ -298,7 +300,7 @@ export default function CreateTicket() {
               <FileDropzone files={files} setFiles={setFiles} setError={setError} />
             </Card>
 
-            <Card title="Linked asset" subtitle="Optional — attach if the ticket is about a specific device.">
+            <Card title="Linked asset" subtitle="Optional — attach if the work order is about a specific device.">
               <select
                 value={assetId}
                 onChange={(e) => setAssetId(e.target.value)}
@@ -360,10 +362,11 @@ export default function CreateTicket() {
               <Field
                 label="Department"
                 htmlFor={departmentId}
+                required
                 hint={
                   department
                     ? `Assignee list is filtered to ${department}.`
-                    : 'Route this ticket to a department. Optional.'
+                    : 'Route this work order to a department.'
                 }
               >
                 <select
@@ -371,8 +374,10 @@ export default function CreateTicket() {
                   value={department}
                   onChange={(e) => onDepartmentChange(e.target.value)}
                   className={inputCls(false)}
+                  required
+                  aria-required="true"
                 >
-                  <option value="">Any department</option>
+                  <option value="" disabled>Select a department</option>
                   {departments.map((d) => (
                     <option key={d} value={d}>{d}</option>
                   ))}
@@ -409,17 +414,17 @@ export default function CreateTicket() {
                       <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
                       <path d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
                     </svg>
-                    Creating ticket…
+                    Creating work order…
                   </>
                 ) : (
-                  'Create ticket'
+                  'Create work order'
                 )}
               </button>
               <button type="button" onClick={handleCancel} className="btn-secondary w-full text-center">
                 Cancel
               </button>
               <p className="text-[11px] text-slate-500 text-center mt-1">
-                You'll be redirected to the ticket list after submission.
+                You'll be redirected to the work order list after submission.
               </p>
             </div>
           </aside>

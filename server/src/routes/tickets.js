@@ -719,12 +719,15 @@ router.post(
       );
       const ticketId = result.insertId;
 
+      // Credit the person who actually filed the ticket (the logged-in user),
+      // not the requester — staff/admins may open tickets on behalf of others.
+      const creator = req.user?.name || req.user?.email || 'system';
       await pool.query(
         `INSERT INTO ticket_activity (ticket_id, type, actor, field, new_value)
          VALUES (?, 'change', ?, 'created', ?)`,
         [
           ticketId,
-          String(requesterName).trim().slice(0, 120),
+          String(creator).trim().slice(0, 120),
           String(title).trim().slice(0, 500)
         ]
       );

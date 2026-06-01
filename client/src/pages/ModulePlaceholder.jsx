@@ -3,14 +3,14 @@ import DashboardHeader from '../components/DashboardHeader.jsx';
 
 const SECTIONS = {
   tickets: {
-    label: 'Ticketing',
+    label: 'Work Orders',
     accent: 'Submit, triage, and resolve support requests.',
     views: {
-      '': 'All Tickets',
+      '': 'All Work Orders',
       'my-queue': 'My Queue',
-      'all': 'All Tickets',
+      'all': 'All Work Orders',
       'create-incident': 'Create Incident',
-      'create': 'Create New Ticket'
+      'create': 'Create New Work Order'
     }
   },
   assets: {

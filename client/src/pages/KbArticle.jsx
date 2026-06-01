@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import { api, getUser } from '../lib/auth.js';
+import { formatTicketId } from '../lib/ticket.js';
 
 export default function KbArticle() {
   const { slug } = useParams();
@@ -271,18 +272,18 @@ function LinkedTickets({ tickets, loading }) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-card overflow-hidden lg:sticky lg:top-6">
       <header className="px-4 py-3 border-b border-slate-100">
-        <h2 className="text-sm font-semibold text-brand-900">Linked tickets</h2>
+        <h2 className="text-sm font-semibold text-brand-900">Linked work orders</h2>
         <p className="mt-0.5 text-xs text-slate-500">
           {loading
             ? 'Loading…'
-            : `${tickets.length} ticket${tickets.length === 1 ? '' : 's'} reference this article`}
+            : `${tickets.length} work order${tickets.length === 1 ? '' : 's'} reference this article`}
         </p>
       </header>
       {loading ? (
         <div className="px-4 py-10 text-center text-xs text-slate-500">Loading…</div>
       ) : tickets.length === 0 ? (
         <div className="px-4 py-10 text-center text-xs text-slate-500">
-          No tickets are linked to this article yet.
+          No work orders are linked to this article yet.
         </div>
       ) : (
         <ul className="divide-y divide-slate-100 max-h-[30rem] overflow-y-auto">
@@ -293,7 +294,7 @@ function LinkedTickets({ tickets, loading }) {
                 <Link to={`/tickets/${t.id}`} className="block px-4 py-3 hover:bg-slate-50 transition-colors">
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] font-bold tabular-nums text-slate-400">
-                      T-{String(t.id).padStart(4, '0')}
+                      {formatTicketId(t.id)}
                     </span>
                     <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
                     <span className="text-[11px] text-slate-500">{status.label}</span>

@@ -18,7 +18,7 @@ export default function Footer() {
         <div>
           <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-accent-400">Modules</h4>
           <ul className="mt-3 space-y-2 text-sm">
-            <li><a href="#modules" className="hover:text-white transition-colors">Ticketing</a></li>
+            <li><a href="#modules" className="hover:text-white transition-colors">Work Orders</a></li>
             <li><a href="#modules" className="hover:text-white transition-colors">Asset Inventory</a></li>
             <li><a href="#modules" className="hover:text-white transition-colors">Knowledge Base</a></li>
           </ul>

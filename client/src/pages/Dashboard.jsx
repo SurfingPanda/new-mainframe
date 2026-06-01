@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, getUser, hasPermission } from '../lib/auth.js';
+import { formatTicketId } from '../lib/ticket.js';
 import DashboardHeader from '../components/DashboardHeader.jsx';
+import { ChartBar, ChartDoughnut } from '../components/DashboardCharts.jsx';
 
 export default function Dashboard() {
   const user = getUser();
@@ -52,6 +54,21 @@ function StaffDashboard({ user }) {
 
   const ticketCategoryData = aggregate(tickets, 'category', 'Uncategorized').slice(0, 6);
 
+  const ticketRequestTypeData = [
+    { key: 'incident', label: 'Incident', color: '#e11d48' },
+    { key: 'service_request', label: 'Service request', color: '#3f5b95' },
+    { key: 'question', label: 'Question', color: '#0ea5e9' },
+    { key: 'change', label: 'Change', color: '#7c3aed' }
+  ].map((s) => ({ ...s, value: tickets.filter((t) => t.request_type === s.key).length }));
+
+  const ticketDepartmentData = aggregate(tickets, 'department', 'Unassigned').slice(0, 6);
+
+  const openByAssignee = aggregate(
+    tickets.filter((t) => t.status !== 'closed' && t.status !== 'resolved'),
+    'assignee',
+    'Unassigned'
+  ).slice(0, 6);
+
   const assetStatusData = [
     { key: 'in_use', label: 'In use', color: '#22a23e' },
     { key: 'in_storage', label: 'In storage', color: '#0ea5e9' },
@@ -83,7 +100,7 @@ function StaffDashboard({ user }) {
               <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 5v14M5 12h14" />
               </svg>
-              New Ticket
+              New Work Order
             </Link>
             <Link to="/tickets/create-incident" className="btn-secondary !px-3.5 !py-2 text-xs">
               <svg className="h-4 w-4 mr-1.5 text-rose-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -112,7 +129,7 @@ function StaffDashboard({ user }) {
 
         <section className="grid gap-5 md:grid-cols-3">
           <StatCard
-            label="Open tickets"
+            label="Open work orders"
             value={openTickets.length}
             sub={`${tickets.length} total · ${highPriority} high priority`}
             tone="amber"
@@ -152,7 +169,7 @@ function StaffDashboard({ user }) {
           <div className="lg:col-span-2 rounded-lg border border-slate-200 bg-white shadow-card dark:bg-slate-900 dark:border-slate-800">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
               <div>
-                <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Recent tickets</h2>
+                <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Recent work orders</h2>
                 <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">Latest activity across the queue</p>
               </div>
               <Link to="/tickets/all" className="text-xs font-semibold text-accent-700 hover:text-accent-800 dark:text-accent-400 dark:hover:text-accent-300">
@@ -163,9 +180,9 @@ function StaffDashboard({ user }) {
               <div className="px-5 py-10 text-center text-sm text-slate-500 dark:text-slate-400">Loading…</div>
             ) : tickets.length === 0 ? (
               <EmptyState
-                title="No tickets yet"
-                desc="When someone opens a ticket it'll show up here."
-                cta={{ to: '/tickets/create', label: 'Create the first ticket' }}
+                title="No work orders yet"
+                desc="When someone opens a work order it'll show up here."
+                cta={{ to: '/tickets/create', label: 'Create the first work order' }}
               />
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -173,7 +190,7 @@ function StaffDashboard({ user }) {
                   <li key={t.id} className="px-5 py-3 text-sm hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                     <div className="flex flex-col gap-1.5 sm:grid sm:grid-cols-12 sm:items-center sm:gap-3">
                       <div className="flex items-center justify-between gap-2 sm:col-span-2">
-                        <span className="font-mono text-xs text-slate-500 dark:text-slate-400">T-{String(t.id).padStart(4, '0')}</span>
+                        <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{formatTicketId(t.id)}</span>
                         <span className="sm:hidden">
                           <StatusPill status={t.status} />
                         </span>
@@ -222,22 +239,48 @@ function StaffDashboard({ user }) {
         <section>
           <div className="flex items-end justify-between mb-3">
             <div>
-              <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Ticketing reports</h2>
+              <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Work order reports</h2>
               <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">Distribution across the queue</p>
             </div>
             <Link to="/tickets/all" className="text-xs font-semibold text-accent-700 hover:text-accent-800 dark:text-accent-400 dark:hover:text-accent-300">
-              Open ticketing →
+              Open work orders →
             </Link>
           </div>
           <div className="grid gap-5 md:grid-cols-3">
-            <ChartCard title="By status" subtitle="Current ticket pipeline">
+            <ChartCard title="By status" subtitle="Current work order pipeline">
               <BarChart data={ticketStatusData} />
             </ChartCard>
             <ChartCard title="By priority" subtitle="What needs attention first">
-              <Donut data={ticketPriorityData} centerLabel="Tickets" />
+              <Donut data={ticketPriorityData} centerLabel="Work Orders" />
             </ChartCard>
             <ChartCard title="By category" subtitle="Top issue areas">
-              <HBarChart data={ticketCategoryData} color="#3f5b95" emptyLabel="No tickets yet" />
+              <HBarChart data={ticketCategoryData} color="#3f5b95" emptyLabel="No work orders yet" />
+            </ChartCard>
+            <ChartCard title="By request type" subtitle="Incidents vs. requests">
+              <ChartDoughnut
+                labels={ticketRequestTypeData.map((d) => d.label)}
+                values={ticketRequestTypeData.map((d) => d.value)}
+                colors={ticketRequestTypeData.map((d) => d.color)}
+                emptyLabel="No work orders yet"
+              />
+            </ChartCard>
+            <ChartCard title="By department" subtitle="Where work orders originate">
+              <ChartBar
+                labels={ticketDepartmentData.map((d) => d.label)}
+                values={ticketDepartmentData.map((d) => d.value)}
+                color="#3f5b95"
+                horizontal
+                emptyLabel="No work orders yet"
+              />
+            </ChartCard>
+            <ChartCard title="Open by assignee" subtitle="Current workload balance">
+              <ChartBar
+                labels={openByAssignee.map((d) => d.label)}
+                values={openByAssignee.map((d) => d.value)}
+                color="#22a23e"
+                horizontal
+                emptyLabel="No open work orders"
+              />
             </ChartCard>
           </div>
         </section>
@@ -320,7 +363,7 @@ function UserDashboard({ user }) {
               <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 5v14M5 12h14" />
               </svg>
-              New Ticket
+              New Work Order
             </Link>
             <Link to="/tickets/create-incident" className="btn-secondary !px-3.5 !py-2 text-xs">
               <svg className="h-4 w-4 mr-1.5 text-rose-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -349,7 +392,7 @@ function UserDashboard({ user }) {
 
         <section className={`grid gap-5 ${canViewAssets ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
           <StatCard
-            label="Your open tickets"
+            label="Your open work orders"
             value={openMine.length}
             sub={`${mine.length} total · ${awaitingMe.length} waiting on you`}
             tone="amber"
@@ -391,8 +434,8 @@ function UserDashboard({ user }) {
           <div className="lg:col-span-2 rounded-lg border border-slate-200 bg-white shadow-card dark:bg-slate-900 dark:border-slate-800">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
               <div>
-                <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Your recent tickets</h2>
-                <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">Tickets you opened or are assigned to</p>
+                <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Your recent work orders</h2>
+                <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">Work orders you opened or are assigned to</p>
               </div>
               <Link to="/tickets/submitted" className="text-xs font-semibold text-accent-700 hover:text-accent-800 dark:text-accent-400 dark:hover:text-accent-300">
                 View all →
@@ -402,9 +445,9 @@ function UserDashboard({ user }) {
               <div className="px-5 py-10 text-center text-sm text-slate-500 dark:text-slate-400">Loading…</div>
             ) : mine.length === 0 ? (
               <EmptyState
-                title="No tickets yet"
+                title="No work orders yet"
                 desc="Open one and it'll show up here. We'll keep you posted on updates."
-                cta={{ to: '/tickets/create', label: 'Open your first ticket' }}
+                cta={{ to: '/tickets/create', label: 'Open your first work order' }}
               />
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -416,7 +459,7 @@ function UserDashboard({ user }) {
                     >
                       <div className="flex flex-col gap-1.5 sm:grid sm:grid-cols-12 sm:items-center sm:gap-3">
                         <div className="flex items-center justify-between gap-2 sm:col-span-2">
-                          <span className="font-mono text-xs text-slate-500 dark:text-slate-400">T-{String(t.id).padStart(4, '0')}</span>
+                          <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{formatTicketId(t.id)}</span>
                           <span className="sm:hidden">
                             <StatusPill status={t.status} />
                           </span>

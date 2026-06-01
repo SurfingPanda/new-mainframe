@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import { api, getUser } from '../lib/auth.js';
+import { formatTicketId } from '../lib/ticket.js';
 
 const TITLE_MAX = 200;
 const TEXT_MAX = 2000;
@@ -185,10 +186,11 @@ export default function CreateIncident() {
     requester.trim() &&
     symptoms.trim().length >= 10 &&
     category &&
+    department &&
     !titleTooLong &&
     !symptomsTooLong &&
     !submitting
-  ), [title, requester, symptoms, category, titleTooLong, symptomsTooLong, submitting]);
+  ), [title, requester, symptoms, category, department, titleTooLong, symptomsTooLong, submitting]);
 
   const composeDescription = () => {
     const sevLabel = SEVERITIES.find((s) => s.key === severity)?.label || severity;
@@ -234,7 +236,7 @@ export default function CreateIncident() {
     e.preventDefault();
     setError('');
     if (!canSubmit) {
-      setError('Fill in title, category, symptoms, and the requester before submitting.');
+      setError('Fill in title, category, department, symptoms, and the requester before submitting.');
       return;
     }
     setSubmitting(true);
@@ -256,7 +258,7 @@ export default function CreateIncident() {
         state: {
           banner: {
             type: 'success',
-            text: `Incident T-${String(created.id).padStart(4, '0')} reported${
+            text: `Incident ${formatTicketId(created.id)} reported${
               files.length ? ` with ${files.length} attachment${files.length === 1 ? '' : 's'}` : ''
             }.`
           }
@@ -279,7 +281,7 @@ export default function CreateIncident() {
         <nav className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
           <Link to="/dashboard" className="hover:text-slate-800">Dashboard</Link>
           <span className="text-slate-300">/</span>
-          <Link to="/tickets/all" className="hover:text-slate-800">Tickets</Link>
+          <Link to="/tickets/all" className="hover:text-slate-800">Work Orders</Link>
           <span className="text-slate-300">/</span>
           <span className="text-accent-700">Report Incident</span>
         </nav>
@@ -316,7 +318,7 @@ export default function CreateIncident() {
               </Field>
 
               <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="Category" hint="Helps route the ticket to the right team." required>
+                <Field label="Category" hint="Helps route the work order to the right team." required>
                   <select value={category} onChange={(e) => setCategory(e.target.value)} className={inputCls(false)}>
                     <option value="">Select a category…</option>
                     {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -503,18 +505,21 @@ export default function CreateIncident() {
 
               <Field
                 label="Department"
+                required
                 hint={
                   department
                     ? `Assignee list is filtered to ${department}.`
-                    : 'Route this incident to a department. Optional.'
+                    : 'Route this incident to a department.'
                 }
               >
                 <select
                   value={department}
                   onChange={(e) => onDepartmentChange(e.target.value)}
                   className={inputCls(false)}
+                  required
+                  aria-required="true"
                 >
-                  <option value="">Any department</option>
+                  <option value="" disabled>Select a department</option>
                   {departments.map((d) => (
                     <option key={d} value={d}>{d}</option>
                   ))}
@@ -560,7 +565,7 @@ export default function CreateIncident() {
               </button>
               <Link to="/tickets/all" className="btn-secondary w-full text-center">Cancel</Link>
               <p className="text-[11px] text-slate-500 text-center mt-1">
-                You'll be redirected to the ticket list after submission.
+                You'll be redirected to the work order list after submission.
               </p>
             </div>
           </aside>

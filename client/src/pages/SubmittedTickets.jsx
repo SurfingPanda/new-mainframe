@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import { api, getUser } from '../lib/auth.js';
+import { formatTicketId } from '../lib/ticket.js';
 
 const STATUSES = [
   { key: 'open', label: 'Open' },
@@ -85,7 +86,7 @@ export default function SubmittedTickets() {
       if (roleFilter === 'owner' && t._role === 'assignee') return false;
       if (roleFilter === 'assignee' && t._role === 'owner') return false;
       if (!q) return true;
-      const idStr = `t-${String(t.id).padStart(4, '0')}`;
+      const idStr = formatTicketId(t.id).toLowerCase();
       return (
         t.title.toLowerCase().includes(q) ||
         idStr.includes(q) ||
@@ -163,21 +164,21 @@ export default function SubmittedTickets() {
         <nav className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
           <Link to="/dashboard" className="hover:text-slate-800">Dashboard</Link>
           <span className="text-slate-300">/</span>
-          <span className="text-slate-700">Tickets</span>
+          <span className="text-slate-700">Work Orders</span>
           <span className="text-slate-300">/</span>
-          <span className="text-accent-700">Submitted Tickets</span>
+          <span className="text-accent-700">Submitted Work Orders</span>
         </nav>
 
         <section className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <span className="eyebrow">Ticketing</span>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900">Submitted Tickets</h1>
+            <span className="eyebrow">Work Orders</span>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900">Submitted Work Orders</h1>
             <p className="mt-1 text-slate-600">
               {loading
-                ? 'Loading your tickets…'
+                ? 'Loading your work orders…'
                 : (meName || meEmail)
                   ? `${activeCount} active · ${roleCounts.owner} you own · ${roleCounts.assignee} assigned to you`
-                  : 'Sign in to see tickets you own or are working on.'}
+                  : 'Sign in to see work orders you own or are working on.'}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -191,7 +192,7 @@ export default function SubmittedTickets() {
               <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 5v14M5 12h14" />
               </svg>
-              New Ticket
+              New Work Order
             </Link>
           </div>
         </section>
@@ -297,23 +298,23 @@ export default function SubmittedTickets() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
-                  <tr><td colSpan={8} className="px-5 py-12 text-center text-sm text-slate-500">Loading your tickets…</td></tr>
+                  <tr><td colSpan={8} className="px-5 py-12 text-center text-sm text-slate-500">Loading your work orders…</td></tr>
                 ) : pageRows.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="px-5 py-12 text-center">
                       <p className="text-sm font-semibold text-slate-700">
                         {involved.length === 0
-                          ? 'No tickets you own or are working on'
-                          : 'No tickets match your filters'}
+                          ? 'No work orders you own or are working on'
+                          : 'No work orders match your filters'}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
                         {involved.length === 0
-                          ? 'Tickets you submit, or that are filed on your behalf, will appear here.'
+                          ? 'Work orders you submit, or that are filed on your behalf, will appear here.'
                           : 'Try clearing filters or broadening your search.'}
                       </p>
                       <div className="mt-4">
                         {involved.length === 0 ? (
-                          <Link to="/tickets/create" className="btn-secondary !px-3.5 !py-2 text-xs">Create a ticket</Link>
+                          <Link to="/tickets/create" className="btn-secondary !px-3.5 !py-2 text-xs">Create a work order</Link>
                         ) : (
                           <button onClick={clearFilters} className="btn-secondary !px-3.5 !py-2 text-xs">Clear filters</button>
                         )}
@@ -325,7 +326,7 @@ export default function SubmittedTickets() {
                     <tr key={t.id} className={`hover:bg-slate-50/60 ${ACTIVE_STATUSES.has(t.status) ? '' : 'opacity-70'}`}>
                       <td className="px-5 py-3">
                         <Link to={`/tickets/${t.id}`} className="font-mono text-xs text-accent-700 hover:text-accent-800">
-                          T-{String(t.id).padStart(4, '0')}
+                          {formatTicketId(t.id)}
                         </Link>
                       </td>
                       <td className="px-5 py-3"><RolePill role={t._role} /></td>

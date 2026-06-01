@@ -50,7 +50,13 @@
       "Bash(PORT=4100 node *)",
       "Bash(del *)",
       "Bash(npm test *)",
-      "Bash(PORT=4099 node src/index.js)"
+      "Bash(PORT=4099 node src/index.js)",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -e 'DELETE FROM ticket_activity WHERE ticket_id=23; DELETE FROM tickets WHERE id=23; SELECT ROW_COUNT\\(\\) AS deleted_tickets_rowcount;')",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -e 'SELECT id,title FROM tickets WHERE id=23;')",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -t -e 'SELECT id,title,requester,created_at FROM tickets WHERE title='\\\\''adasdasd'\\\\'';')",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -t -e 'SELECT a.id, a.ticket_id, a.actor, a.field, a.new_value, a.created_at FROM ticket_activity a JOIN tickets t ON t.id=a.ticket_id WHERE t.title='\\\\''adasdasd'\\\\'' AND a.field='\\\\''created'\\\\'';')",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -e 'UPDATE ticket_activity SET actor='\\\\''Admin'\\\\'' WHERE id=35 AND field='\\\\''created'\\\\'';')",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -t -e 'SELECT id, ticket_id, actor, field, new_value FROM ticket_activity WHERE id=35;')"
     ]
   }
 }

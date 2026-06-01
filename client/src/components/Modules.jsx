@@ -1,7 +1,7 @@
 const modules = [
   {
     id: 'ticketing',
-    name: 'Ticketing',
+    name: 'Work Orders',
     summary: 'Submit, triage, and resolve support requests.',
     points: [
       'Single intake from email and the portal',
@@ -38,7 +38,7 @@ const modules = [
     points: [
       'Markdown editor with versioning',
       'Categorized and full-text searchable',
-      'Linked directly from related tickets'
+      'Linked directly from related work orders'
     ],
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -61,8 +61,8 @@ export default function Modules() {
             Three connected services
           </h2>
           <p className="mt-3 text-slate-600">
-            Each module is part of the same platform. Tickets reference the assets they affect, and articles
-            are linked from the tickets where they apply.
+            Each module is part of the same platform. Work orders reference the assets they affect, and articles
+            are linked from the work orders where they apply.
           </p>
         </div>
 
