@@ -188,7 +188,6 @@
     flex-direction: column;
     box-sizing: border-box;
     width: 100%;
-    min-height: 100vh;
     margin: 0;
     padding: 0;
     color: #0f172a;
@@ -341,33 +340,55 @@
     line-height: 1.4;
   }
 
+  .pt-certify { margin-top: 12pt; break-inside: avoid; }
+  .pt-certify-text {
+    margin-top: 3pt;
+    padding: 5pt 9pt;
+    border-left: 1.4pt solid #0f172a;
+    background: #f8fafc;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-size: 9pt;
+    line-height: 1.5;
+    color: #1e293b;
+  }
+
   .pt-signatures {
-    margin-top: auto;
-    padding-top: 30pt;
+    margin-top: 30pt;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 36pt;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 26pt;
     break-inside: avoid;
   }
   .pt-sig { display: flex; flex-direction: column; }
   .pt-sig-line {
     border-bottom: 1pt solid #0f172a;
-    height: 32pt;
+    height: 34pt;
   }
   .pt-sig-name {
     margin-top: 4pt;
-    font-size: 10.5pt;
-    font-weight: 600;
+    text-align: center;
+    font-size: 10pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
     color: #0f172a;
     min-height: 13pt;
   }
-  .pt-sig-label {
-    margin-top: 1pt;
+  .pt-sig-role {
+    margin-top: 2pt;
+    text-align: center;
     font-size: 7.5pt;
-    color: #475569;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
     font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #475569;
+  }
+  .pt-sig-date {
+    margin-top: 9pt;
+    font-size: 8.5pt;
+    color: #334155;
+    white-space: nowrap;
   }
 
   .pt-footer {
@@ -376,8 +397,10 @@
     border-top: 0.5pt solid #e2e8f0;
     font-size: 7.5pt;
     color: #64748b;
-    text-align: center;
     letter-spacing: 0.03em;
+    display: flex;
+    justify-content: space-between;
+    gap: 12pt;
   }
 
   /* 3x5 index-card variant — same content, scaled. */
@@ -423,10 +446,19 @@
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 4;
   }
-  body.print-3x5 .pt-signatures { padding-top: 10pt; gap: 14pt; }
+  /* The index card is too small for the full sign-off block — keep it compact:
+     drop the certification, the approver column, and the date lines. */
+  body.print-3x5 .pt-certify { display: none; }
+  body.print-3x5 .pt-sig--approver { display: none; }
+  body.print-3x5 .pt-signatures {
+    margin-top: 8pt;
+    gap: 12pt;
+    grid-template-columns: 1fr 1fr;
+  }
   body.print-3x5 .pt-sig-line { height: 14pt; }
   body.print-3x5 .pt-sig-name { font-size: 6pt; margin-top: 1pt; min-height: 7pt; }
-  body.print-3x5 .pt-sig-label { font-size: 4.5pt; letter-spacing: 0.04em; }
+  body.print-3x5 .pt-sig-role { font-size: 4.5pt; letter-spacing: 0.04em; }
+  body.print-3x5 .pt-sig-date { display: none; }
   body.print-3x5 .pt-footer {
     font-size: 4.5pt;
     margin-top: 4pt;

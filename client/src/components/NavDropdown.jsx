@@ -47,9 +47,12 @@ export default function NavDropdown({ label, basePath, sections, badge }) {
         } ${open ? 'bg-slate-100' : 'hover:bg-slate-50'}`}
       >
         <span>{label}</span>
-        {badge && (
-          <span className="ml-0.5 rounded-full bg-accent-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-accent-700 ring-1 ring-inset ring-accent-200">
-            {badge}
+        {Number(badge) > 0 && (
+          <span
+            className="ml-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white"
+            title={`${badge} new`}
+          >
+            {badge > 9 ? '9+' : badge}
           </span>
         )}
         <svg

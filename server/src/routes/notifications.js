@@ -14,18 +14,23 @@ const STATUS_LABELS = {
 };
 
 // Turn a ticket_activity row into a human-readable notification.
-// `identitySet` holds the signed-in user's name and email.
-function describe(row, identitySet) {
+// `identitySet` holds the signed-in user's name and email; `dept` is the user's
+// department (for work orders routed to their team but not assigned to them).
+function describe(row, identitySet, dept) {
   const actor = row.actor || 'Someone';
-  const assigned =
-    row.field === 'created' ||
-    (row.field === 'assignee' && row.new_value != null && identitySet.has(row.new_value));
+  const assignedToMe = row.field === 'assignee' && row.new_value != null && identitySet.has(row.new_value);
+  const mine = row.ticket_assignee != null && identitySet.has(row.ticket_assignee);
+  const assigned = assignedToMe || (row.field === 'created' && mine);
 
   let message;
   if (row.field === 'created') {
-    message = 'New work order assigned to you';
+    message = mine ? 'New work order assigned to you' : `New work order in ${dept || 'your department'}`;
   } else if (row.field === 'assignee') {
-    message = `${actor} assigned this work order to you`;
+    message = assignedToMe
+      ? `${actor} assigned this work order to you`
+      : row.new_value
+        ? `${actor} assigned this work order to ${row.new_value}`
+        : `${actor} unassigned this work order`;
   } else if (row.type === 'note') {
     message = `${actor} added a note`;
   } else if (row.field === 'status') {
@@ -57,9 +62,10 @@ router.get('/', requireAuth, async (req, res, next) => {
     // email is included as a fallback for legacy records.
     const identities = [req.user?.name, req.user?.email].filter(Boolean);
     if (!identities.length) {
-      return res.json({ count: 0, items: [], seenAt: null });
+      return res.json({ count: 0, workOrders: 0, items: [], seenAt: null });
     }
     const identitySet = new Set(identities);
+    const dept = req.user?.department || null;
 
     const [[me]] = await pool.query(
       'SELECT notifications_seen_at FROM users WHERE id = ? LIMIT 1',
@@ -68,21 +74,28 @@ router.get('/', requireAuth, async (req, res, next) => {
     const seenAt = me?.notifications_seen_at || null;
     const seenMs = seenAt ? new Date(seenAt).getTime() : 0;
 
+    // Relevant activity: work orders assigned to the user, the moment one was
+    // assigned to them, OR any work order routed to their department.
+    const deptClause = dept ? ' OR t.department = ?' : '';
+    const params = [identities, identities];
+    if (dept) params.push(dept);
+    params.push(identities);
+
     const [rows] = await pool.query(
       `SELECT a.id, a.ticket_id, a.type, a.actor, a.field, a.new_value, a.created_at,
-              t.title AS ticket_title
+              t.title AS ticket_title, t.assignee AS ticket_assignee, t.department AS ticket_department
          FROM ticket_activity a
          JOIN tickets t ON t.id = a.ticket_id
         WHERE ( t.assignee IN (?)
-                OR (a.field = 'assignee' AND a.new_value IN (?)) )
+                OR (a.field = 'assignee' AND a.new_value IN (?))${deptClause} )
           AND ( a.actor IS NULL OR a.actor NOT IN (?) )
         ORDER BY a.created_at DESC, a.id DESC
         LIMIT 40`,
-      [identities, identities, identities]
+      params
     );
 
     const items = rows.map((r) => {
-      const { kind, message } = describe(r, identitySet);
+      const { kind, message } = describe(r, identitySet, dept);
       return {
         id: `t-${r.id}`,
         link: `/tickets/${r.ticket_id}`,
@@ -123,6 +136,8 @@ router.get('/', requireAuth, async (req, res, next) => {
     res.json({
       seenAt,
       count: items.filter((i) => i.unread).length,
+      // Unread work-order notifications only (drives the Work Orders nav badge).
+      workOrders: items.filter((i) => i.unread && i.ticketId).length,
       items,
     });
   } catch (err) {

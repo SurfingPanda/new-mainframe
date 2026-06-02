@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { clearSession, getUser, hasPermission } from '../lib/auth.js';
-import { getTheme, toggleTheme } from '../lib/theme.js';
 import NavDropdown from './NavDropdown.jsx';
 import NotificationBell from './NotificationBell.jsx';
 import { usePendingResetCount } from '../lib/usePendingResetCount.js';
+import { useWorkOrderNotifications } from '../lib/useWorkOrderNotifications.js';
 import Modal from './Modal.jsx';
 
 function ticketsMenu(user) {
@@ -66,25 +66,6 @@ function assetsMenu(user) {
   return sections;
 }
 
-function networkMenu(user) {
-  const sections = [
-    {
-      heading: 'Live',
-      items: [
-        { to: '/network', label: 'Network Monitoring', desc: 'Reachability and latency', icon: 'wifi' }
-      ]
-    }
-  ];
-  const reports = [
-    { to: '/network/reports', label: 'All Daily Reports', desc: 'Past network reports', icon: 'clipboard' }
-  ];
-  if (hasPermission('network', 'manage', user)) {
-    reports.push({ to: '/network/reports/new', label: "Today's Report", desc: 'Capture today on the network', icon: 'plus', tone: 'accent' });
-  }
-  sections.push({ heading: 'Daily reports', items: reports });
-  return sections;
-}
-
 function usersMenu(pendingResets = 0) {
   return [
     {
@@ -118,6 +99,7 @@ export default function DashboardHeader() {
   const canManageUsers = hasPermission('users', 'manage', user);
   const pendingResets = usePendingResetCount(canManageUsers);
   const usersSections = usersMenu(pendingResets);
+  const workOrderAlerts = useWorkOrderNotifications(hasPermission('tickets', 'view', user));
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -167,16 +149,13 @@ export default function DashboardHeader() {
             Overview
           </NavLink>
           {hasPermission('tickets', 'view', user) && (
-            <NavDropdown label="Work Orders" basePath="/tickets" sections={ticketsMenu(user)} />
+            <NavDropdown label="Work Orders" basePath="/tickets" sections={ticketsMenu(user)} badge={workOrderAlerts} />
           )}
           {hasPermission('assets', 'view', user) && (
             <NavDropdown label="Assets" basePath="/assets" sections={assetsMenu(user)} />
           )}
           {hasPermission('kb', 'view', user) && (
             <NavDropdown label="Knowledge Base" basePath="/kb" sections={KB_MENU} />
-          )}
-          {hasPermission('network', 'view', user) && (
-            <NavDropdown label="Network" basePath="/network" sections={networkMenu(user)} />
           )}
           <NavLink
             to="/chat"
@@ -269,9 +248,6 @@ function MobileNav({ user, usersSections, onClose }) {
   if (hasPermission('kb', 'view', user)) {
     sections.push({ heading: 'Knowledge Base', items: KB_MENU.flatMap((s) => s.items) });
   }
-  if (hasPermission('network', 'view', user)) {
-    sections.push({ heading: 'Network', items: networkMenu(user).flatMap((s) => s.items) });
-  }
   sections.push({
     heading: 'Chat',
     items: [{ to: '/chat', label: 'Chat Room', desc: 'Team-wide messaging' }]
@@ -323,21 +299,9 @@ function MobileNav({ user, usersSections, onClose }) {
 
 function ProfileMenu({ user, initials, onSignOut }) {
   const [open, setOpen] = useState(false);
-  const [theme, setThemeState] = useState(() => getTheme());
   const wrapRef = useRef(null);
   const buttonRef = useRef(null);
   const location = useLocation();
-
-  useEffect(() => {
-    const onChange = (e) => setThemeState(e.detail);
-    window.addEventListener('themechange', onChange);
-    return () => window.removeEventListener('themechange', onChange);
-  }, []);
-
-  const handleToggleTheme = () => {
-    const next = toggleTheme();
-    setThemeState(next);
-  };
 
   useEffect(() => {
     if (!open) return;
@@ -406,39 +370,6 @@ function ProfileMenu({ user, initials, onSignOut }) {
             <div className="text-xs text-slate-500 truncate dark:text-slate-400">{user?.email}</div>
           </div>
           <div className="py-1">
-            <button
-              type="button"
-              onClick={handleToggleTheme}
-              role="menuitemcheckbox"
-              aria-checked={theme === 'dark'}
-              className="group flex w-full items-center justify-between gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-brand-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
-            >
-              <span className="flex items-center gap-3">
-                {theme === 'dark' ? (
-                  <svg className="h-4 w-4 text-slate-500 group-hover:text-brand-900 dark:text-slate-400 dark:group-hover:text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="4" />
-                    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-                  </svg>
-                ) : (
-                  <svg className="h-4 w-4 text-slate-500 group-hover:text-brand-900" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                  </svg>
-                )}
-                {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-              </span>
-              <span
-                aria-hidden
-                className={`relative inline-flex h-4 w-7 rounded-full transition-colors ${
-                  theme === 'dark' ? 'bg-accent-500' : 'bg-slate-300 dark:bg-slate-700'
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${
-                    theme === 'dark' ? 'translate-x-3.5' : 'translate-x-0.5'
-                  }`}
-                />
-              </span>
-            </button>
             <Link
               to="/settings"
               role="menuitem"

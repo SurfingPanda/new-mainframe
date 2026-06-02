@@ -123,6 +123,37 @@ export default function TicketDetail() {
 
   const isDirty = dirtyFields.length > 0;
 
+  // Self-assign: a department member (or staff) can pick up a work order routed
+  // to their department. Staff edit through the normal draft/Save flow (they can
+  // assign anyone); non-staff have no Save bar, so they persist immediately via
+  // the claim/release endpoints.
+  const [claiming, setClaiming] = useState(false);
+  const myIdentity = me?.name || me?.email || '';
+  const canClaim = isStaff || (!!me?.department && !!ticket?.department && me.department === ticket.department);
+  // Staff act on the in-progress draft; non-staff act on the saved ticket.
+  const effectiveAssignee = isStaff ? (draft.assignee || '') : (ticket?.assignee || '');
+  const isMine = !!myIdentity && effectiveAssignee === myIdentity;
+
+  const claimTicket = async (assign) => {
+    setError('');
+    if (isStaff) {
+      // Just populate the field; the existing "Save changes" persists it.
+      setField('assignee', assign ? myIdentity : '');
+      return;
+    }
+    setClaiming(true);
+    try {
+      const updated = await api(`/api/tickets/${id}/${assign ? 'claim' : 'release'}`, { method: 'POST' });
+      setTicket(updated);
+      setDraft((d) => ({ ...d, assignee: updated.assignee || '' }));
+      reloadActivity();
+    } catch (e) {
+      setError(e.message || 'Could not update assignment.');
+    } finally {
+      setClaiming(false);
+    }
+  };
+
   // Department routing — selecting a department filters the assignee list to
   // that department's users.
   // Active departments from the admin list, unioned with any department an
@@ -418,6 +449,37 @@ export default function TicketDetail() {
                       />
                     </div>
                   </div>
+                  {canClaim && (
+                    <div className="mt-3 flex items-center gap-3">
+                      {isMine ? (
+                        <button
+                          type="button"
+                          onClick={() => claimTicket(false)}
+                          disabled={claiming}
+                          className="btn-secondary !px-3 !py-1.5 text-xs disabled:opacity-60"
+                        >
+                          {claiming ? 'Working…' : 'Unassign me'}
+                        </button>
+                      ) : (!effectiveAssignee || isStaff) ? (
+                        <button
+                          type="button"
+                          onClick={() => claimTicket(true)}
+                          disabled={claiming}
+                          className="btn-secondary !px-3 !py-1.5 text-xs disabled:opacity-60"
+                        >
+                          {claiming ? 'Working…' : 'Assign to me'}
+                        </button>
+                      ) : (
+                        <p className="text-[11px] text-slate-500">Assigned to {effectiveAssignee}.</p>
+                      )}
+                      {!isStaff && (
+                        <span className="text-[11px] text-slate-400">Routed to {ticket.department}. Picking it up assigns it to you.</span>
+                      )}
+                      {isStaff && isMine && !ticket.assignee && (
+                        <span className="text-[11px] text-slate-400">Click “Save changes” to apply.</span>
+                      )}
+                    </div>
+                  )}
                 </Card>
 
                 <Card
@@ -554,21 +616,39 @@ function PrintableTicket({ ticket }) {
         </section>
       )}
 
+      <section className="pt-certify">
+        <div className="pt-label">Acknowledgement &amp; Conformity</div>
+        <p className="pt-certify-text">
+          I hereby acknowledge that the work order detailed above has been carried out and that the
+          service rendered is complete and satisfactory. The signatures below certify the accuracy of
+          the information recorded on this form.
+        </p>
+      </section>
+
       <div className="pt-signatures">
         <div className="pt-sig">
           <div className="pt-sig-line" />
-          <div className="pt-sig-name">{ticket.requester || ''}</div>
-          <div className="pt-sig-label">Requester · signature over printed name &amp; date</div>
+          <div className="pt-sig-name">{ticket.requester || ' '}</div>
+          <div className="pt-sig-role">Requested by</div>
+          <div className="pt-sig-date">Date:&nbsp;_________________</div>
         </div>
         <div className="pt-sig">
           <div className="pt-sig-line" />
-          <div className="pt-sig-name">{ticket.assignee || ''}</div>
-          <div className="pt-sig-label">Technician / Assignee · signature over printed name &amp; date</div>
+          <div className="pt-sig-name">{ticket.assignee || ' '}</div>
+          <div className="pt-sig-role">Performed by · Technician</div>
+          <div className="pt-sig-date">Date:&nbsp;_________________</div>
+        </div>
+        <div className="pt-sig pt-sig--approver">
+          <div className="pt-sig-line" />
+          <div className="pt-sig-name">&nbsp;</div>
+          <div className="pt-sig-role">Approved by · IT Supervisor</div>
+          <div className="pt-sig-date">Date:&nbsp;_________________</div>
         </div>
       </div>
 
       <div className="pt-footer">
-        Eljin Corp IT Service Portal · printed {formatDateTime(new Date())}
+        <span>Form ITSD-WO · Eljin Corp IT Service Portal</span>
+        <span>{formatTicketId(ticket.id)} · printed {formatDateTime(new Date())}</span>
       </div>
     </article>
   );

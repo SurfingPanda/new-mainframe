@@ -77,6 +77,16 @@ function ownsTicket(ticket, identities) {
   return identities.includes(ticket.requester) || identities.includes(ticket.assignee);
 }
 
+// A work order is routed to a department; everyone in that department can see it
+// (and claim it) even if they didn't open it.
+function sameDepartment(user, ticket) {
+  return !!(user?.department && ticket?.department && user.department === ticket.department);
+}
+
+function canViewTicket(user, ticket) {
+  return isStaff(user) || ownsTicket(ticket, userIdentities(user)) || sameDepartment(user, ticket);
+}
+
 router.get('/', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
   try {
     // A plain user only sees tickets they requested or are assigned to;
@@ -85,9 +95,19 @@ router.get('/', requireAuth, requirePermission('tickets', 'view'), async (req, r
     let scope = '';
     if (!isStaff(req.user)) {
       const identities = userIdentities(req.user);
-      if (!identities.length) return res.json([]);
-      scope = 'WHERE requester IN (?) OR assignee IN (?)';
-      params.push(identities, identities);
+      const clauses = [];
+      if (identities.length) {
+        clauses.push('requester IN (?)', 'assignee IN (?)');
+        params.push(identities, identities);
+      }
+      // Users also see work orders routed to their department, so they can pick
+      // up (claim) team work even if they didn't open it.
+      if (req.user?.department) {
+        clauses.push('department = ?');
+        params.push(req.user.department);
+      }
+      if (!clauses.length) return res.json([]);
+      scope = `WHERE ${clauses.join(' OR ')}`;
     }
 
     const [rows] = await pool.query(
@@ -146,7 +166,7 @@ router.get('/:id', requireAuth, requirePermission('tickets', 'view'), async (req
     if (!rows.length) return res.status(404).json({ error: 'Ticket not found' });
 
     const ticket = rows[0];
-    if (!isStaff(req.user) && !ownsTicket(ticket, userIdentities(req.user))) {
+    if (!canViewTicket(req.user, ticket)) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
 
@@ -290,6 +310,77 @@ router.patch('/:id', requireAuth, requireRole('admin', 'agent'), async (req, res
   }
 });
 
+// Set the work order's assignee to one of the two values: the current user
+// (`assign`) or empty (`release`). This lets a department member pick up team
+// work without the full edit (PATCH) permission. Guarded so a user can only
+// (un)assign THEMSELVES, only on a work order they can see (own or same
+// department), and can't steal one already assigned to someone else.
+async function setSelfAssignment(req, res, next, assign) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'invalid ticket id' });
+    }
+    const [rows] = await pool.query(
+      `SELECT id, title, description, status, priority, request_type, category, department,
+              requester, assignee, asset_id, created_at, updated_at
+         FROM tickets WHERE id = ?`,
+      [id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Ticket not found' });
+    const ticket = rows[0];
+
+    // Hide existence from users with no access (mirrors the read endpoints).
+    if (!canViewTicket(req.user, ticket)) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+    // Only staff or a member of the work order's department may (un)assign self.
+    if (!isStaff(req.user) && !sameDepartment(req.user, ticket)) {
+      return res.status(403).json({ error: 'You can only assign work orders routed to your department' });
+    }
+
+    const me = req.user?.name || req.user?.email;
+    if (!me) return res.status(400).json({ error: 'your account has no name or email to assign' });
+
+    const newValue = assign ? me : null;
+    if (assign && ticket.assignee && ticket.assignee !== me && !isStaff(req.user)) {
+      return res.status(409).json({ error: 'This work order is already assigned to someone else' });
+    }
+    if (!assign && ticket.assignee !== me && !isStaff(req.user)) {
+      return res.status(403).json({ error: 'You can only release a work order assigned to you' });
+    }
+    if ((ticket.assignee ?? null) === (newValue ?? null)) {
+      return res.json(ticket); // no-op
+    }
+
+    await pool.query('UPDATE tickets SET assignee = ? WHERE id = ?', [newValue, id]);
+    await pool.query(
+      `INSERT INTO ticket_activity (ticket_id, type, actor, field, old_value, new_value)
+       VALUES (?, 'change', ?, 'assignee', ?, ?)`,
+      [id, me, ticket.assignee ? String(ticket.assignee).slice(0, 500) : null, newValue]
+    );
+
+    const [updatedRows] = await pool.query(
+      `SELECT id, title, description, status, priority, request_type, category, department,
+              requester, assignee, asset_id, created_at, updated_at
+         FROM tickets WHERE id = ?`,
+      [id]
+    );
+    notifyTicketChanges(updatedRows[0], [{ field: 'assignee', oldValue: ticket.assignee, newValue }], me);
+    res.json(updatedRows[0]);
+  } catch (err) {
+    next(err);
+  }
+}
+
+router.post('/:id/claim', requireAuth, requirePermission('tickets', 'view'), (req, res, next) =>
+  setSelfAssignment(req, res, next, true)
+);
+
+router.post('/:id/release', requireAuth, requirePermission('tickets', 'view'), (req, res, next) =>
+  setSelfAssignment(req, res, next, false)
+);
+
 async function loadActivity(ticketId) {
   const [rows] = await pool.query(
     `SELECT a.id, a.type, a.actor, a.field, a.old_value, a.new_value, a.body,
@@ -333,11 +424,11 @@ router.get('/:id/activity', requireAuth, requirePermission('tickets', 'view'), a
     }
 
     const [ownerRows] = await pool.query(
-      'SELECT requester, assignee FROM tickets WHERE id = ? LIMIT 1',
+      'SELECT requester, assignee, department FROM tickets WHERE id = ? LIMIT 1',
       [id]
     );
     if (!ownerRows.length) return res.status(404).json({ error: 'Ticket not found' });
-    if (!isStaff(req.user) && !ownsTicket(ownerRows[0], userIdentities(req.user))) {
+    if (!canViewTicket(req.user, ownerRows[0])) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
 
@@ -533,11 +624,11 @@ router.get('/:id/kb', requireAuth, requirePermission('tickets', 'view'), async (
     }
 
     const [ownerRows] = await pool.query(
-      'SELECT requester, assignee FROM tickets WHERE id = ? LIMIT 1',
+      'SELECT requester, assignee, department FROM tickets WHERE id = ? LIMIT 1',
       [id]
     );
     if (!ownerRows.length) return res.status(404).json({ error: 'Ticket not found' });
-    if (!isStaff(req.user) && !ownsTicket(ownerRows[0], userIdentities(req.user))) {
+    if (!canViewTicket(req.user, ownerRows[0])) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
 

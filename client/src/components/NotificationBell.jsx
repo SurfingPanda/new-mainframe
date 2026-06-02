@@ -96,6 +96,7 @@ export default function NotificationBell() {
     // for this view so the user can still see what changed.
     if (next && count > 0) {
       setCount(0);
+      window.dispatchEvent(new Event('notifications-seen'));
       try {
         await api('/api/notifications/seen', { method: 'POST' });
       } catch {
@@ -109,6 +110,7 @@ export default function NotificationBell() {
   const markAllRead = async () => {
     setCount(0);
     setItems((prev) => prev.map((n) => (n.unread ? { ...n, unread: false } : n)));
+    window.dispatchEvent(new Event('notifications-seen'));
     try {
       await api('/api/notifications/seen', { method: 'POST' });
     } catch {

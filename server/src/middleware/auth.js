@@ -46,7 +46,7 @@ export async function requireAuth(req, res, next) {
 
   try {
     const [rows] = await pool.query(
-      'SELECT id, email, name, role, permissions, is_active FROM users WHERE id = ? LIMIT 1',
+      'SELECT id, email, name, role, department, permissions, is_active FROM users WHERE id = ? LIMIT 1',
       [userId]
     );
     const user = rows[0];
@@ -59,6 +59,7 @@ export async function requireAuth(req, res, next) {
       email: user.email,
       name: user.name,
       role: user.role,
+      department: user.department,
       permissions: effectivePermissions(user)
     };
     bumpPresence(user.id);

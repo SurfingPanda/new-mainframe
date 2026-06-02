@@ -74,7 +74,7 @@ Mounted in `server/src/index.js` under `/api`:
 | `/api/health`          | `index.js`                  | Service + DB ping                                |
 | `/api/auth`            | `routes/auth.js`            | Login, JWT issue, `/me`, change/forgot password  |
 | `/api/users`           | `routes/users.js`           | User CRUD + permission overrides + bulk import (`POST /import`) (`users.manage`)|
-| `/api/tickets`         | `routes/tickets.js`         | Tickets, activity, KB links, attachments         |
+| `/api/tickets`         | `routes/tickets.js`         | Tickets, activity, KB links, attachments, self-assign (`POST /:id/claim` & `/release`) |
 | `/api/maintenance`     | `routes/maintenance.js`     | Recurring work orders (preventive maintenance); staff-only (`requireRole('admin','agent')`) |
 | `/api/assets`          | `routes/assets.js`          | Asset inventory                                  |
 | `/api/asset-requests`  | `routes/asset-requests.js`  | Asset request workflow (request → review)        |
@@ -83,9 +83,11 @@ Mounted in `server/src/index.js` under `/api`:
 | `/api/password-resets` | `routes/password-resets.js` | IT-mediated reset queue (`users.manage`)         |
 | `/api/chat`            | `routes/chat.js`            | Team chat rooms, messages, attachments           |
 | `/api/network`         | `routes/network.js`         | UniFi monitoring dashboard (live or mock)        |
-| `/api/notifications`   | `routes/notifications.js`   | Per-user notifications derived from ticket activity |
+| `/api/notifications`   | `routes/notifications.js`   | Per-user notifications from ticket activity (assigned to them **or routed to their department**); returns unread `count` + work-order-only `workOrders` count (drives the Work Orders nav badge) |
 
-Auth: JSON Web Tokens via `jsonwebtoken`, password hashing via `bcryptjs`. Middleware in `server/src/middleware/auth.js` enforces `requireAuth`, `requireRole(...)`, and `requirePermission(module, action)`. `requireAuth` re-loads the user from the DB on every request, so role/permission/active-status changes take effect immediately (no waiting for token expiry).
+Auth: JSON Web Tokens via `jsonwebtoken`, password hashing via `bcryptjs`. Middleware in `server/src/middleware/auth.js` enforces `requireAuth`, `requireRole(...)`, and `requirePermission(module, action)`. `requireAuth` re-loads the user from the DB on every request (including `department`, used for work-order visibility), so role/permission/active-status changes take effect immediately (no waiting for token expiry).
+
+Work-order visibility & self-assign: in `routes/tickets.js`, `canViewTicket(user, ticket)` = staff (admin/agent) OR requester/assignee OR **same department** (`tickets.department === users.department`). So a plain user sees work orders they own *and* any routed to their department, and can pick one up via `POST /api/tickets/:id/claim` (assign self) / `/release` (unassign self) — guarded so they can only (un)assign themselves, only within their department, and can't take one already assigned to someone else. Full edits (status, priority, reassigning others) remain on the staff-only `PATCH /:id`.
 
 Rate limiting: `server/src/middleware/rateLimit.js` — an in-memory, single-process fixed-window limiter throttles login and forgot-password.
 

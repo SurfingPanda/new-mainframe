@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { api, getUser, hasPermission } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
 import DashboardHeader from '../components/DashboardHeader.jsx';
-import { ChartBar, ChartDoughnut } from '../components/DashboardCharts.jsx';
 
 export default function Dashboard() {
   const user = getUser();
@@ -35,49 +34,6 @@ function StaffDashboard({ user }) {
   const highPriority = tickets.filter((t) => t.priority === 'high' || t.priority === 'urgent').length;
   const inMaintenance = assets.filter((a) => a.status === 'repair').length;
   const greeting = getGreeting();
-
-  const ticketStatusData = [
-    { key: 'open', label: 'Open', color: '#f59e0b' },
-    { key: 'in_progress', label: 'In progress', color: '#3f5b95' },
-    { key: 'on_hold', label: 'On hold', color: '#94a3b8' },
-    { key: 'pending', label: 'Pending', color: '#7c3aed' },
-    { key: 'resolved', label: 'Resolved', color: '#22a23e' },
-    { key: 'closed', label: 'Closed', color: '#475569' }
-  ].map((s) => ({ ...s, value: tickets.filter((t) => t.status === s.key).length }));
-
-  const ticketPriorityData = [
-    { key: 'urgent', label: 'Urgent', color: '#e11d48' },
-    { key: 'high', label: 'High', color: '#f59e0b' },
-    { key: 'normal', label: 'Normal', color: '#3f5b95' },
-    { key: 'low', label: 'Low', color: '#94a3b8' }
-  ].map((p) => ({ ...p, value: tickets.filter((t) => t.priority === p.key).length }));
-
-  const ticketCategoryData = aggregate(tickets, 'category', 'Uncategorized').slice(0, 6);
-
-  const ticketRequestTypeData = [
-    { key: 'incident', label: 'Incident', color: '#e11d48' },
-    { key: 'service_request', label: 'Service request', color: '#3f5b95' },
-    { key: 'question', label: 'Question', color: '#0ea5e9' },
-    { key: 'change', label: 'Change', color: '#7c3aed' }
-  ].map((s) => ({ ...s, value: tickets.filter((t) => t.request_type === s.key).length }));
-
-  const ticketDepartmentData = aggregate(tickets, 'department', 'Unassigned').slice(0, 6);
-
-  const openByAssignee = aggregate(
-    tickets.filter((t) => t.status !== 'closed' && t.status !== 'resolved'),
-    'assignee',
-    'Unassigned'
-  ).slice(0, 6);
-
-  const assetStatusData = [
-    { key: 'in_use', label: 'In use', color: '#22a23e' },
-    { key: 'in_storage', label: 'In storage', color: '#0ea5e9' },
-    { key: 'repair', label: 'Repair', color: '#f59e0b' },
-    { key: 'retired', label: 'Retired', color: '#94a3b8' }
-  ].map((s) => ({ ...s, value: assets.filter((a) => a.status === s.key).length }));
-
-  const assetTypeData = aggregate(assets, 'type', 'Other').slice(0, 6);
-  const assetLocationData = aggregate(assets, 'location', 'Unassigned').slice(0, 6);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
@@ -236,77 +192,6 @@ function StaffDashboard({ user }) {
           </div>
         </section>
 
-        <section>
-          <div className="flex items-end justify-between mb-3">
-            <div>
-              <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Work order reports</h2>
-              <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">Distribution across the queue</p>
-            </div>
-            <Link to="/tickets/all" className="text-xs font-semibold text-accent-700 hover:text-accent-800 dark:text-accent-400 dark:hover:text-accent-300">
-              Open work orders →
-            </Link>
-          </div>
-          <div className="grid gap-5 md:grid-cols-3">
-            <ChartCard title="By status" subtitle="Current work order pipeline">
-              <BarChart data={ticketStatusData} />
-            </ChartCard>
-            <ChartCard title="By priority" subtitle="What needs attention first">
-              <Donut data={ticketPriorityData} centerLabel="Work Orders" />
-            </ChartCard>
-            <ChartCard title="By category" subtitle="Top issue areas">
-              <HBarChart data={ticketCategoryData} color="#3f5b95" emptyLabel="No work orders yet" />
-            </ChartCard>
-            <ChartCard title="By request type" subtitle="Incidents vs. requests">
-              <ChartDoughnut
-                labels={ticketRequestTypeData.map((d) => d.label)}
-                values={ticketRequestTypeData.map((d) => d.value)}
-                colors={ticketRequestTypeData.map((d) => d.color)}
-                emptyLabel="No work orders yet"
-              />
-            </ChartCard>
-            <ChartCard title="By department" subtitle="Where work orders originate">
-              <ChartBar
-                labels={ticketDepartmentData.map((d) => d.label)}
-                values={ticketDepartmentData.map((d) => d.value)}
-                color="#3f5b95"
-                horizontal
-                emptyLabel="No work orders yet"
-              />
-            </ChartCard>
-            <ChartCard title="Open by assignee" subtitle="Current workload balance">
-              <ChartBar
-                labels={openByAssignee.map((d) => d.label)}
-                values={openByAssignee.map((d) => d.value)}
-                color="#22a23e"
-                horizontal
-                emptyLabel="No open work orders"
-              />
-            </ChartCard>
-          </div>
-        </section>
-
-        <section>
-          <div className="flex items-end justify-between mb-3">
-            <div>
-              <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Asset reports</h2>
-              <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">Inventory at a glance</p>
-            </div>
-            <Link to="/assets/all" className="text-xs font-semibold text-accent-700 hover:text-accent-800 dark:text-accent-400 dark:hover:text-accent-300">
-              Open assets →
-            </Link>
-          </div>
-          <div className="grid gap-5 md:grid-cols-3">
-            <ChartCard title="By status" subtitle="Where each device sits">
-              <Donut data={assetStatusData} centerLabel="Assets" />
-            </ChartCard>
-            <ChartCard title="By type" subtitle="Top hardware classes">
-              <HBarChart data={assetTypeData} color="#22a23e" emptyLabel="No assets tracked" />
-            </ChartCard>
-            <ChartCard title="By location" subtitle="Where assets are deployed">
-              <HBarChart data={assetLocationData} color="#3f5b95" emptyLabel="No locations recorded" />
-            </ChartCard>
-          </div>
-        </section>
       </main>
     </div>
   );
@@ -574,16 +459,6 @@ function RequestStatusPill({ status }) {
   );
 }
 
-function aggregate(rows, field, fallback) {
-  const map = new Map();
-  for (const r of rows) {
-    const raw = r?.[field];
-    const key = (raw && String(raw).trim()) || fallback;
-    map.set(key, (map.get(key) || 0) + 1);
-  }
-  return Array.from(map, ([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
-}
-
 function getGreeting() {
   const h = new Date().getHours();
   if (h < 12) return 'Good morning';
@@ -656,118 +531,3 @@ function EmptyState({ title, desc, cta }) {
   );
 }
 
-function ChartCard({ title, subtitle, children }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white shadow-card dark:bg-slate-900 dark:border-slate-800">
-      <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800">
-        <h3 className="text-sm font-semibold text-brand-900 dark:text-slate-100">{title}</h3>
-        {subtitle && <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">{subtitle}</p>}
-      </div>
-      <div className="p-5">{children}</div>
-    </div>
-  );
-}
-
-function BarChart({ data }) {
-  const max = Math.max(1, ...data.map((d) => d.value));
-  return (
-    <div>
-      <div className="flex items-end gap-2 h-40">
-        {data.map((d) => (
-          <div key={d.key} className="flex-1 flex flex-col items-center justify-end h-full">
-            <div className="text-[10px] font-semibold text-slate-700 tabular-nums dark:text-slate-300">{d.value}</div>
-            <div
-              className="mt-1 w-full rounded-t-md transition-all"
-              style={{
-                height: `${(d.value / max) * 100}%`,
-                backgroundColor: d.color,
-                minHeight: d.value ? 4 : 0
-              }}
-            />
-          </div>
-        ))}
-      </div>
-      <div className="mt-2 flex gap-2">
-        {data.map((d) => (
-          <div key={d.key} className="flex-1 text-center text-[10px] text-slate-500 truncate dark:text-slate-400">
-            {d.label}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Donut({ data, centerLabel }) {
-  const total = data.reduce((s, d) => s + d.value, 0);
-  const r = 36;
-  const C = 2 * Math.PI * r;
-  let acc = 0;
-  return (
-    <div className="flex items-center gap-5">
-      <svg viewBox="0 0 100 100" className="h-32 w-32 -rotate-90 shrink-0">
-        <circle cx="50" cy="50" r={r} fill="none" stroke="#e2e8f0" strokeWidth="14" className="dark:stroke-slate-800" />
-        {total > 0 &&
-          data.map((d) => {
-            const frac = d.value / total;
-            const len = frac * C;
-            const seg = (
-              <circle
-                key={d.key || d.label}
-                cx="50"
-                cy="50"
-                r={r}
-                fill="none"
-                stroke={d.color}
-                strokeWidth="14"
-                strokeDasharray={`${len} ${C - len}`}
-                strokeDashoffset={-acc * C}
-              />
-            );
-            acc += frac;
-            return seg;
-          })}
-      </svg>
-      <div className="flex-1 min-w-0">
-        <div className="text-2xl font-bold text-brand-900 tabular-nums dark:text-slate-100">{total}</div>
-        <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
-          {centerLabel}
-        </div>
-        <ul className="mt-2 space-y-1">
-          {data.map((d) => (
-            <li key={d.key || d.label} className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
-              <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-              <span className="flex-1 truncate">{d.label}</span>
-              <span className="font-semibold text-slate-700 tabular-nums dark:text-slate-200">{d.value}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
-function HBarChart({ data, color = '#3f5b95', emptyLabel = 'No data' }) {
-  if (!data.length) {
-    return <div className="text-sm text-slate-500 py-10 text-center dark:text-slate-400">{emptyLabel}</div>;
-  }
-  const max = Math.max(1, ...data.map((d) => d.value));
-  return (
-    <ul className="space-y-2.5">
-      {data.map((d) => (
-        <li key={d.label}>
-          <div className="flex items-center justify-between text-xs mb-1">
-            <span className="text-slate-700 truncate dark:text-slate-300">{d.label}</span>
-            <span className="font-semibold text-slate-800 tabular-nums dark:text-slate-200">{d.value}</span>
-          </div>
-          <div className="h-2 rounded-full bg-slate-100 overflow-hidden dark:bg-slate-800">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{ width: `${(d.value / max) * 100}%`, backgroundColor: color }}
-            />
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
