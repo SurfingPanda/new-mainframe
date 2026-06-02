@@ -212,6 +212,11 @@ export default function AllArticles() {
                       <Link to={`/kb/${a.slug}`} className="text-sm font-semibold text-brand-900 hover:text-accent-700 truncate">
                         {a.title}
                       </Link>
+                      {isNewArticle(a) && (
+                        <span className="inline-flex items-center rounded-full bg-accent-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+                          New
+                        </span>
+                      )}
                       {!a.published && (
                         <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200 px-2 py-0.5 text-[10px] font-semibold">
                           Draft
@@ -287,6 +292,15 @@ export default function AllArticles() {
 }
 
 /* ─── Small components ─── */
+
+// A published article counts as "new" for a week after it was created.
+const NEW_ARTICLE_DAYS = 7;
+function isNewArticle(a) {
+  if (!a?.published) return false;
+  const t = a.created_at ? new Date(a.created_at).getTime() : NaN;
+  if (Number.isNaN(t)) return false;
+  return Date.now() - t <= NEW_ARTICLE_DAYS * 86400000;
+}
 
 function StatCard({ label, value, tone }) {
   const tones = {

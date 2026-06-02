@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import { api, getUser } from '../lib/auth.js';
-import { formatTicketId } from '../lib/ticket.js';
+import { formatTicketId, matchesTicketId } from '../lib/ticket.js';
 
 const STATUSES = [
   { key: 'open', label: 'Open' },
@@ -66,10 +66,9 @@ export default function MyQueue() {
       if (statusFilter.size && !statusFilter.has(t.status)) return false;
       if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
       if (!q) return true;
-      const idStr = formatTicketId(t.id).toLowerCase();
       return (
         t.title.toLowerCase().includes(q) ||
-        idStr.includes(q) ||
+        matchesTicketId(t.id, q) ||
         (t.requester || '').toLowerCase().includes(q) ||
         (t.description || '').toLowerCase().includes(q)
       );

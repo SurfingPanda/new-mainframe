@@ -4,6 +4,7 @@ import DashboardHeader from '../components/DashboardHeader.jsx';
 import UserPicker from '../components/UserPicker.jsx';
 import { api, getUser } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
+import { SLA_DAYS, RESOLVED_STATUSES, PAUSED_STATUSES as SLA_PAUSED_STATUSES } from '../lib/sla.js';
 
 const STATUSES = [
   { key: 'open', label: 'Open' },
@@ -36,12 +37,8 @@ const CATEGORIES = [
   'Other'
 ];
 
-const SLA_DAYS = { low: 7, normal: 3, high: 2, urgent: 1 };
-const RESOLVED_STATUSES = new Set(['resolved', 'closed']);
-// Statuses during which the SLA clock pauses — the elapsed time isn't the
-// agent's: waiting on the customer (pending), parked (on_hold), or done
-// (resolved/closed, which matters once a ticket is reopened).
-const SLA_PAUSED_STATUSES = new Set(['pending', 'on_hold', ...RESOLVED_STATUSES]);
+// SLA rules live in lib/sla.js. TicketDetail computes the EXACT figure below
+// (computeSla) using the activity log to subtract paused time.
 
 const DRAFT_FIELDS = [
   'description', 'status', 'priority', 'request_type',
@@ -127,31 +124,17 @@ export default function TicketDetail() {
   // to their department. Staff edit through the normal draft/Save flow (they can
   // assign anyone); non-staff have no Save bar, so they persist immediately via
   // the claim/release endpoints.
-  const [claiming, setClaiming] = useState(false);
   const myIdentity = me?.name || me?.email || '';
   const canClaim = isStaff || (!!me?.department && !!ticket?.department && me.department === ticket.department);
-  // Staff act on the in-progress draft; non-staff act on the saved ticket.
-  const effectiveAssignee = isStaff ? (draft.assignee || '') : (ticket?.assignee || '');
+  // Assignment edits are staged in the draft like every other field, so nothing
+  // is written (or logged) until the user clicks Save. Staff save via PATCH;
+  // non-staff save via the claim/release endpoints (see `save` below).
+  const effectiveAssignee = draft.assignee || '';
   const isMine = !!myIdentity && effectiveAssignee === myIdentity;
 
-  const claimTicket = async (assign) => {
+  const claimTicket = (assign) => {
     setError('');
-    if (isStaff) {
-      // Just populate the field; the existing "Save changes" persists it.
-      setField('assignee', assign ? myIdentity : '');
-      return;
-    }
-    setClaiming(true);
-    try {
-      const updated = await api(`/api/tickets/${id}/${assign ? 'claim' : 'release'}`, { method: 'POST' });
-      setTicket(updated);
-      setDraft((d) => ({ ...d, assignee: updated.assignee || '' }));
-      reloadActivity();
-    } catch (e) {
-      setError(e.message || 'Could not update assignment.');
-    } finally {
-      setClaiming(false);
-    }
+    setField('assignee', assign ? myIdentity : '');
   };
 
   // Department routing — selecting a department filters the assignee list to
@@ -186,18 +169,23 @@ export default function TicketDetail() {
 
   const save = async () => {
     if (!isDirty || saving) return;
-    const patch = {};
-    for (const f of dirtyFields) {
-      const v = draft[f];
-      patch[f] = v === '' ? null : v;
-    }
     setSaving(true);
     setError('');
     try {
-      const updated = await api(`/api/tickets/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(patch)
-      });
+      let updated;
+      if (isStaff) {
+        const patch = {};
+        for (const f of dirtyFields) {
+          const v = draft[f];
+          patch[f] = v === '' ? null : v;
+        }
+        updated = await api(`/api/tickets/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      } else {
+        // Non-staff can only change their own assignment — persist it through
+        // the claim/release endpoints (they can't PATCH the work order).
+        const assign = (draft.assignee || '') === myIdentity;
+        updated = await api(`/api/tickets/${id}/${assign ? 'claim' : 'release'}`, { method: 'POST' });
+      }
       const merged = { ...ticket, ...updated };
       setTicket(merged);
       setDraft(makeDraft(merged));
@@ -416,7 +404,7 @@ export default function TicketDetail() {
                       disabled={!isStaff}
                       className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:opacity-60"
                     >
-                      <option value="">— No department —</option>
+                      <option value="" disabled>Select a department</option>
                       {deptOptions.map((d) => (
                         <option key={d} value={d}>{d}</option>
                       ))}
@@ -455,28 +443,25 @@ export default function TicketDetail() {
                         <button
                           type="button"
                           onClick={() => claimTicket(false)}
-                          disabled={claiming}
+                          disabled={saving}
                           className="btn-secondary !px-3 !py-1.5 text-xs disabled:opacity-60"
                         >
-                          {claiming ? 'Working…' : 'Unassign me'}
+                          Unassign me
                         </button>
                       ) : (!effectiveAssignee || isStaff) ? (
                         <button
                           type="button"
                           onClick={() => claimTicket(true)}
-                          disabled={claiming}
+                          disabled={saving}
                           className="btn-secondary !px-3 !py-1.5 text-xs disabled:opacity-60"
                         >
-                          {claiming ? 'Working…' : 'Assign to me'}
+                          Assign to me
                         </button>
                       ) : (
                         <p className="text-[11px] text-slate-500">Assigned to {effectiveAssignee}.</p>
                       )}
-                      {!isStaff && (
-                        <span className="text-[11px] text-slate-400">Routed to {ticket.department}. Picking it up assigns it to you.</span>
-                      )}
-                      {isStaff && isMine && !ticket.assignee && (
-                        <span className="text-[11px] text-slate-400">Click “Save changes” to apply.</span>
+                      {(draft.assignee || '') !== (ticket.assignee || '') && (
+                        <span className="text-[11px] text-amber-600">Click “Save changes” to apply.</span>
                       )}
                     </div>
                   )}
@@ -547,7 +532,7 @@ export default function TicketDetail() {
                   saving={saving}
                   onSave={save}
                   onDiscard={discard}
-                  visible={isStaff}
+                  visible={isStaff || (canClaim && isDirty)}
                 />
               </aside>
             </div>

@@ -2,7 +2,25 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, getUser, hasPermission } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
+import { slaPill } from '../lib/sla.js';
 import DashboardHeader from '../components/DashboardHeader.jsx';
+
+// A published article counts as "new" for a week after it was created.
+const NEW_ARTICLE_DAYS = 7;
+function isNewArticle(a) {
+  if (!a?.published) return false;
+  const t = a.created_at ? new Date(a.created_at).getTime() : NaN;
+  if (Number.isNaN(t)) return false;
+  return Date.now() - t <= NEW_ARTICLE_DAYS * 86400000;
+}
+
+function NewBadge() {
+  return (
+    <span className="flex-none rounded-full bg-accent-500 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+      New
+    </span>
+  );
+}
 
 export default function Dashboard() {
   const user = getUser();
@@ -183,7 +201,10 @@ function StaffDashboard({ user }) {
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {kb.slice(0, 5).map((a) => (
                   <li key={a.id} className="px-5 py-3 text-sm hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                    <div className="font-medium text-slate-800 truncate dark:text-slate-200">{a.title}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-slate-800 truncate dark:text-slate-200">{a.title}</span>
+                      {isNewArticle(a) && <NewBadge />}
+                    </div>
                     <div className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">{a.category || 'General'}</div>
                   </li>
                 ))}
@@ -349,7 +370,15 @@ function UserDashboard({ user }) {
                             <StatusPill status={t.status} />
                           </span>
                         </div>
-                        <span className="truncate text-slate-800 sm:col-span-6 dark:text-slate-200">{t.title}</span>
+                        <span className="min-w-0 sm:col-span-4">
+                          <span className="block truncate text-slate-800 dark:text-slate-200">{t.title}</span>
+                          <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
+                            {t.assignee ? `Technician: ${t.assignee}` : 'Unassigned'}
+                          </span>
+                        </span>
+                        <span className="sm:col-span-2">
+                          <SlaPill ticket={t} />
+                        </span>
                         <span className="sm:col-span-2">
                           <PriorityPill priority={t.priority} />
                         </span>
@@ -383,7 +412,10 @@ function UserDashboard({ user }) {
                 {kb.slice(0, 5).map((a) => (
                   <li key={a.id} className="px-5 py-3 text-sm hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                     <Link to={`/kb/${a.slug}`} className="block">
-                      <div className="font-medium text-slate-800 truncate dark:text-slate-200">{a.title}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-slate-800 truncate dark:text-slate-200">{a.title}</span>
+                        {isNewArticle(a) && <NewBadge />}
+                      </div>
                       <div className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">{a.category || 'General'}</div>
                     </Link>
                   </li>
@@ -513,6 +545,21 @@ function StatusPill({ status }) {
   return (
     <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${map[status] || map.open}`}>
       {status?.replace('_', ' ')}
+    </span>
+  );
+}
+
+function SlaPill({ ticket }) {
+  const s = slaPill(ticket);
+  if (!s) return null;
+  const tones = {
+    accent: 'bg-accent-50 text-accent-700 ring-accent-200 dark:bg-accent-500/15 dark:text-accent-300 dark:ring-accent-500/30',
+    amber: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30',
+    rose: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30'
+  };
+  return (
+    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${tones[s.tone]}`}>
+      {s.label}
     </span>
   );
 }

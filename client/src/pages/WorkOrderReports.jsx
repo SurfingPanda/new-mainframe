@@ -3,9 +3,8 @@ import { Link } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import { ChartBar, ChartDoughnut } from '../components/DashboardCharts.jsx';
 import { api } from '../lib/auth.js';
+import { slaInfo, RESOLVED_STATUSES } from '../lib/sla.js';
 
-const SLA_DAYS = { low: 7, normal: 3, high: 2, urgent: 1 };
-const RESOLVED = new Set(['resolved', 'closed']);
 const DAY = 86400000;
 
 const STATUS_ORDER = ['open', 'in_progress', 'on_hold', 'pending', 'resolved', 'closed'];
@@ -92,20 +91,6 @@ function monthSeries(rows, fromMs, toMs) {
   return { labels: capped.map(fmt), values: capped.map((b) => b.count) };
 }
 
-// Approximate SLA: elapsed = created -> (resolved ? updated_at : now) vs the
-// per-priority target. Unlike the per-ticket banner, this does NOT subtract
-// paused (on-hold / pending) time, so it's a directional overview.
-function slaInfo(t) {
-  const days = SLA_DAYS[t.priority];
-  if (!days || !t.created_at) return null;
-  const opened = new Date(t.created_at).getTime();
-  if (Number.isNaN(opened)) return null;
-  const resolved = RESOLVED.has(t.status);
-  const ref = resolved ? new Date(t.updated_at || t.created_at).getTime() : Date.now();
-  const totalMs = days * DAY;
-  const elapsed = Math.max(0, ref - opened);
-  return { resolved, elapsed, totalMs, remaining: totalMs - elapsed, overdue: elapsed > totalMs, days };
-}
 
 export default function WorkOrderReports() {
   const [tickets, setTickets] = useState([]);
@@ -140,8 +125,8 @@ export default function WorkOrderReports() {
   }), [tickets, fromMs, toMs]);
 
   const incidents = useMemo(() => filtered.filter((t) => t.request_type === 'incident'), [filtered]);
-  const active = useMemo(() => filtered.filter((t) => !RESOLVED.has(t.status)), [filtered]);
-  const resolved = useMemo(() => filtered.filter((t) => RESOLVED.has(t.status)), [filtered]);
+  const active = useMemo(() => filtered.filter((t) => !RESOLVED_STATUSES.has(t.status)), [filtered]);
+  const resolved = useMemo(() => filtered.filter((t) => RESOLVED_STATUSES.has(t.status)), [filtered]);
 
   const stats = useMemo(() => {
     const overdueOpen = active.filter((t) => slaInfo(t)?.overdue).length;

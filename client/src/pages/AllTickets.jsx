@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import { api } from '../lib/auth.js';
-import { formatTicketId } from '../lib/ticket.js';
+import { formatTicketId, matchesTicketId } from '../lib/ticket.js';
 
 const STATUSES = [
   { key: 'open', label: 'Open' },
@@ -70,8 +70,7 @@ export default function AllTickets() {
       if (assigneeFilter === 'unassigned' && t.assignee) return false;
       if (assigneeFilter !== 'all' && assigneeFilter !== 'unassigned' && t.assignee !== assigneeFilter) return false;
       if (!q) return true;
-      const idStr = formatTicketId(t.id).toLowerCase();
-      return t.title.toLowerCase().includes(q) || idStr.includes(q);
+      return t.title.toLowerCase().includes(q) || matchesTicketId(t.id, q);
     });
 
     rows = [...rows].sort((a, b) => {
@@ -209,7 +208,7 @@ export default function AllTickets() {
                   type="text"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Search by work order ID or title…"
+                  placeholder="Search by title or ID — try WO%22 for #22"
                   className="block w-full rounded-md border border-slate-300 pl-9 pr-3 py-2 text-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
                 />
               </div>

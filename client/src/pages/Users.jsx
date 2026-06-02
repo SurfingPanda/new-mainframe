@@ -38,14 +38,6 @@ const PERMISSION_MODULES = [
     actions: [
       { key: 'manage', label: 'Manage users' }
     ]
-  },
-  {
-    key: 'network',
-    label: 'Network',
-    actions: [
-      { key: 'view', label: 'View monitoring & reports' },
-      { key: 'manage', label: 'Create / edit reports' }
-    ]
   }
 ];
 
