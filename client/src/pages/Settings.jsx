@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
-import { api, getUser } from '../lib/auth.js';
+import Avatar from '../components/Avatar.jsx';
+import { api, getUser, updateStoredUser } from '../lib/auth.js';
 
 const PERMISSION_MODULES = [
   { key: 'tickets', label: 'Work Orders', actions: ['view', 'create'] },
@@ -30,6 +31,13 @@ export default function Settings() {
     return () => { active = false; };
   }, []);
 
+  // Reflect self-service profile edits both in this view and in the cached
+  // session user (drives the header avatar/name on the next render).
+  const handleProfileUpdated = (next) => {
+    setMe(next);
+    updateStoredUser({ name: next.name, avatar_url: next.avatar_url ?? null });
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader />
@@ -49,7 +57,7 @@ export default function Settings() {
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-6">
-            <ProfileCard me={me} />
+            <ProfileCard me={me} onUpdated={handleProfileUpdated} />
             <PasswordCard />
           </div>
           <div className="space-y-6">
@@ -62,22 +70,161 @@ export default function Settings() {
   );
 }
 
-/* -------- Profile (read-only) -------- */
+/* -------- Profile (name, job title + photo editable) -------- */
 
-function ProfileCard({ me }) {
+function ProfileCard({ me, onUpdated }) {
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState('');
+  const fileRef = useRef(null);
+
+  const patchMe = async (patch) => {
+    const updated = await api('/api/auth/me', { method: 'PATCH', body: JSON.stringify(patch) });
+    onUpdated(updated);
+  };
+
+  const uploadPhoto = async (file) => {
+    if (!file) return;
+    setPhotoError(''); setPhotoBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('avatar', file);
+      const { avatar_url } = await api('/api/auth/me/avatar', { method: 'POST', body: fd });
+      onUpdated({ ...me, avatar_url });
+    } catch (e) {
+      setPhotoError(e.message || 'Could not upload the picture.');
+    } finally {
+      setPhotoBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const removePhoto = async () => {
+    setPhotoError(''); setPhotoBusy(true);
+    try {
+      await api('/api/auth/me/avatar', { method: 'DELETE' });
+      onUpdated({ ...me, avatar_url: null });
+    } catch (e) {
+      setPhotoError(e.message || 'Could not remove the picture.');
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
   return (
     <section className="rounded-lg border border-slate-200 bg-white shadow-card overflow-hidden">
       <header className="border-b border-slate-100 px-5 py-3">
         <h2 className="text-sm font-semibold text-slate-800">Profile</h2>
-        <p className="text-xs text-slate-500 mt-0.5">Ask an admin to update name, email, or department.</p>
+        <p className="text-xs text-slate-500 mt-0.5">Update your name, job title, and photo. Email, role, and department are managed by an admin.</p>
       </header>
+
+      <div className="flex items-center gap-4 px-5 py-4 border-b border-slate-100">
+        <Avatar name={me?.name} src={me?.avatar_url} size="h-16 w-16" textClass="text-lg" />
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <label className={`btn-secondary !px-3 !py-1.5 text-xs ${photoBusy ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+              {photoBusy ? 'Working…' : me?.avatar_url ? 'Change photo' : 'Upload photo'}
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp,image/heic"
+                className="hidden"
+                onChange={(e) => uploadPhoto(e.target.files?.[0])}
+              />
+            </label>
+            {me?.avatar_url && (
+              <button type="button" onClick={removePhoto} disabled={photoBusy} className="btn-ghost !px-3 !py-1.5 text-xs disabled:opacity-50">
+                Remove
+              </button>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-500">PNG, JPEG, GIF, WebP, or HEIC · up to 5 MB.</p>
+          {photoError && <p className="text-[11px] text-rose-600">{photoError}</p>}
+        </div>
+      </div>
+
       <dl className="divide-y divide-slate-100">
-        <Row label="Full name" value={me?.name || '—'} />
+        <EditableRow
+          label="Full name"
+          value={me?.name}
+          onSave={(v) => patchMe({ name: v })}
+        />
+        <EditableRow
+          label="Job title"
+          value={me?.job_title}
+          placeholder="e.g. IT Support Specialist"
+          allowEmpty
+          onSave={(v) => patchMe({ job_title: v })}
+        />
         <Row label="Email" value={me?.email || '—'} mono />
         <Row label="Role" value={<span className="capitalize">{me?.role || 'user'}</span>} />
         <Row label="Department" value={me?.department || '—'} />
       </dl>
     </section>
+  );
+}
+
+// Inline-editable text row: shows the value with an Edit affordance and swaps
+// to an input + Save/Cancel while editing. `onSave(trimmedValue)` should throw
+// on failure; an empty value is rejected unless `allowEmpty` (clears the field).
+function EditableRow({ label, value, placeholder, allowEmpty = false, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => { if (!editing) setDraft(value || ''); }, [value, editing]);
+
+  const start = () => { setDraft(value || ''); setError(''); setEditing(true); };
+  const cancel = () => { setEditing(false); setError(''); };
+
+  const save = async () => {
+    const trimmed = draft.trim();
+    if (!trimmed && !allowEmpty) { setError(`${label} cannot be empty.`); return; }
+    setSaving(true); setError('');
+    try {
+      await onSave(trimmed);
+      setEditing(false);
+    } catch (e) {
+      setError(e.message || `Could not update ${label.toLowerCase()}.`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex items-start gap-4 px-5 py-3">
+      <dt className="w-40 flex-none text-xs font-semibold uppercase tracking-wider text-slate-500 pt-1.5">{label}</dt>
+      <dd className="flex-1 text-sm text-slate-800">
+        {editing ? (
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={placeholder}
+                autoFocus
+                onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancel(); }}
+                className="block w-full max-w-xs rounded-md border border-slate-300 px-3 py-1.5 text-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
+              />
+              <button type="button" onClick={save} disabled={saving} className="btn-primary !px-3 !py-1.5 text-xs disabled:opacity-50">
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+              <button type="button" onClick={cancel} disabled={saving} className="btn-ghost !px-3 !py-1.5 text-xs disabled:opacity-50">
+                Cancel
+              </button>
+            </div>
+            {error && <p className="text-[11px] text-rose-600">{error}</p>}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 pt-1.5">
+            <span className={value ? '' : 'text-slate-400'}>{value || '—'}</span>
+            <button type="button" onClick={start} className="text-xs font-semibold text-accent-700 hover:text-accent-900">
+              Edit
+            </button>
+          </div>
+        )}
+      </dd>
+    </div>
   );
 }
 

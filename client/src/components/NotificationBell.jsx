@@ -23,6 +23,7 @@ function dotColor(kind) {
   switch (kind) {
     case 'assigned': return 'bg-accent-500';
     case 'password_reset': return 'bg-rose-500';
+    case 'chat': return 'bg-sky-500';
     default: return 'bg-brand-500';
   }
 }

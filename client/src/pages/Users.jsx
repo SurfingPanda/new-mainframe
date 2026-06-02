@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import Modal from '../components/Modal.jsx';
-import { api, getUser } from '../lib/auth.js';
+import Avatar from '../components/Avatar.jsx';
+import { api, getUser, updateStoredUser } from '../lib/auth.js';
 
 const ROLES = ['admin', 'agent', 'user'];
 
@@ -140,6 +141,13 @@ export default function Users() {
       setBanner({ type: 'success', text: `${updated.name} updated.` });
     }
     setEditTarget(null);
+  };
+
+  // Refresh a single row in place (used after a profile-picture upload, which
+  // doesn't close the edit modal).
+  const applyUserUpdate = (updated) => {
+    setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+    if (updated.id === me?.id) updateStoredUser({ name: updated.name, avatar_url: updated.avatar_url ?? null });
   };
 
   const handleResetPassword = async (newPassword) => {
@@ -282,15 +290,15 @@ export default function Users() {
                     <tr key={u.id} className="hover:bg-slate-50/60">
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-3">
-                          <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-brand-900 text-white text-xs font-bold">
-                            {initialsOf(u.name)}
-                          </span>
+                          <Avatar name={u.name} src={u.avatar_url} size="h-9 w-9" textClass="text-xs" />
                           <div className="min-w-0">
                             <div className="font-medium text-slate-900 truncate">
                               {u.name}
                               {u.id === me?.id && <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-accent-700">You</span>}
                             </div>
-                            <div className="text-xs text-slate-500 truncate">{u.email}</div>
+                            <div className="text-xs text-slate-500 truncate">
+                              {u.job_title ? <>{u.job_title} · {u.email}</> : u.email}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -346,6 +354,7 @@ export default function Users() {
           target={editTarget}
           onClose={() => setEditTarget(null)}
           onSave={handleSave}
+          onUserUpdate={applyUserUpdate}
           isSelf={editTarget !== 'new' && editTarget?.id === me?.id}
         />
       )}
@@ -378,15 +387,19 @@ export default function Users() {
   );
 }
 
-function UserFormModal({ target, onClose, onSave, isSelf }) {
+function UserFormModal({ target, onClose, onSave, onUserUpdate, isSelf }) {
   const isNew = target === 'new';
   const [name, setName] = useState(isNew ? '' : target.name || '');
   const [email, setEmail] = useState(isNew ? '' : target.email || '');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState(isNew ? 'user' : target.role || 'user');
   const [department, setDepartment] = useState(isNew ? '' : target.department || '');
+  const [jobTitle, setJobTitle] = useState(isNew ? '' : target.job_title || '');
+  const [avatarUrl, setAvatarUrl] = useState(isNew ? null : target.avatar_url || null);
   const [departments, setDepartments] = useState([]);
   const [isActive, setIsActive] = useState(isNew ? true : !!target.is_active);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const fileRef = useRef(null);
 
   useEffect(() => {
     api('/api/departments')
@@ -415,6 +428,39 @@ function UserFormModal({ target, onClose, onSave, isSelf }) {
 
   const resetPermissions = () => setPermissions(null);
 
+  // Avatar upload is only available for an existing user (needs an id). New
+  // users can add a photo after they're created.
+  const uploadPhoto = async (file) => {
+    if (!file || isNew) return;
+    setError(''); setPhotoBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('avatar', file);
+      const updated = await api(`/api/users/${target.id}/avatar`, { method: 'POST', body: fd });
+      setAvatarUrl(updated.avatar_url);
+      onUserUpdate?.(updated);
+    } catch (err) {
+      setError(err.message || 'Could not upload the picture.');
+    } finally {
+      setPhotoBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const removePhoto = async () => {
+    if (isNew) return;
+    setError(''); setPhotoBusy(true);
+    try {
+      const updated = await api(`/api/users/${target.id}/avatar`, { method: 'DELETE' });
+      setAvatarUrl(null);
+      onUserUpdate?.(updated);
+    } catch (err) {
+      setError(err.message || 'Could not remove the picture.');
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     setError('');
@@ -425,8 +471,8 @@ function UserFormModal({ target, onClose, onSave, isSelf }) {
     setSubmitting(true);
     try {
       const basePayload = isNew
-        ? { name: name.trim(), email: email.trim(), password, role, department: department.trim() || null, is_active: isActive }
-        : { name: name.trim(), role, department: department.trim() || null, is_active: isActive };
+        ? { name: name.trim(), email: email.trim(), password, role, department: department.trim() || null, job_title: jobTitle.trim() || null, is_active: isActive }
+        : { name: name.trim(), role, department: department.trim() || null, job_title: jobTitle.trim() || null, is_active: isActive };
       const payload = isSelf ? basePayload : { ...basePayload, permissions };
       await onSave(payload, isNew);
     } catch (err) {
@@ -439,8 +485,38 @@ function UserFormModal({ target, onClose, onSave, isSelf }) {
   return (
     <Modal open onClose={onClose} title={isNew ? 'Add user' : `Edit ${target.name}`}>
       <form onSubmit={submit} className="space-y-4">
+        {!isNew && (
+          <div className="flex items-center gap-4 rounded-md border border-slate-200 bg-slate-50/50 px-3 py-3">
+            <Avatar name={name} src={avatarUrl} size="h-14 w-14" textClass="text-base" />
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap gap-2">
+                <label className={`btn-secondary !px-3 !py-1.5 text-xs ${photoBusy ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                  {photoBusy ? 'Working…' : avatarUrl ? 'Change photo' : 'Upload photo'}
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp,image/heic"
+                    className="hidden"
+                    onChange={(e) => uploadPhoto(e.target.files?.[0])}
+                  />
+                </label>
+                {avatarUrl && (
+                  <button type="button" onClick={removePhoto} disabled={photoBusy} className="btn-ghost !px-3 !py-1.5 text-xs disabled:opacity-50">
+                    Remove
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500">PNG, JPEG, GIF, WebP, or HEIC · up to 5 MB.</p>
+            </div>
+          </div>
+        )}
+
         <FormField label="Full name" required>
           <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls()} autoFocus />
+        </FormField>
+
+        <FormField label="Job title" hint="Optional — the user's role or position (e.g. IT Support Specialist).">
+          <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} className={inputCls()} placeholder="e.g. IT Support Specialist" />
         </FormField>
 
         <FormField label="Work email" required>
@@ -998,10 +1074,6 @@ function IconBtn({ children, label, onClick, disabled, tone = 'slate' }) {
       {children}
     </button>
   );
-}
-
-function initialsOf(name) {
-  return (name || 'U').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 }
 
 function relativeTime(ts) {

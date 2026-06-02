@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Avatar from './Avatar.jsx';
 
 export default function UserPicker({
   value,
@@ -101,14 +102,17 @@ export default function UserPicker({
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setHighlight(idx)}
                 onClick={() => pick(u)}
-                className={`block w-full text-left px-3 py-2 text-sm ${
+                className={`flex w-full items-center gap-2.5 text-left px-3 py-2 text-sm ${
                   idx === highlight ? 'bg-accent-50 text-accent-800' : 'text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                <div className="font-medium">{u.name}</div>
-                <div className="text-xs text-slate-500">
-                  {u.email ? `${u.email} · ` : ''}{u.role}{u.department ? ` · ${u.department}` : ''}
-                </div>
+                <Avatar name={u.name} src={u.avatar_url} size="h-7 w-7" textClass="text-[10px]" className="flex-none" />
+                <span className="min-w-0">
+                  <span className="block font-medium truncate">{u.name}</span>
+                  <span className="block text-xs text-slate-500 truncate">
+                    {u.email ? `${u.email} · ` : ''}{u.role}{u.department ? ` · ${u.department}` : ''}
+                  </span>
+                </span>
               </button>
             ))
           )}

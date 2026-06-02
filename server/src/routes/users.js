@@ -3,11 +3,24 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { pool } from '../config/db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 import { effectivePermissions, sanitizePermissions } from '../lib/permissions.js';
+import { avatarUpload, saveAvatar, removeAvatarFile, InvalidImageError } from '../lib/avatar-upload.js';
 
 const router = Router();
 const ROLES = ['admin', 'agent', 'user'];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Columns returned for the user-management views (admin only).
+const USER_COLUMNS =
+  'id, email, name, role, department, job_title, avatar_url, is_active, permissions, last_login_at, created_at, updated_at';
+
+// Throttle profile-picture uploads so an admin client can't fill the disk.
+const avatarLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 40,
+  message: 'Too many photo uploads. Please wait a few minutes and try again.'
+});
 
 // Readable random password (no ambiguous chars) for bulk-imported accounts.
 function generatePassword(len = 12) {
@@ -31,7 +44,7 @@ function decoratePermissions(row) {
 router.get('/assignable', requireAuth, async (_req, res, next) => {
   try {
     const [rows] = await pool.query(
-      `SELECT id, name, email, role, department
+      `SELECT id, name, email, role, department, avatar_url
          FROM users
         WHERE is_active = 1
         ORDER BY name ASC`
@@ -45,7 +58,7 @@ router.get('/assignable', requireAuth, async (_req, res, next) => {
 router.get('/directory', requireAuth, async (_req, res, next) => {
   try {
     const [rows] = await pool.query(
-      `SELECT id, name, email, role, department, last_seen_at
+      `SELECT id, name, email, role, department, avatar_url, last_seen_at
          FROM users
         WHERE is_active = 1
         ORDER BY name ASC`
@@ -61,7 +74,7 @@ router.use(requireAuth, requirePermission('users', 'manage'));
 router.get('/', async (_req, res, next) => {
   try {
     const [rows] = await pool.query(
-      `SELECT id, email, name, role, department, is_active, permissions, last_login_at, created_at, updated_at
+      `SELECT ${USER_COLUMNS}
          FROM users
         ORDER BY created_at DESC`
     );
@@ -73,7 +86,7 @@ router.get('/', async (_req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   try {
-    const { email, password, name, role = 'user', department, is_active = true, permissions } = req.body || {};
+    const { email, password, name, role = 'user', department, job_title, is_active = true, permissions } = req.body || {};
     if (!email || !password || !name) {
       return res.status(400).json({ error: 'email, password, and name are required' });
     }
@@ -86,21 +99,21 @@ router.post('/', async (req, res, next) => {
     const cleanPerms = permissions === undefined ? null : sanitizePermissions(permissions);
     const hash = await bcrypt.hash(String(password), 10);
     const [result] = await pool.query(
-      `INSERT INTO users (email, password_hash, name, role, department, is_active, permissions)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (email, password_hash, name, role, department, job_title, is_active, permissions)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         String(email).trim().toLowerCase(),
         hash,
         String(name).trim().slice(0, 120),
         role,
         department ? String(department).trim().slice(0, 80) : null,
+        job_title ? String(job_title).trim().slice(0, 120) : null,
         is_active ? 1 : 0,
         cleanPerms ? JSON.stringify(cleanPerms) : null
       ]
     );
     const [rows] = await pool.query(
-      `SELECT id, email, name, role, department, is_active, permissions, last_login_at, created_at, updated_at
-         FROM users WHERE id = ?`,
+      `SELECT ${USER_COLUMNS} FROM users WHERE id = ?`,
       [result.insertId]
     );
     res.status(201).json(decoratePermissions(rows[0]));
@@ -189,7 +202,7 @@ router.post('/import', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    const { name, role, department, is_active, permissions } = req.body || {};
+    const { name, role, department, job_title, is_active, permissions } = req.body || {};
 
     const fields = [];
     const values = [];
@@ -201,6 +214,10 @@ router.patch('/:id', async (req, res, next) => {
     if (department !== undefined) {
       fields.push('department = ?');
       values.push(department ? String(department).trim().slice(0, 80) : null);
+    }
+    if (job_title !== undefined) {
+      fields.push('job_title = ?');
+      values.push(job_title ? String(job_title).trim().slice(0, 120) : null);
     }
     if (is_active !== undefined) {
       fields.push('is_active = ?');
@@ -232,10 +249,48 @@ router.patch('/:id', async (req, res, next) => {
     if (r.affectedRows === 0) return res.status(404).json({ error: 'User not found' });
 
     const [rows] = await pool.query(
-      `SELECT id, email, name, role, department, is_active, permissions, last_login_at, created_at, updated_at
-         FROM users WHERE id = ?`,
+      `SELECT ${USER_COLUMNS} FROM users WHERE id = ?`,
       [id]
     );
+    res.json(decoratePermissions(rows[0]));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Upload / replace a user's profile picture (admin only). Returns the updated
+// user record so the directory row can refresh in place.
+router.post('/:id/avatar', avatarLimiter, avatarUpload, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!req.file) return res.status(400).json({ error: 'No image was uploaded.' });
+    const [[prev]] = await pool.query('SELECT avatar_url FROM users WHERE id = ? LIMIT 1', [id]);
+    if (!prev) return res.status(404).json({ error: 'User not found' });
+    let avatarUrl;
+    try {
+      avatarUrl = await saveAvatar(req.file.buffer);
+    } catch (err) {
+      if (err instanceof InvalidImageError) return res.status(400).json({ error: err.message });
+      throw err;
+    }
+    await pool.query('UPDATE users SET avatar_url = ? WHERE id = ?', [avatarUrl, id]);
+    removeAvatarFile(prev.avatar_url);
+    const [rows] = await pool.query(`SELECT ${USER_COLUMNS} FROM users WHERE id = ?`, [id]);
+    res.json(decoratePermissions(rows[0]));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Remove a user's profile picture (admin only).
+router.delete('/:id/avatar', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const [[prev]] = await pool.query('SELECT avatar_url FROM users WHERE id = ? LIMIT 1', [id]);
+    if (!prev) return res.status(404).json({ error: 'User not found' });
+    await pool.query('UPDATE users SET avatar_url = NULL WHERE id = ?', [id]);
+    removeAvatarFile(prev.avatar_url);
+    const [rows] = await pool.query(`SELECT ${USER_COLUMNS} FROM users WHERE id = ?`, [id]);
     res.json(decoratePermissions(rows[0]));
   } catch (err) {
     next(err);

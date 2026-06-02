@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS users (
   name            VARCHAR(120) NOT NULL,
   role            ENUM('admin','agent','user') NOT NULL DEFAULT 'user',
   department      VARCHAR(80),
+  job_title       VARCHAR(120) NULL,
+  avatar_url      VARCHAR(255) NULL,
   is_active             TINYINT(1) NOT NULL DEFAULT 1,
   permissions           JSON NULL,
   last_login_at         TIMESTAMP NULL,
@@ -166,6 +168,16 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_cm_room_created (room_key, created_at),
   INDEX idx_cm_user (user_id)
+);
+
+-- Per-user, per-room read cursor. `last_read_id` is the highest chat_messages.id
+-- the user has seen in that room; unread = messages newer than it (from others).
+CREATE TABLE IF NOT EXISTS chat_reads (
+  user_id       INT UNSIGNED NOT NULL,
+  room_key      VARCHAR(80) NOT NULL,
+  last_read_id  INT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, room_key)
 );
 
 CREATE TABLE IF NOT EXISTS password_reset_requests (

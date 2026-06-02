@@ -46,6 +46,16 @@ export function clearSession() {
   localStorage.removeItem(USER_KEY);
 }
 
+// Merge a partial update into the stored user (e.g. after a self-service
+// profile edit) so cached reads via getUser() reflect the change on next render.
+export function updateStoredUser(partial) {
+  const current = getUser();
+  if (!current) return null;
+  const next = { ...current, ...partial };
+  localStorage.setItem(USER_KEY, JSON.stringify(next));
+  return next;
+}
+
 export function isAuthenticated() {
   return Boolean(getToken());
 }

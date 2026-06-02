@@ -131,6 +131,52 @@ router.get('/', requireAuth, async (req, res, next) => {
       }
     }
 
+    // Chat activity: messages from other people in rooms the user is part of
+    // (the general channel, their DMs, and groups they belong to). Grouped to
+    // one item per room (latest message wins). Unread is keyed off the same
+    // notifications_seen_at mark as everything else in the bell — the precise
+    // unread-message badge on the Chat nav item is tracked separately.
+    const meId = req.user.sub;
+    const [chatRows] = await pool.query(
+      `SELECT m.id, m.room_key, m.user_name, m.body, m.attachment_filename, m.created_at
+         FROM chat_messages m
+        WHERE m.is_unsent = 0
+          AND m.user_id <> ?
+          AND ( m.room_key = 'general'
+                OR m.room_key LIKE CONCAT('dm:', ?, ':%')
+                OR m.room_key LIKE CONCAT('dm:%:', ?)
+                OR m.room_key IN (SELECT CONCAT('g:', room_id) FROM chat_room_members WHERE user_id = ?) )
+          AND m.created_at > DATE_SUB(NOW(), INTERVAL 14 DAY)
+        ORDER BY m.id DESC
+        LIMIT 60`,
+      [meId, meId, meId, meId]
+    );
+    const seenRooms = new Set();
+    for (const r of chatRows) {
+      if (seenRooms.has(r.room_key)) continue; // keep only the latest per room
+      seenRooms.add(r.room_key);
+      const name = r.user_name || 'Someone';
+      const message = r.room_key === 'general'
+        ? `${name} posted in Team Chat`
+        : r.room_key.startsWith('dm:')
+          ? `${name} messaged you`
+          : `${name} sent a message to a group`;
+      const snippet = r.body?.trim()
+        ? r.body.trim().slice(0, 80)
+        : r.attachment_filename
+          ? `📎 ${r.attachment_filename}`
+          : 'Sent a message';
+      items.push({
+        id: `chat-${r.room_key}`,
+        link: '/chat',
+        kind: 'chat',
+        message,
+        subtitle: snippet,
+        createdAt: r.created_at,
+        unread: new Date(r.created_at).getTime() > seenMs,
+      });
+    }
+
     items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
     res.json({

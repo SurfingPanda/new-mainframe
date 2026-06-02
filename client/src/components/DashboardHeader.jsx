@@ -3,8 +3,10 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { clearSession, getUser, hasPermission } from '../lib/auth.js';
 import NavDropdown from './NavDropdown.jsx';
 import NotificationBell from './NotificationBell.jsx';
+import Avatar from './Avatar.jsx';
 import { usePendingResetCount } from '../lib/usePendingResetCount.js';
 import { useWorkOrderNotifications } from '../lib/useWorkOrderNotifications.js';
+import { useChatUnread } from '../lib/useChatUnread.js';
 import Modal from './Modal.jsx';
 
 function ticketsMenu(user) {
@@ -100,15 +102,9 @@ export default function DashboardHeader() {
   const pendingResets = usePendingResetCount(canManageUsers);
   const usersSections = usersMenu(pendingResets);
   const workOrderAlerts = useWorkOrderNotifications(hasPermission('tickets', 'view', user));
+  const chatUnread = useChatUnread(!!user);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  const initials = (user?.name || 'U')
-    .split(' ')
-    .map((p) => p[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
 
   const requestLogout = () => setConfirmOpen(true);
 
@@ -160,14 +156,21 @@ export default function DashboardHeader() {
           <NavLink
             to="/chat"
             className={({ isActive }) =>
-              `rounded-md px-2 py-1.5 text-sm font-medium transition-colors ${
+              `relative rounded-md px-2 py-1.5 text-sm font-medium transition-colors ${
                 isActive
                   ? 'text-brand-900 bg-slate-100 dark:text-white dark:bg-slate-800'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800'
               }`
             }
           >
-            Chat Room
+            <span className="inline-flex items-center gap-1.5">
+              Chat Room
+              {chatUnread > 0 && (
+                <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white">
+                  {chatUnread > 9 ? '9+' : chatUnread}
+                </span>
+              )}
+            </span>
           </NavLink>
           {canManageUsers && (
             <NavDropdown label="Users" basePath="/users" sections={usersSections} badge="Admin" />
@@ -191,12 +194,12 @@ export default function DashboardHeader() {
             </svg>
           </button>
           <NotificationBell />
-          <ProfileMenu user={user} initials={initials} onSignOut={requestLogout} />
+          <ProfileMenu user={user} onSignOut={requestLogout} />
         </div>
       </div>
 
       {mobileOpen && (
-        <MobileNav user={user} usersSections={usersSections} onClose={() => setMobileOpen(false)} />
+        <MobileNav user={user} usersSections={usersSections} chatUnread={chatUnread} onClose={() => setMobileOpen(false)} />
       )}
     </header>
 
@@ -233,7 +236,7 @@ export default function DashboardHeader() {
   );
 }
 
-function MobileNav({ user, usersSections, onClose }) {
+function MobileNav({ user, usersSections, chatUnread = 0, onClose }) {
   const sections = [];
   sections.push({
     heading: 'Overview',
@@ -250,7 +253,7 @@ function MobileNav({ user, usersSections, onClose }) {
   }
   sections.push({
     heading: 'Chat',
-    items: [{ to: '/chat', label: 'Chat Room', desc: 'Team-wide messaging' }]
+    items: [{ to: '/chat', label: 'Chat Room', desc: 'Team-wide messaging', badge: chatUnread }]
   });
   if (hasPermission('users', 'manage', user)) {
     sections.push({
@@ -297,7 +300,7 @@ function MobileNav({ user, usersSections, onClose }) {
   );
 }
 
-function ProfileMenu({ user, initials, onSignOut }) {
+function ProfileMenu({ user, onSignOut }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const buttonRef = useRef(null);
@@ -344,9 +347,8 @@ function ProfileMenu({ user, initials, onSignOut }) {
             {user?.department || user?.role}
           </span>
         </div>
-        <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-brand-900 text-white text-sm font-bold dark:bg-brand-600">
-          {initials}
-        </span>
+        <Avatar name={user?.name} src={user?.avatar_url} size="h-9 w-9" />
+
         <svg
           className={`h-3.5 w-3.5 text-slate-500 transition-transform dark:text-slate-400 ${open ? 'rotate-180' : ''}`}
           viewBox="0 0 24 24"

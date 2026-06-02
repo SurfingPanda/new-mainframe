@@ -56,7 +56,9 @@
       "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -t -e 'SELECT id,title,requester,created_at FROM tickets WHERE title='\\\\''adasdasd'\\\\'';')",
       "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -t -e 'SELECT a.id, a.ticket_id, a.actor, a.field, a.new_value, a.created_at FROM ticket_activity a JOIN tickets t ON t.id=a.ticket_id WHERE t.title='\\\\''adasdasd'\\\\'' AND a.field='\\\\''created'\\\\'';')",
       "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -e 'UPDATE ticket_activity SET actor='\\\\''Admin'\\\\'' WHERE id=35 AND field='\\\\''created'\\\\'';')",
-      "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -t -e 'SELECT id, ticket_id, actor, field, new_value FROM ticket_activity WHERE id=35;')"
+      "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -t -e 'SELECT id, ticket_id, actor, field, new_value FROM ticket_activity WHERE id=35;')",
+      "Bash(ls -d dist)",
+      "Bash(find dist *)"
     ]
   }
 }

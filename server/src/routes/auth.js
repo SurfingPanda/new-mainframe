@@ -8,6 +8,7 @@ import { rateLimit } from '../middleware/rateLimit.js';
 import { effectivePermissions } from '../lib/permissions.js';
 import { sendMailSafe, appUrl } from '../lib/mailer.js';
 import { passwordResetLink } from '../lib/email-templates.js';
+import { avatarUpload, saveAvatar, removeAvatarFile, InvalidImageError } from '../lib/avatar-upload.js';
 
 const router = Router();
 
@@ -25,6 +26,13 @@ const forgotLimiter = rateLimit({
   message: 'Too many requests. Please wait a few minutes and try again.'
 });
 
+// Throttle profile-picture uploads so a client can't fill the disk.
+const avatarLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: 'Too many photo uploads. Please wait a few minutes and try again.'
+});
+
 router.post('/login', loginLimiter, async (req, res, next) => {
   try {
     const { email, password } = req.body || {};
@@ -33,7 +41,7 @@ router.post('/login', loginLimiter, async (req, res, next) => {
     }
 
     const [rows] = await pool.query(
-      'SELECT id, email, password_hash, name, role, department, is_active, permissions FROM users WHERE email = ? LIMIT 1',
+      'SELECT id, email, password_hash, name, role, department, job_title, avatar_url, is_active, permissions FROM users WHERE email = ? LIMIT 1',
       [email.toLowerCase().trim()]
     );
 
@@ -64,6 +72,8 @@ router.post('/login', loginLimiter, async (req, res, next) => {
         name: user.name,
         role: user.role,
         department: user.department,
+        job_title: user.job_title,
+        avatar_url: user.avatar_url,
         permissions
       }
     });
@@ -171,16 +181,87 @@ router.post('/reset-password', forgotLimiter, async (req, res, next) => {
   }
 });
 
+const ME_COLUMNS =
+  'id, email, name, role, department, job_title, avatar_url, permissions, last_login_at, created_at';
+
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
     const [rows] = await pool.query(
-      'SELECT id, email, name, role, department, permissions, last_login_at, created_at FROM users WHERE id = ? AND is_active = 1 LIMIT 1',
+      `SELECT ${ME_COLUMNS} FROM users WHERE id = ? AND is_active = 1 LIMIT 1`,
       [req.user.sub]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
     const me = rows[0];
     me.permissions = effectivePermissions(me);
     res.json(me);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Self-service profile edit. Users may change their own display name and job
+// title — role, email, and department remain admin-managed (routes/users.js).
+router.patch('/me', requireAuth, async (req, res, next) => {
+  try {
+    const { name, job_title } = req.body || {};
+    const fields = [];
+    const values = [];
+    if (name !== undefined) {
+      if (typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ error: 'name cannot be empty' });
+      }
+      fields.push('name = ?');
+      values.push(name.trim().slice(0, 120));
+    }
+    if (job_title !== undefined) {
+      fields.push('job_title = ?');
+      values.push(job_title ? String(job_title).trim().slice(0, 120) : null);
+    }
+    if (fields.length === 0) {
+      return res.status(400).json({ error: 'nothing to update' });
+    }
+    values.push(req.user.sub);
+    await pool.query(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, values);
+    const [rows] = await pool.query(
+      `SELECT ${ME_COLUMNS} FROM users WHERE id = ? AND is_active = 1 LIMIT 1`,
+      [req.user.sub]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    const me = rows[0];
+    me.permissions = effectivePermissions(me);
+    res.json(me);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Upload / replace own profile picture. Returns the new avatar_url.
+router.post('/me/avatar', requireAuth, avatarLimiter, avatarUpload, async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No image was uploaded.' });
+    let avatarUrl;
+    try {
+      avatarUrl = await saveAvatar(req.file.buffer);
+    } catch (err) {
+      if (err instanceof InvalidImageError) return res.status(400).json({ error: err.message });
+      throw err;
+    }
+    const [[prev]] = await pool.query('SELECT avatar_url FROM users WHERE id = ? LIMIT 1', [req.user.sub]);
+    await pool.query('UPDATE users SET avatar_url = ? WHERE id = ?', [avatarUrl, req.user.sub]);
+    removeAvatarFile(prev?.avatar_url);
+    res.json({ avatar_url: avatarUrl });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Remove own profile picture (falls back to initials).
+router.delete('/me/avatar', requireAuth, async (req, res, next) => {
+  try {
+    const [[prev]] = await pool.query('SELECT avatar_url FROM users WHERE id = ? LIMIT 1', [req.user.sub]);
+    await pool.query('UPDATE users SET avatar_url = NULL WHERE id = ?', [req.user.sub]);
+    removeAvatarFile(prev?.avatar_url);
+    res.json({ avatar_url: null });
   } catch (err) {
     next(err);
   }

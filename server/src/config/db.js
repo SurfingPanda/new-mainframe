@@ -44,6 +44,19 @@ export async function ensureSchema() {
     if (err.code !== 'ER_DUP_FIELDNAME') throw err;
   }
 
+  // users.job_title (admin-managed) and users.avatar_url (profile picture path
+  // under /uploads/avatars). Added idempotently for pre-existing databases.
+  for (const stmt of [
+    `ALTER TABLE users ADD COLUMN job_title VARCHAR(120) NULL AFTER department`,
+    `ALTER TABLE users ADD COLUMN avatar_url VARCHAR(255) NULL AFTER job_title`
+  ]) {
+    try {
+      await pool.query(stmt);
+    } catch (err) {
+      if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+    }
+  }
+
   // tickets.status gained a 'pending' value (Pending - Waiting for Customer).
   // MODIFY with the full enum is idempotent — re-running it is a harmless no-op.
   await pool.query(`
@@ -179,6 +192,17 @@ export async function ensureSchema() {
       if (err.code !== 'ER_DUP_FIELDNAME') throw err;
     }
   }
+
+  // Per-user, per-room chat read cursor (drives the chat unread badge).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS chat_reads (
+      user_id       INT UNSIGNED NOT NULL,
+      room_key      VARCHAR(80) NOT NULL,
+      last_read_id  INT UNSIGNED NOT NULL DEFAULT 0,
+      updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, room_key)
+    )
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS password_reset_requests (

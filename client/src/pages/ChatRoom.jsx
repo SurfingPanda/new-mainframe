@@ -4,6 +4,7 @@ import { api, getUser } from '../lib/auth.js';
 
 const MESSAGE_POLL_MS = 5000;
 const ROOMS_POLL_MS = 30000;
+const TYPING_POLL_MS = 2500;
 const GROUP_GAP_MS = 5 * 60 * 1000;
 const MAX_LEN = 2000;
 const GENERAL_KEY = 'general';
@@ -55,6 +56,8 @@ export default function ChatRoom() {
   // pendingRoom holds a "draft" DM not yet in `rooms` (no messages yet).
   const [pendingRoom, setPendingRoom] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [unreadByRoom, setUnreadByRoom] = useState({});
+  const [typingUsers, setTypingUsers] = useState([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [query, setQuery] = useState('');
   const [draft, setDraft] = useState('');
@@ -76,6 +79,47 @@ export default function ChatRoom() {
   // Highest message id we've loaded — the poll cursor. Held in a ref so the
   // poll interval can read it without re-subscribing on every new message.
   const lastSeenIdRef = useRef(0);
+  // Highest message id we've reported as read per room, to avoid redundant POSTs.
+  const markedReadRef = useRef({});
+  // Throttle the "I'm typing" heartbeat to at most one POST every few seconds.
+  const lastTypingRef = useRef(0);
+
+  // Tell the server we're typing in the active room (throttled).
+  const notifyTyping = () => {
+    const now = Date.now();
+    if (now - lastTypingRef.current < 2500) return;
+    lastTypingRef.current = now;
+    api('/api/chat/typing', { method: 'POST', body: JSON.stringify({ room: activeKey }) }).catch(() => {});
+  };
+
+  // Pull per-room unread counts (drives the conversation badges + nav badge).
+  const refreshUnread = async () => {
+    try {
+      const data = await api('/api/chat/unread');
+      setUnreadByRoom(data?.rooms || {});
+    } catch {
+      // ignore — keep the previous counts
+    }
+  };
+
+  // Mark a room read up to lastId: clears its badge, advances the server cursor,
+  // and notifies the header so the Chat nav badge refreshes.
+  const markRoomRead = async (room, lastId) => {
+    if (!room || !lastId || (markedReadRef.current[room] || 0) >= lastId) return;
+    markedReadRef.current[room] = lastId;
+    setUnreadByRoom((prev) => {
+      if (!prev[room]) return prev;
+      const next = { ...prev };
+      delete next[room];
+      return next;
+    });
+    try {
+      await api('/api/chat/read', { method: 'POST', body: JSON.stringify({ room, last_id: lastId }) });
+    } catch {
+      // ignore — a later view will reconcile
+    }
+    window.dispatchEvent(new Event('chat-read'));
+  };
 
   // Refresh "online" calculation on a clock independent of the rooms poll so
   // people drop offline ~ONLINE_WINDOW_MS after they stop pinging the API.
@@ -121,6 +165,7 @@ export default function ChatRoom() {
         setDirectory(Array.isArray(dir) ? dir.filter((u) => u.id !== myId) : []);
       })
       .catch((e) => !cancelled && setError(e.message));
+    refreshUnread();
     return () => { cancelled = true; };
   }, [myId]);
 
@@ -130,6 +175,7 @@ export default function ChatRoom() {
       try {
         const r = await api('/api/chat/rooms');
         if (Array.isArray(r)) setRooms(r);
+        refreshUnread();
       } catch {
         // ignore
       }
@@ -145,9 +191,12 @@ export default function ChatRoom() {
     api(`/api/chat/messages?room=${encodeURIComponent(activeKey)}`)
       .then((list) => {
         if (cancelled) return;
-        setMessages(Array.isArray(list) ? list : []);
+        const arr = Array.isArray(list) ? list : [];
+        setMessages(arr);
         setError('');
         stickyToBottom.current = true;
+        // Opening a room marks everything in it read.
+        if (arr.length) markRoomRead(activeKey, arr[arr.length - 1].id);
       })
       .catch((e) => !cancelled && setError(e.message))
       .finally(() => !cancelled && setLoadingMessages(false));
@@ -182,11 +231,29 @@ export default function ChatRoom() {
             }
             return changed ? Array.from(byId.values()).sort((a, b) => a.id - b.id) : prev;
           });
+          // We're looking at this room, so new arrivals are read immediately.
+          const maxFresh = fresh.reduce((mx, m) => (m.id > mx ? m.id : mx), 0);
+          markRoomRead(activeKey, maxFresh);
         }
       } catch {
         // ignore
       }
     }, MESSAGE_POLL_MS);
+    return () => clearInterval(id);
+  }, [activeKey]);
+
+  // Poll who else is typing in the active room. Reset on room change so a
+  // stale indicator from the previous room never bleeds across.
+  useEffect(() => {
+    setTypingUsers([]);
+    const id = setInterval(async () => {
+      try {
+        const data = await api(`/api/chat/typing?room=${encodeURIComponent(activeKey)}`);
+        setTypingUsers(Array.isArray(data?.users) ? data.users : []);
+      } catch {
+        // ignore
+      }
+    }, TYPING_POLL_MS);
     return () => clearInterval(id);
   }, [activeKey]);
 
@@ -460,6 +527,7 @@ export default function ChatRoom() {
           user_name: m.user_name,
           user_role: m.user_role,
           user_department: m.user_department,
+          avatar_url: m.avatar_url,
           messages: [m]
         });
       }
@@ -524,6 +592,7 @@ export default function ChatRoom() {
                         <ConversationRow
                           room={r}
                           active={r.key === activeKey}
+                          unread={r.key === activeKey ? 0 : (unreadByRoom[r.key] || 0)}
                           muted={muted.has(r.key)}
                           archived={false}
                           isAdmin={isAdmin}
@@ -561,6 +630,7 @@ export default function ChatRoom() {
                             <ConversationRow
                               room={r}
                               active={r.key === activeKey}
+                              unread={r.key === activeKey ? 0 : (unreadByRoom[r.key] || 0)}
                               muted={muted.has(r.key)}
                               archived={true}
                               isAdmin={isAdmin}
@@ -590,9 +660,13 @@ export default function ChatRoom() {
                             className="w-full text-left flex items-center gap-3 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
                           >
                             <span className="relative flex-none">
-                              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 text-xs font-bold ring-1 ring-inset ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700">
-                                {initials(u.name)}
-                              </span>
+                              {u.avatar_url ? (
+                                <img src={u.avatar_url} alt={u.name} className="h-9 w-9 rounded-full object-cover bg-slate-100 ring-1 ring-inset ring-slate-200 dark:ring-slate-700" />
+                              ) : (
+                                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 text-xs font-bold ring-1 ring-inset ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700">
+                                  {initials(u.name)}
+                                </span>
+                              )}
                               {isOnline(u.last_seen_at, now) && <OnlineDot title="Online" />}
                             </span>
                             <span className="min-w-0 flex-1">
@@ -709,9 +783,11 @@ export default function ChatRoom() {
                 ) : messages.length === 0 ? (
                   <EmptyThread room={activeRoom} />
                 ) : (
-                  renderGroupsWithDividers(groups, myId, isAdmin, setDeleteTarget)
+                  renderGroupsWithDividers(groups, myId, setDeleteTarget)
                 )}
               </div>
+
+              <TypingIndicator users={typingUsers} />
 
               <form onSubmit={send} className="border-t border-slate-200 bg-white p-3 dark:bg-slate-900 dark:border-slate-800">
                 {pendingFile && (
@@ -742,7 +818,7 @@ export default function ChatRoom() {
                   </button>
                   <textarea
                     value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
+                    onChange={(e) => { setDraft(e.target.value); if (e.target.value.trim()) notifyTyping(); }}
                     onKeyDown={onKey}
                     rows={1}
                     placeholder={
@@ -811,6 +887,7 @@ export default function ChatRoom() {
 function ConversationRow({
   room,
   active,
+  unread = 0,
   muted,
   archived,
   isAdmin,
@@ -820,6 +897,7 @@ function ConversationRow({
   onToggleArchive,
   onLeave
 }) {
+  const hasUnread = unread > 0;
   const isChannel = room.kind === 'channel';
   const isGroup = room.kind === 'group';
   const title = isChannel ? room.label : isGroup ? room.name : room.other?.name || 'Unknown';
@@ -890,13 +968,20 @@ function ConversationRow({
                 </svg>
               )}
             </span>
-            {room.last?.created_at && (
-              <span className="text-[10px] text-slate-400 dark:text-slate-500 flex-none">
-                {compactTime(room.last.created_at)}
-              </span>
-            )}
+            <span className="flex items-center gap-1.5 flex-none">
+              {room.last?.created_at && (
+                <span className={`text-[10px] flex-none ${hasUnread ? 'text-rose-500 font-semibold' : 'text-slate-400 dark:text-slate-500'}`}>
+                  {compactTime(room.last.created_at)}
+                </span>
+              )}
+              {hasUnread && (
+                <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white">
+                  {unread > 9 ? '9+' : unread}
+                </span>
+              )}
+            </span>
           </span>
-          <span className="block text-xs text-slate-500 truncate dark:text-slate-400">
+          <span className={`block text-xs truncate ${hasUnread ? 'text-slate-700 font-medium dark:text-slate-200' : 'text-slate-500 dark:text-slate-400'}`}>
             {sub}
           </span>
         </span>
@@ -1148,7 +1233,28 @@ function EmptyThread({ room }) {
   );
 }
 
-function renderGroupsWithDividers(groups, myId, isAdmin, onDelete) {
+function TypingIndicator({ users }) {
+  if (!users?.length) return null;
+  const names = users.map((u) => (u.name || 'Someone').trim().split(/\s+/)[0]);
+  const label =
+    names.length === 1
+      ? `${names[0]} is typing`
+      : names.length === 2
+        ? `${names[0]} and ${names[1]} are typing`
+        : `${names[0]} and ${names.length - 1} others are typing`;
+  return (
+    <div className="flex items-center gap-2 px-3 sm:px-6 pb-1.5 text-[11px] text-slate-500 dark:text-slate-400" aria-live="polite">
+      <span className="inline-flex gap-0.5" aria-hidden="true">
+        <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.3s]" />
+        <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.15s]" />
+        <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" />
+      </span>
+      <span className="italic">{label}…</span>
+    </div>
+  );
+}
+
+function renderGroupsWithDividers(groups, myId, onDelete) {
   const out = [];
   let lastDateKey = null;
   for (const g of groups) {
@@ -1162,7 +1268,7 @@ function renderGroupsWithDividers(groups, myId, isAdmin, onDelete) {
         key={`g-${g.messages[0].id}`}
         group={g}
         isMe={myId === g.user_id}
-        canDelete={() => isAdmin || myId === g.user_id}
+        canDelete={() => myId === g.user_id}
         onDelete={onDelete}
       />
     );
@@ -1173,14 +1279,23 @@ function renderGroupsWithDividers(groups, myId, isAdmin, onDelete) {
 function MessageGroup({ group, isMe, canDelete, onDelete }) {
   return (
     <div className={`flex gap-3 ${isMe ? 'flex-row-reverse' : ''}`}>
-      <span
-        className={`inline-flex h-8 w-8 flex-none items-center justify-center rounded-full text-xs font-bold text-white ${
-          isMe ? 'bg-accent-600' : 'bg-brand-900 dark:bg-brand-600'
-        }`}
-        title={group.user_name}
-      >
-        {initials(group.user_name)}
-      </span>
+      {group.avatar_url ? (
+        <img
+          src={group.avatar_url}
+          alt={group.user_name}
+          title={group.user_name}
+          className="h-8 w-8 flex-none rounded-full object-cover bg-slate-100 ring-1 ring-inset ring-black/5"
+        />
+      ) : (
+        <span
+          className={`inline-flex h-8 w-8 flex-none items-center justify-center rounded-full text-xs font-bold text-white ${
+            isMe ? 'bg-accent-600' : 'bg-brand-900 dark:bg-brand-600'
+          }`}
+          title={group.user_name}
+        >
+          {initials(group.user_name)}
+        </span>
+      )}
       <div className={`min-w-0 max-w-[78%] sm:max-w-[70%] ${isMe ? 'text-right' : ''}`}>
         <div className={`flex items-baseline gap-2 ${isMe ? 'justify-end' : ''}`}>
           <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
@@ -1454,9 +1569,13 @@ function CreateGroupModal({ directory, onCancel, onSubmit }) {
                         onChange={() => toggle(u.id)}
                         className="h-4 w-4 rounded border-slate-300 text-accent-600 focus:ring-accent-500"
                       />
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-brand-900 text-white text-[10px] font-bold dark:bg-brand-600">
-                        {initials(u.name)}
-                      </span>
+                      {u.avatar_url ? (
+                        <img src={u.avatar_url} alt={u.name} className="h-8 w-8 rounded-full object-cover bg-slate-100 ring-1 ring-inset ring-black/5" />
+                      ) : (
+                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-brand-900 text-white text-[10px] font-bold dark:bg-brand-600">
+                          {initials(u.name)}
+                        </span>
+                      )}
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-medium text-slate-800 truncate dark:text-slate-200">{u.name}</span>
                         <span className="block text-xs text-slate-500 truncate dark:text-slate-400">

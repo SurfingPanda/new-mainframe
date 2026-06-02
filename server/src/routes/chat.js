@@ -87,6 +87,18 @@ function isValidRoom(room) {
   return parseDm(room) != null || parseGroup(room) != null;
 }
 
+// Attach each author's current avatar_url to a batch of message rows. Chat
+// messages denormalize the author's name/role, but avatars can change, so we
+// resolve them live in one batched lookup keyed by user_id.
+async function attachAvatars(rows) {
+  const ids = [...new Set(rows.map((r) => r.user_id).filter(Boolean))];
+  if (!ids.length) return rows;
+  const [avatars] = await pool.query('SELECT id, avatar_url FROM users WHERE id IN (?)', [ids]);
+  const map = new Map(avatars.map((a) => [a.id, a.avatar_url]));
+  for (const r of rows) r.avatar_url = map.get(r.user_id) || null;
+  return rows;
+}
+
 // Async — group membership needs a DB lookup.
 async function userCanAccessRoom(userId, room) {
   if (room === GENERAL_ROOM) return true;
@@ -249,6 +261,164 @@ router.get('/rooms', requireAuth, async (req, res, next) => {
   }
 });
 
+// Per-room unread counts for the signed-in user across every room they're in:
+// the general channel, their DMs, and groups they belong to. Unread = messages
+// from someone else, not unsent, newer than their read cursor for that room.
+async function computeUnread(me) {
+  // General channel + DMs involving me (dm keys are 'dm:lo:hi', sorted).
+  const [dmGen] = await pool.query(
+    `SELECT cm.room_key,
+            SUM(CASE WHEN cm.id > COALESCE(cr.last_read_id, 0)
+                      AND cm.user_id <> ? AND cm.is_unsent = 0
+                     THEN 1 ELSE 0 END) AS unread
+       FROM chat_messages cm
+       LEFT JOIN chat_reads cr ON cr.user_id = ? AND cr.room_key = cm.room_key
+      WHERE cm.room_key = ?
+         OR cm.room_key LIKE CONCAT('dm:', ?, ':%')
+         OR cm.room_key LIKE CONCAT('dm:%:', ?)
+      GROUP BY cm.room_key`,
+    [me, me, GENERAL_ROOM, me, me]
+  );
+  // Group rooms I belong to.
+  const [groups] = await pool.query(
+    `SELECT cm.room_key,
+            SUM(CASE WHEN cm.id > COALESCE(cr.last_read_id, 0)
+                      AND cm.user_id <> ? AND cm.is_unsent = 0
+                     THEN 1 ELSE 0 END) AS unread
+       FROM chat_room_members rm
+       JOIN chat_messages cm ON cm.room_key = CONCAT('g:', rm.room_id)
+       LEFT JOIN chat_reads cr ON cr.user_id = ? AND cr.room_key = cm.room_key
+      WHERE rm.user_id = ?
+      GROUP BY cm.room_key`,
+    [me, me, me]
+  );
+
+  const rooms = {};
+  let total = 0;
+  for (const r of [...dmGen, ...groups]) {
+    const n = Number(r.unread) || 0;
+    if (n > 0) {
+      rooms[r.room_key] = n;
+      total += n;
+    }
+  }
+  return { total, rooms };
+}
+
+// GET /api/chat/unread — { total, rooms: { <room_key>: count } }
+router.get('/unread', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await computeUnread(Number(req.user.sub)));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/chat/read — mark a room read up to last_id (or its latest message).
+// Only ever advances the cursor, so out-of-order polls can't "unread" a room.
+router.post('/read', requireAuth, async (req, res, next) => {
+  try {
+    const me = Number(req.user.sub);
+    const room = String(req.body?.room || '');
+    if (!isValidRoom(room)) return res.status(400).json({ error: 'invalid room' });
+    if (!(await userCanAccessRoom(me, room))) return res.status(403).json({ error: 'not in room' });
+
+    let lastId = Number(req.body?.last_id);
+    if (!Number.isInteger(lastId) || lastId <= 0) {
+      const [[row]] = await pool.query(
+        'SELECT MAX(id) AS max_id FROM chat_messages WHERE room_key = ?',
+        [room]
+      );
+      lastId = row?.max_id || 0;
+    }
+    await pool.query(
+      `INSERT INTO chat_reads (user_id, room_key, last_read_id) VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE last_read_id = GREATEST(last_read_id, VALUES(last_read_id))`,
+      [me, room, lastId]
+    );
+    res.json(await computeUnread(me));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/chat/read-all — mark every room the user is in as fully read.
+router.post('/read-all', requireAuth, async (req, res, next) => {
+  try {
+    const me = Number(req.user.sub);
+    const [rows] = await pool.query(
+      `SELECT room_key, MAX(id) AS max_id
+         FROM chat_messages
+        WHERE room_key = ?
+           OR room_key LIKE CONCAT('dm:', ?, ':%')
+           OR room_key LIKE CONCAT('dm:%:', ?)
+           OR room_key IN (SELECT CONCAT('g:', room_id) FROM chat_room_members WHERE user_id = ?)
+        GROUP BY room_key`,
+      [GENERAL_ROOM, me, me, me]
+    );
+    if (rows.length) {
+      const values = rows.map((r) => [me, r.room_key, r.max_id || 0]);
+      await pool.query(
+        'INSERT INTO chat_reads (user_id, room_key, last_read_id) VALUES ? ' +
+          'ON DUPLICATE KEY UPDATE last_read_id = GREATEST(last_read_id, VALUES(last_read_id))',
+        [values]
+      );
+    }
+    res.json({ total: 0, rooms: {} });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Typing indicators. In-memory + single-process (like rateLimit / the
+// scheduler) — a transient signal that isn't worth a DB write. room -> Map(
+// userId -> { name, expiresAt }). Clients send a heartbeat while typing and the
+// entry self-expires after TYPING_TTL_MS; readers prune on access.
+const TYPING_TTL_MS = 6000;
+const typingByRoom = new Map();
+
+function pruneTyping(roomMap, now) {
+  for (const [uid, rec] of roomMap) {
+    if (rec.expiresAt <= now) roomMap.delete(uid);
+  }
+}
+
+// POST /api/chat/typing — "I'm typing in this room" heartbeat.
+router.post('/typing', requireAuth, async (req, res, next) => {
+  try {
+    const me = Number(req.user.sub);
+    const room = String(req.body?.room || '');
+    if (!isValidRoom(room)) return res.status(400).json({ error: 'invalid room' });
+    if (!(await userCanAccessRoom(me, room))) return res.status(403).json({ error: 'not in room' });
+    let roomMap = typingByRoom.get(room);
+    if (!roomMap) { roomMap = new Map(); typingByRoom.set(room, roomMap); }
+    roomMap.set(me, { name: req.user.name || req.user.email || 'Someone', expiresAt: Date.now() + TYPING_TTL_MS });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/chat/typing?room=... — who else is currently typing here.
+router.get('/typing', requireAuth, async (req, res, next) => {
+  try {
+    const me = Number(req.user.sub);
+    const room = String(req.query.room || '');
+    if (!isValidRoom(room)) return res.status(400).json({ error: 'invalid room' });
+    if (!(await userCanAccessRoom(me, room))) return res.status(403).json({ error: 'not in room' });
+    const roomMap = typingByRoom.get(room);
+    if (!roomMap) return res.json({ users: [] });
+    pruneTyping(roomMap, Date.now());
+    const users = [...roomMap.entries()]
+      .filter(([uid]) => uid !== me)
+      .map(([id, rec]) => ({ id, name: rec.name }));
+    if (roomMap.size === 0) typingByRoom.delete(room);
+    res.json({ users });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Create a group chat. Body: { name?, member_ids: [id, id, ...] }
 // Caller is auto-added as a member; need at least 2 OTHER members to make
 // it distinct from a DM.
@@ -366,7 +536,7 @@ router.get('/messages', requireAuth, async (req, res, next) => {
           LIMIT ${POLL_LIMIT}`,
         [room, since]
       );
-      return res.json([...unsentRows, ...newRows]);
+      return res.json(await attachAvatars([...unsentRows, ...newRows]));
     }
     const [rows] = await pool.query(
       `SELECT ${COLS} FROM chat_messages
@@ -375,7 +545,7 @@ router.get('/messages', requireAuth, async (req, res, next) => {
         LIMIT ${PAGE_LIMIT}`,
       [room]
     );
-    res.json(rows.reverse());
+    res.json(await attachAvatars(rows.reverse()));
   } catch (err) {
     next(err);
   }
@@ -453,7 +623,7 @@ router.post('/messages', requireAuth, attachmentMiddleware, async (req, res, nex
          FROM chat_messages WHERE id = ?`,
       [result.insertId]
     );
-    res.status(201).json(rows[0]);
+    res.status(201).json((await attachAvatars(rows))[0]);
   } catch (err) {
     if (req.file) fs.unlink(req.file.path, () => {});
     next(err);
@@ -473,10 +643,10 @@ router.delete('/messages/:id', requireAuth, async (req, res, next) => {
     if (!msg) return res.status(404).json({ error: 'Message not found' });
     if (msg.is_unsent) return res.json({ ok: true });
 
-    const isOwn = msg.user_id === req.user.sub;
-    const isAdmin = req.user.role === 'admin';
-    if (!isOwn && !isAdmin) {
-      return res.status(403).json({ error: 'Cannot delete this message' });
+    // Only the author can unsend a message — not even admins can unsend
+    // someone else's.
+    if (msg.user_id !== req.user.sub) {
+      return res.status(403).json({ error: 'You can only unsend your own messages.' });
     }
 
     await pool.query(
