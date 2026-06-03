@@ -36,6 +36,15 @@ export async function ensureSchema() {
     if (err.code !== 'ER_DUP_FIELDNAME') throw err;
   }
 
+  // users.token_version — bumped on every password change/reset and embedded in
+  // the JWT (`tv`); requireAuth rejects tokens whose tv no longer matches, so a
+  // password change invalidates all other outstanding sessions.
+  try {
+    await pool.query(`ALTER TABLE users ADD COLUMN token_version INT UNSIGNED NOT NULL DEFAULT 0 AFTER permissions`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
   // users.last_seen_at is bumped on each authenticated request to power the
   // chat presence indicator. Anyone seen within ~90s shows as online.
   try {

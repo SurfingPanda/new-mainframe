@@ -41,6 +41,12 @@ export function setSession(token, user) {
   localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
+// Replace just the stored auth token, keeping the cached user. Used after a
+// password change, which re-issues a token (the old one is invalidated server-side).
+export function setToken(token) {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+}
+
 export function clearSession() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);

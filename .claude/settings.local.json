@@ -58,7 +58,9 @@
       "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -e 'UPDATE ticket_activity SET actor='\\\\''Admin'\\\\'' WHERE id=35 AND field='\\\\''created'\\\\'';')",
       "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -t -e 'SELECT id, ticket_id, actor, field, new_value FROM ticket_activity WHERE id=35;')",
       "Bash(ls -d dist)",
-      "Bash(find dist *)"
+      "Bash(find dist *)",
+      "Bash(JWT_SECRET=\"\" node src/index.js)",
+      "Bash(echo \"exit code: $?\")"
     ]
   }
 }

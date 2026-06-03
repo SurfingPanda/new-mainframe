@@ -59,7 +59,8 @@ router.patch('/:id', async (req, res, next) => {
         return res.status(400).json({ error: 'password must be at least 8 characters' });
       }
       const hash = await bcrypt.hash(String(new_password), 10);
-      await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [hash, request.user_id]);
+      // Bump token_version so any sessions the user had open are invalidated.
+      await pool.query('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?', [hash, request.user_id]);
     }
 
     const fields = [];

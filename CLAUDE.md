@@ -246,6 +246,10 @@ Currently covers the permission logic in `src/lib/permissions.js`. No linter is 
 - Always use parameterized SQL queries.
 - Validate role/permission on the server even when the client already gates the UI; `ProtectedRoute` is UX, not security.
 - Sanitize/validate file uploads (size, mime) before persisting (ticket and chat uploads both enforce a mime allowlist + size cap).
+- The server **refuses to start without `JWT_SECRET`** (warns if < 32 chars) — see the guard in `index.js`.
+- **Session invalidation:** `users.token_version` is embedded in the JWT (`tv`) and checked in `requireAuth`; every password change/reset bumps it, invalidating other sessions. Self-service change-password re-issues a fresh token to the current device so it stays signed in. Tokens predating the column (no `tv`) are treated as version 0.
+- **CORS** is locked to `CORS_ORIGINS` (comma-separated allowlist) when set; unset = permissive + a startup warning (dev only). **Security headers** (`nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, a strict CSP, and HSTS in production) are applied globally via `middleware/securityHeaders.js`.
+- **User-authored URLs** (markdown links/images in KB articles & notes) must be passed through `client/src/lib/url.js` `safeUrl()` before use as an `href`/`src` — React doesn't sanitize these, so `javascript:`/`data:` URLs would otherwise be an XSS/token-theft vector (the JWT lives in `localStorage`).
 
 ## Performance
 

@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS users (
   avatar_url      VARCHAR(255) NULL,
   is_active             TINYINT(1) NOT NULL DEFAULT 1,
   permissions           JSON NULL,
+  -- Bumped on every password change/reset; embedded in the JWT (`tv`) and checked
+  -- on each request, so changing a password invalidates all other live sessions.
+  token_version         INT UNSIGNED NOT NULL DEFAULT 0,
   last_login_at         TIMESTAMP NULL,
   last_seen_at          TIMESTAMP NULL,
   notifications_seen_at TIMESTAMP NULL,

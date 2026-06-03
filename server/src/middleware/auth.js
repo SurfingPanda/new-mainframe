@@ -46,12 +46,19 @@ export async function requireAuth(req, res, next) {
 
   try {
     const [rows] = await pool.query(
-      'SELECT id, email, name, role, department, permissions, is_active FROM users WHERE id = ? LIMIT 1',
+      'SELECT id, email, name, role, department, permissions, is_active, token_version FROM users WHERE id = ? LIMIT 1',
       [userId]
     );
     const user = rows[0];
     if (!user || !user.is_active) {
       return res.status(401).json({ error: 'Account is inactive or no longer exists' });
+    }
+
+    // Reject tokens issued before the user's last password change/reset. Tokens
+    // predating this column (no `tv`) are treated as version 0, so an existing
+    // session stays valid until the next password change bumps the version.
+    if (Number(payload.tv ?? 0) !== Number(user.token_version ?? 0)) {
+      return res.status(401).json({ error: 'Session expired. Please sign in again.' });
     }
 
     req.user = {

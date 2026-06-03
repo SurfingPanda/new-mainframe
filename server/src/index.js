@@ -6,6 +6,7 @@ import morgan from 'morgan';
 
 import { pingDb, ensureSchema } from './config/db.js';
 import { startMaintenanceScheduler } from './lib/maintenance-scheduler.js';
+import { securityHeaders } from './middleware/securityHeaders.js';
 import auth from './routes/auth.js';
 import users from './routes/users.js';
 import tickets from './routes/tickets.js';
@@ -21,10 +22,40 @@ import surveys from './routes/surveys.js';
 import network from './routes/network.js';
 import notifications from './routes/notifications.js';
 
+// Fail fast on a missing JWT secret — without it tokens can't be verified safely.
+if (!process.env.JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET is not set. Refusing to start. Set a long random value in .env.');
+  process.exit(1);
+}
+if (process.env.JWT_SECRET.length < 32) {
+  console.warn('WARNING: JWT_SECRET is shorter than 32 characters. Use a longer random value for production.');
+}
+
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
 
-app.use(cors());
+// CORS: lock to an allowlist in production via CORS_ORIGINS (comma-separated).
+// When unset (e.g. local dev) we fall back to permissive CORS and warn once.
+const corsAllowlist = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+if (corsAllowlist.length) {
+  app.use(
+    cors({
+      origin: (origin, cb) => {
+        // Allow same-origin/non-browser requests (no Origin header) and allowlisted origins.
+        if (!origin || corsAllowlist.includes(origin)) return cb(null, true);
+        return cb(new Error('Not allowed by CORS'));
+      }
+    })
+  );
+} else {
+  console.warn('WARNING: CORS_ORIGINS is not set — allowing all origins. Set it to lock down the API in production.');
+  app.use(cors());
+}
+
+app.use(securityHeaders);
 app.use(express.json());
 app.use(morgan('dev'));
 // Uploaded files are user-controlled content. Force the browser to download

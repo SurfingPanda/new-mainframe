@@ -85,17 +85,29 @@ function sameDepartment(user, ticket) {
   return !!(user?.department && ticket?.department && user.department === ticket.department);
 }
 
+// Read policy: any signed-in user may VIEW any work order (so everyone can browse
+// and search the full queue from "All Work Orders"). Editing, claiming, and
+// posting notes stay restricted — see the write guards below, which still use
+// canViewTicket / isStaff / sameDepartment.
+function canReadTicket(user) {
+  return !!user;
+}
+
 function canViewTicket(user, ticket) {
   return isStaff(user) || ownsTicket(ticket, userIdentities(user)) || sameDepartment(user, ticket);
 }
 
 router.get('/', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
   try {
-    // A plain user only sees tickets they requested or are assigned to;
-    // agents and admins see the whole queue.
+    // By default a plain user only sees tickets they requested, are assigned to,
+    // or routed to their department; agents and admins see the whole queue.
+    // `?scope=all` (used by the All Work Orders page) returns the full queue to
+    // any signed-in user so they can browse/search every work order — read-only,
+    // since editing/claiming/posting stay guarded on their own routes.
+    const wantsAll = req.query.scope === 'all';
     const params = [];
     let scope = '';
-    if (!isStaff(req.user)) {
+    if (!isStaff(req.user) && !wantsAll) {
       const identities = userIdentities(req.user);
       const clauses = [];
       if (identities.length) {
@@ -185,7 +197,7 @@ router.get('/:id', requireAuth, requirePermission('tickets', 'view'), async (req
     if (!rows.length) return res.status(404).json({ error: 'Ticket not found' });
 
     const ticket = rows[0];
-    if (!canViewTicket(req.user, ticket)) {
+    if (!canReadTicket(req.user)) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
 
@@ -452,7 +464,7 @@ router.get('/:id/activity', requireAuth, requirePermission('tickets', 'view'), a
       [id]
     );
     if (!ownerRows.length) return res.status(404).json({ error: 'Ticket not found' });
-    if (!canViewTicket(req.user, ownerRows[0])) {
+    if (!canReadTicket(req.user)) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
 
@@ -652,7 +664,7 @@ router.get('/:id/kb', requireAuth, requirePermission('tickets', 'view'), async (
       [id]
     );
     if (!ownerRows.length) return res.status(404).json({ error: 'Ticket not found' });
-    if (!canViewTicket(req.user, ownerRows[0])) {
+    if (!canReadTicket(req.user)) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
 

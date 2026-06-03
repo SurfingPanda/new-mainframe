@@ -305,7 +305,8 @@ router.post('/:id/reset-password', async (req, res, next) => {
       return res.status(400).json({ error: 'password must be at least 8 characters' });
     }
     const hash = await bcrypt.hash(String(password), 10);
-    const [r] = await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [hash, id]);
+    // Bump token_version so the user's existing sessions are invalidated by the reset.
+    const [r] = await pool.query('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?', [hash, id]);
     if (r.affectedRows === 0) return res.status(404).json({ error: 'User not found' });
     res.json({ ok: true });
   } catch (err) {

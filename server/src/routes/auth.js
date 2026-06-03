@@ -42,7 +42,7 @@ router.post('/login', loginLimiter, async (req, res, next) => {
     }
 
     const [rows] = await pool.query(
-      'SELECT id, email, password_hash, name, role, department, job_title, avatar_url, is_active, permissions FROM users WHERE email = ? LIMIT 1',
+      'SELECT id, email, password_hash, name, role, department, job_title, avatar_url, is_active, permissions, token_version FROM users WHERE email = ? LIMIT 1',
       [email.toLowerCase().trim()]
     );
 
@@ -60,7 +60,7 @@ router.post('/login', loginLimiter, async (req, res, next) => {
 
     const permissions = effectivePermissions(user);
     const token = jwt.sign(
-      { sub: user.id, email: user.email, role: user.role, name: user.name, permissions },
+      { sub: user.id, email: user.email, role: user.role, name: user.name, permissions, tv: user.token_version ?? 0 },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
@@ -166,7 +166,8 @@ router.post('/reset-password', forgotLimiter, async (req, res, next) => {
     }
 
     const hash = await bcrypt.hash(String(newPassword), 10);
-    await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [hash, row.user_id]);
+    // Bump token_version so any sessions opened before the reset are invalidated.
+    await pool.query('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?', [hash, row.user_id]);
     await pool.query('UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?', [row.id]);
     // Close any pending IT-queue request now that the user reset it themselves.
     await pool.query(
@@ -350,9 +351,27 @@ router.post('/change-password', requireAuth, async (req, res, next) => {
     if (!ok) return res.status(401).json({ error: 'Current password is incorrect' });
 
     const hash = await bcrypt.hash(String(new_password), 10);
-    await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [hash, req.user.sub]);
+    // Bump token_version to invalidate sessions on other devices, then re-issue a
+    // fresh token for THIS device so the user stays signed in here (per the UI).
+    await pool.query(
+      'UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?',
+      [hash, req.user.sub]
+    );
+    const [[u]] = await pool.query('SELECT token_version FROM users WHERE id = ? LIMIT 1', [req.user.sub]);
+    const token = jwt.sign(
+      {
+        sub: req.user.sub,
+        email: req.user.email,
+        role: req.user.role,
+        name: req.user.name,
+        permissions: req.user.permissions,
+        tv: u.token_version
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    );
 
-    res.json({ ok: true });
+    res.json({ ok: true, token });
   } catch (err) {
     next(err);
   }

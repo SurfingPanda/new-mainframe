@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { safeUrl } from '../lib/url.js';
 
 /* ─── Inline markdown renderer (shared with KbArticle) ─── */
 function inlineFormat(text) {
@@ -12,7 +13,7 @@ function inlineFormat(text) {
     else if (m[4]) parts.push(<del key={key++} className="line-through text-slate-400">{m[4]}</del>);
     else if (m[5]) parts.push(<code key={key++} className="rounded bg-slate-100 px-1 py-0.5 text-[11px] font-mono text-rose-600">{m[5]}</code>);
     else if (m[7] !== undefined) parts.push(<img key={key++} src={m[7]} alt={m[6] || ''} className="my-2 max-h-72 w-auto max-w-xs rounded-lg border border-slate-200" />);
-    else if (m[9] !== undefined) parts.push(<a key={key++} href={m[9]} className="text-accent-700 underline underline-offset-2 hover:text-accent-900" target="_blank" rel="noreferrer">{m[8]}</a>);
+    else if (m[9] !== undefined) parts.push(<a key={key++} href={safeUrl(m[9])} className="text-accent-700 underline underline-offset-2 hover:text-accent-900" target="_blank" rel="noreferrer">{m[8]}</a>);
     last = m.index + m[0].length;
   }
   if (last < text.length) parts.push(text.slice(last));

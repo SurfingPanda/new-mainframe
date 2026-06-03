@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Avatar from './Avatar.jsx';
-import { api } from '../lib/auth.js';
+import { api, setToken } from '../lib/auth.js';
 
 // Shared account cards used by both the Profile page (identity + access) and the
 // Settings page (security). Extracted from the original Settings page so the two
@@ -214,11 +214,14 @@ export function PasswordCard() {
 
     setSubmitting(true);
     try {
-      await api('/api/auth/change-password', {
+      const res = await api('/api/auth/change-password', {
         method: 'POST',
         body: JSON.stringify({ current_password: current, new_password: next })
       });
-      setSuccess('Password updated.');
+      // The server re-issues a token (old sessions are invalidated); keep this
+      // device signed in by storing it.
+      if (res?.token) setToken(res.token);
+      setSuccess('Password updated. You’ve been signed out on other devices.');
       reset();
     } catch (err) {
       setError(err.message || 'Failed to change password.');

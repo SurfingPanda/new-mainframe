@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
-import { api } from '../lib/auth.js';
+import { api, getUser } from '../lib/auth.js';
 import { formatTicketId, matchesTicketId } from '../lib/ticket.js';
 
 const STATUSES = [
@@ -28,6 +28,8 @@ const PAGE_SIZE = 10;
 export default function AllTickets() {
   const location = useLocation();
   const navigate = useNavigate();
+  const user = getUser();
+  const isStaff = user?.role === 'admin' || user?.role === 'agent';
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -50,7 +52,9 @@ export default function AllTickets() {
   const [page, setPage] = useState(1);
 
   useEffect(() => {
-    api('/api/tickets')
+    // scope=all returns every work order (not just the caller's own/department)
+    // so any user can browse and search the full queue here.
+    api('/api/tickets?scope=all')
       .then(setTickets)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -134,17 +138,24 @@ export default function AllTickets() {
           <span className="text-slate-300">/</span>
           <span className="text-slate-700">Work Orders</span>
           <span className="text-slate-300">/</span>
-          <span className="text-accent-700">All Work Orders</span>
+          <span className="text-accent-700">{isStaff ? 'All Work Orders' : 'Browse Work Orders'}</span>
         </nav>
 
         <section className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <span className="eyebrow">Work Orders</span>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900">All Work Orders</h1>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900">
+              {isStaff ? 'All Work Orders' : 'Browse Work Orders'}
+            </h1>
             <p className="mt-1 text-slate-600">
               {loading
                 ? 'Loading work orders…'
                 : `${filtered.length} of ${tickets.length} ${tickets.length === 1 ? 'work order' : 'work orders'} shown`}
+              {!isStaff && !loading && (
+                <span className="block text-xs text-slate-500 mt-0.5">
+                  Every work order across the organization — view-only unless it's yours or your department's.
+                </span>
+              )}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
