@@ -9,6 +9,7 @@ import { effectivePermissions } from '../lib/permissions.js';
 import { sendMailSafe, appUrl } from '../lib/mailer.js';
 import { passwordResetLink } from '../lib/email-templates.js';
 import { avatarUpload, saveAvatar, removeAvatarFile, InvalidImageError } from '../lib/avatar-upload.js';
+import { slaStanding } from '../lib/sla.js';
 
 const router = Router();
 
@@ -194,6 +195,65 @@ router.get('/me', requireAuth, async (req, res, next) => {
     const me = rows[0];
     me.permissions = effectivePermissions(me);
     res.json(me);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Technician scorecard for the signed-in user: work orders they're assigned that
+// are on hold / resolved, how many breached SLA on their watch, and their average
+// survey rating (1–5). tickets.assignee is free-text, so match on name + email.
+router.get('/me/stats', requireAuth, async (req, res, next) => {
+  try {
+    const meId = req.user.sub;
+    const identities = [req.user?.name, req.user?.email].filter(Boolean);
+    if (!identities.length) {
+      return res.json({ onHold: 0, resolved: 0, breached: 0, rating: { average: null, count: 0 } });
+    }
+
+    const [tickets] = await pool.query(
+      `SELECT id, status, priority, created_at, updated_at
+         FROM tickets WHERE assignee IN (?)`,
+      [identities]
+    );
+
+    const onHold = tickets.filter((t) => t.status === 'on_hold').length;
+    const resolved = tickets.filter((t) => t.status === 'resolved' || t.status === 'closed').length;
+
+    // Pause-aware SLA breach across my tickets (resolved-late or currently overdue).
+    let breached = 0;
+    if (tickets.length) {
+      const ids = tickets.map((t) => t.id);
+      const [changes] = await pool.query(
+        `SELECT ticket_id, old_value, new_value, created_at
+           FROM ticket_activity
+          WHERE ticket_id IN (?) AND type = 'change' AND field = 'status'
+          ORDER BY created_at ASC`,
+        [ids]
+      );
+      const byTicket = new Map();
+      for (const c of changes) {
+        if (!byTicket.has(c.ticket_id)) byTicket.set(c.ticket_id, []);
+        byTicket.get(c.ticket_id).push(c);
+      }
+      for (const t of tickets) {
+        if (slaStanding(t, byTicket.get(t.id) || [])?.overdue) breached += 1;
+      }
+    }
+
+    // Average completed-survey rating where I'm the technician (mean of the three
+    // 1–5 aspects), rounded to one decimal.
+    const [[r]] = await pool.query(
+      `SELECT COUNT(*) AS count,
+              AVG((satisfaction + timeliness + professionalism) / 3) AS average
+         FROM ticket_surveys
+        WHERE technician_id = ? AND status = 'completed'`,
+      [meId]
+    );
+    const count = Number(r.count) || 0;
+    const average = count ? Math.round(Number(r.average) * 10) / 10 : null;
+
+    res.json({ onHold, resolved, breached, rating: { average, count } });
   } catch (err) {
     next(err);
   }

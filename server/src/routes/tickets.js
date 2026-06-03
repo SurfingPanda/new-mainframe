@@ -6,6 +6,8 @@ import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
 import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { notifyTicketCreated, notifyTicketChanges, notifyTicketNote } from '../lib/ticket-emails.js';
+import { slaStanding } from '../lib/sla.js';
+import { maybeSendResolutionSurvey } from '../lib/resolution-survey.js';
 
 const router = Router();
 
@@ -143,6 +145,23 @@ router.get('/', requireAuth, requirePermission('tickets', 'view'), async (req, r
       });
     }
     for (const r of rows) r.attachments = byTicket.get(r.id) || [];
+
+    // Pause-aware SLA standing: pull the status-change history for the listed
+    // tickets in one query so each row gets an accurate figure (paused time
+    // subtracted) without the client re-fetching every ticket's activity log.
+    const [changes] = await pool.query(
+      `SELECT ticket_id, old_value, new_value, created_at
+         FROM ticket_activity
+        WHERE ticket_id IN (?) AND type = 'change' AND field = 'status'
+        ORDER BY created_at ASC`,
+      [ids]
+    );
+    const changesByTicket = new Map();
+    for (const c of changes) {
+      if (!changesByTicket.has(c.ticket_id)) changesByTicket.set(c.ticket_id, []);
+      changesByTicket.get(c.ticket_id).push(c);
+    }
+    for (const r of rows) r.sla = slaStanding(r, changesByTicket.get(r.id) || []);
 
     res.json(rows);
   } catch (err) {
@@ -304,6 +323,11 @@ router.patch('/:id', requireAuth, requireRole('admin', 'agent'), async (req, res
       [id]
     );
     notifyTicketChanges(updatedRows[0], changes, actor);
+    // On a fresh transition to 'resolved', invite the requester to rate the
+    // technician via an in-app Mailbox survey (fire-and-forget; never throws).
+    if (changes.some((c) => c.field === 'status' && c.newValue === 'resolved')) {
+      maybeSendResolutionSurvey(updatedRows[0], before.status);
+    }
     res.json(updatedRows[0]);
   } catch (err) {
     next(err);

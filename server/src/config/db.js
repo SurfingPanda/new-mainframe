@@ -204,6 +204,62 @@ export async function ensureSchema() {
     )
   `);
 
+  // Internal user-to-user messages (the in-app Mailbox: Inbox / Sent). Author and
+  // recipient fields are denormalized so renamed accounts don't blank out old
+  // mail; each side soft-deletes independently (row removed once both delete).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id                INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      sender_id         INT UNSIGNED NOT NULL,
+      sender_name       VARCHAR(120) NOT NULL,
+      recipient_id      INT UNSIGNED NOT NULL,
+      recipient_name    VARCHAR(120) NOT NULL,
+      subject           VARCHAR(200) NOT NULL DEFAULT '',
+      body              TEXT NOT NULL,
+      is_read           TINYINT(1) NOT NULL DEFAULT 0,
+      read_at           TIMESTAMP NULL,
+      sender_deleted    TINYINT(1) NOT NULL DEFAULT 0,
+      recipient_deleted TINYINT(1) NOT NULL DEFAULT 0,
+      created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_msg_recipient (recipient_id, created_at),
+      INDEX idx_msg_sender (sender_id, created_at)
+    )
+  `);
+
+  // messages.link_url / link_label — optional in-app CTA on a message (used by
+  // the system resolution-survey message). Added idempotently for older DBs.
+  for (const stmt of [
+    `ALTER TABLE messages ADD COLUMN link_url   VARCHAR(255) NULL AFTER body`,
+    `ALTER TABLE messages ADD COLUMN link_label VARCHAR(80)  NULL AFTER link_url`
+  ]) {
+    try {
+      await pool.query(stmt);
+    } catch (err) {
+      if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+    }
+  }
+
+  // Post-resolution technician survey (one row per work order).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ticket_surveys (
+      id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      ticket_id       INT UNSIGNED NOT NULL UNIQUE,
+      technician      VARCHAR(120) NOT NULL,
+      technician_id   INT UNSIGNED NULL,
+      respondent_id   INT UNSIGNED NOT NULL,
+      respondent_name VARCHAR(120) NOT NULL,
+      satisfaction    TINYINT UNSIGNED NULL,
+      timeliness      TINYINT UNSIGNED NULL,
+      professionalism TINYINT UNSIGNED NULL,
+      comment         TEXT NULL,
+      status          ENUM('pending','completed') NOT NULL DEFAULT 'pending',
+      created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at    TIMESTAMP NULL,
+      INDEX idx_ts_respondent (respondent_id),
+      INDEX idx_ts_technician (technician_id)
+    )
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS password_reset_requests (
       id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

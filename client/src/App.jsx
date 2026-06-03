@@ -16,9 +16,13 @@ import MaintenanceSchedules from './pages/MaintenanceSchedules.jsx';
 import MaintenanceScheduleEditor from './pages/MaintenanceScheduleEditor.jsx';
 import Users from './pages/Users.jsx';
 import UserReports from './pages/UserReports.jsx';
+import SurveyReports from './pages/SurveyReports.jsx';
 import Departments from './pages/Departments.jsx';
 import PasswordResetRequests from './pages/PasswordResetRequests.jsx';
 import Settings from './pages/Settings.jsx';
+import Profile from './pages/Profile.jsx';
+import Mailbox from './pages/Mailbox.jsx';
+import Survey from './pages/Survey.jsx';
 import AllAssets from './pages/AllAssets.jsx';
 import AssignedAssets from './pages/AssignedAssets.jsx';
 import AddAsset from './pages/AddAsset.jsx';
@@ -46,6 +50,30 @@ export default function App() {
         element={
           <ProtectedRoute>
             <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute>
+            <Profile />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/mailbox"
+        element={
+          <ProtectedRoute>
+            <Mailbox />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/survey/:ticketId"
+        element={
+          <ProtectedRoute>
+            <Survey />
           </ProtectedRoute>
         }
       />
@@ -190,6 +218,14 @@ export default function App() {
         element={
           <ProtectedRoute permission={['users', 'manage']}>
             <UserReports />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/users/surveys"
+        element={
+          <ProtectedRoute permission={['users', 'manage']}>
+            <SurveyReports />
           </ProtectedRoute>
         }
       />

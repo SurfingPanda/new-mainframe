@@ -247,19 +247,22 @@ export default function TicketDetail() {
     reloadActivity();
   };
 
+  // The link/unlink is persisted immediately (so the article stays linked even if
+  // the user leaves), but we deliberately do NOT refresh the activity feed here.
+  // The kb_link/kb_unlink entry is already logged server-side; it only surfaces in
+  // the feed on the next Save (which calls reloadActivity), so the activity notes
+  // update on save rather than the moment you link.
   const linkArticle = async (articleId) => {
     const link = await api(`/api/tickets/${id}/kb`, {
       method: 'POST',
       body: JSON.stringify({ article_id: articleId })
     });
     setKbLinks((prev) => [link, ...prev]);
-    reloadActivity();
   };
 
   const unlinkArticle = async (articleId) => {
     await api(`/api/tickets/${id}/kb/${articleId}`, { method: 'DELETE' });
     setKbLinks((prev) => prev.filter((a) => a.id !== articleId));
-    reloadActivity();
   };
 
   return (
@@ -1141,6 +1144,7 @@ function ActivityItem({ item }) {
   const isCreation = item.type === 'change' && item.field === 'created';
   const isKbLink = item.type === 'change' && (item.field === 'kb_link' || item.field === 'kb_unlink');
   const isAttachmentRemoved = item.type === 'change' && item.field === 'attachment_removed';
+  const isSurveySent = item.type === 'change' && item.field === 'survey_sent';
 
   let icon;
   let iconWrap;
@@ -1164,6 +1168,13 @@ function ActivityItem({ item }) {
       <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
         <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+      </svg>
+    );
+  } else if (isSurveySent) {
+    iconWrap = 'bg-amber-50 text-amber-700 ring-amber-200';
+    icon = (
+      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14l-5-4.87 6.91-1.01L12 2z" />
       </svg>
     );
   } else {
@@ -1226,7 +1237,13 @@ function ActivityItem({ item }) {
           </p>
         )}
 
-        {!isNote && !isCreation && !isKbLink && !isAttachmentRemoved && (
+        {isSurveySent && (
+          <p className="mt-1 text-xs text-slate-600 leading-snug">
+            sent a technician survey to <ChangeValue value={item.new_value} field="title" highlight />
+          </p>
+        )}
+
+        {!isNote && !isCreation && !isKbLink && !isAttachmentRemoved && !isSurveySent && (
           <p className="mt-1 text-xs text-slate-600 leading-snug">
             changed <span className="font-semibold text-slate-800">{labelForField(item.field)}</span>
             {' '}from{' '}

@@ -180,6 +180,51 @@ CREATE TABLE IF NOT EXISTS chat_reads (
   PRIMARY KEY (user_id, room_key)
 );
 
+-- Internal user-to-user messages (the in-app Mailbox: Inbox / Sent).
+-- Author/recipient fields are denormalized (like chat_messages) so a message
+-- keeps showing the names even if an account is later renamed. Each side has its
+-- own soft-delete flag; the row is hard-deleted only once both sides remove it.
+CREATE TABLE IF NOT EXISTS messages (
+  id                INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  sender_id         INT UNSIGNED NOT NULL,
+  sender_name       VARCHAR(120) NOT NULL,
+  recipient_id      INT UNSIGNED NOT NULL,
+  recipient_name    VARCHAR(120) NOT NULL,
+  subject           VARCHAR(200) NOT NULL DEFAULT '',
+  body              TEXT NOT NULL,
+  -- Optional in-app CTA (e.g. a system message linking to a resolution survey).
+  link_url          VARCHAR(255) NULL,
+  link_label        VARCHAR(80) NULL,
+  is_read           TINYINT(1) NOT NULL DEFAULT 0,
+  read_at           TIMESTAMP NULL,
+  sender_deleted    TINYINT(1) NOT NULL DEFAULT 0,
+  recipient_deleted TINYINT(1) NOT NULL DEFAULT 0,
+  created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_msg_recipient (recipient_id, created_at),
+  INDEX idx_msg_sender (sender_id, created_at)
+);
+
+-- Post-resolution survey: rates the technician who resolved a work order. One
+-- row per ticket, created (status 'pending') when the WO is marked resolved and
+-- a system Mailbox message is sent to the requester linking to /survey/:id.
+CREATE TABLE IF NOT EXISTS ticket_surveys (
+  id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  ticket_id       INT UNSIGNED NOT NULL UNIQUE,
+  technician      VARCHAR(120) NOT NULL,
+  technician_id   INT UNSIGNED NULL,
+  respondent_id   INT UNSIGNED NOT NULL,
+  respondent_name VARCHAR(120) NOT NULL,
+  satisfaction    TINYINT UNSIGNED NULL,
+  timeliness      TINYINT UNSIGNED NULL,
+  professionalism TINYINT UNSIGNED NULL,
+  comment         TEXT NULL,
+  status          ENUM('pending','completed') NOT NULL DEFAULT 'pending',
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completed_at    TIMESTAMP NULL,
+  INDEX idx_ts_respondent (respondent_id),
+  INDEX idx_ts_technician (technician_id)
+);
+
 CREATE TABLE IF NOT EXISTS password_reset_requests (
   id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id       INT UNSIGNED NOT NULL,

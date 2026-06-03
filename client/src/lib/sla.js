@@ -13,9 +13,16 @@ export const PAUSED_STATUSES = new Set(['pending', 'on_hold', ...RESOLVED_STATUS
 
 const DAY = 86400000;
 
-// Approximate SLA standing for a single ticket. Returns null when the ticket
-// has no priority target or a missing/invalid created date.
+// SLA standing for a single ticket. Prefers the pause-aware figure computed by
+// the server list endpoint (`ticket.sla`, which subtracts pending/on-hold time);
+// only falls back to the date-only approximation below for tickets that didn't
+// come through that endpoint. Returns null when the ticket has no priority target
+// or a missing/invalid created date.
 export function slaInfo(ticket) {
+  // The server attaches `sla` (object or null) when it has computed it — honor
+  // that authoritative value, including an explicit null.
+  if (ticket && Object.prototype.hasOwnProperty.call(ticket, 'sla')) return ticket.sla;
+
   const days = SLA_DAYS[ticket?.priority];
   const opened = ticket?.created_at ? new Date(ticket.created_at).getTime() : NaN;
   if (!days || Number.isNaN(opened)) return null;

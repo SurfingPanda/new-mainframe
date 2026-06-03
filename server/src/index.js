@@ -16,6 +16,8 @@ import assetRequests from './routes/asset-requests.js';
 import departments from './routes/departments.js';
 import passwordResets from './routes/password-resets.js';
 import chat from './routes/chat.js';
+import messages from './routes/messages.js';
+import surveys from './routes/surveys.js';
 import network from './routes/network.js';
 import notifications from './routes/notifications.js';
 
@@ -60,6 +62,8 @@ app.use('/api/asset-requests', assetRequests);
 app.use('/api/departments', departments);
 app.use('/api/password-resets', passwordResets);
 app.use('/api/chat', chat);
+app.use('/api/messages', messages);
+app.use('/api/surveys', surveys);
 app.use('/api/network', network);
 app.use('/api/notifications', notifications);
 

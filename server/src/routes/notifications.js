@@ -89,6 +89,7 @@ router.get('/', requireAuth, async (req, res, next) => {
         WHERE ( t.assignee IN (?)
                 OR (a.field = 'assignee' AND a.new_value IN (?))${deptClause} )
           AND ( a.actor IS NULL OR a.actor NOT IN (?) )
+          AND ( a.field IS NULL OR a.field <> 'survey_sent' )
         ORDER BY a.created_at DESC, a.id DESC
         LIMIT 40`,
       params

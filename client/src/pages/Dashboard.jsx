@@ -161,22 +161,35 @@ function StaffDashboard({ user }) {
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {tickets.slice(0, 6).map((t) => (
-                  <li key={t.id} className="px-5 py-3 text-sm hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                    <div className="flex flex-col gap-1.5 sm:grid sm:grid-cols-12 sm:items-center sm:gap-3">
-                      <div className="flex items-center justify-between gap-2 sm:col-span-2">
-                        <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{formatTicketId(t.id)}</span>
-                        <span className="sm:hidden">
+                  <li key={t.id}>
+                    <Link
+                      to={`/tickets/${t.id}`}
+                      className="block px-5 py-3 text-sm hover:bg-slate-50/60 dark:hover:bg-slate-800/40"
+                    >
+                      <div className="flex flex-col gap-1.5 sm:grid sm:grid-cols-12 sm:items-center sm:gap-3">
+                        <div className="flex items-center justify-between gap-2 sm:col-span-2">
+                          <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{formatTicketId(t.id)}</span>
+                          <span className="sm:hidden">
+                            <StatusPill status={t.status} />
+                          </span>
+                        </div>
+                        <span className="min-w-0 sm:col-span-4">
+                          <span className="block truncate text-slate-800 dark:text-slate-200">{t.title}</span>
+                          <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
+                            {t.assignee ? `Technician: ${t.assignee}` : 'Unassigned'}
+                          </span>
+                        </span>
+                        <span className="sm:col-span-2">
+                          <SlaPill ticket={t} />
+                        </span>
+                        <span className="sm:col-span-2">
+                          <PriorityPill priority={t.priority} />
+                        </span>
+                        <span className="hidden sm:block sm:col-span-2 sm:text-right">
                           <StatusPill status={t.status} />
                         </span>
                       </div>
-                      <span className="truncate text-slate-800 sm:col-span-6 dark:text-slate-200">{t.title}</span>
-                      <span className="sm:col-span-2">
-                        <PriorityPill priority={t.priority} />
-                      </span>
-                      <span className="hidden sm:block sm:col-span-2 sm:text-right">
-                        <StatusPill status={t.status} />
-                      </span>
-                    </div>
+                    </Link>
                   </li>
                 ))}
               </ul>

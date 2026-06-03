@@ -60,6 +60,8 @@ new-mainframe/
 - **departments** — name (unique), description, is_active
 - **password_reset_requests** — user_id, email, `status` ENUM('pending','resolved','denied'), resolved_by, admin_notes (IT-mediated reset queue; no reset email is sent)
 - **chat_rooms / chat_room_members / chat_messages** — team chat. Messages carry denormalized author fields, an optional attachment, and soft-delete (`is_unsent`/`unsent_at`); the client polls (~5s) for new messages
+- **messages** — internal user-to-user mail (the Mailbox: Inbox / Sent). Denormalized `sender_name`/`recipient_name` (survive renames), `subject`, `body`, optional in-app CTA (`link_url`/`link_label`), `is_read`/`read_at`, and per-side soft-delete (`sender_deleted`/`recipient_deleted`; row hard-deleted once both sides remove it). Header mailbox badge = unread inbox count. System messages use `sender_id = 0` / `sender_name = 'Mainframe'` (no real account)
+- **ticket_surveys** — post-resolution technician survey (one row per work order, `ticket_id` unique). Created `status='pending'` when a WO transitions to `resolved` (see `lib/resolution-survey.js`), which also sends the requester a system Mailbox message linking to `/survey/:id`. Holds `technician`(+`technician_id`), `respondent_id`/`respondent_name`, three 1–5 ratings (`satisfaction`, `timeliness`, `professionalism`), `comment`, `completed_at`. Only sent when the requester maps to an active user and the WO has an assignee (and the requester isn't the technician)
 - **chat_reads** — per-user, per-room read cursor (PK `(user_id, room_key)`, `last_read_id`). Unread for a room = messages from someone else, not unsent, with `id > last_read_id`. Drives the Chat Room nav badge and per-conversation unread counts. The cursor only advances (`GREATEST`), so out-of-order polls can't mark a room unread again. No seed/backfill: a user with no row sees prior history as unread until they open the room once.
 
 Database name: `mainframe_app` (utf8mb4_unicode_ci).
@@ -73,7 +75,7 @@ Mounted in `server/src/index.js` under `/api`:
 | Prefix                 | File                        | Purpose                                          |
 | ---------------------- | --------------------------- | ------------------------------------------------ |
 | `/api/health`          | `index.js`                  | Service + DB ping                                |
-| `/api/auth`            | `routes/auth.js`            | Login, JWT issue, `/me`, change/forgot password, self-service profile edit (`PATCH /me` name + job_title, `POST`/`DELETE /me/avatar`) |
+| `/api/auth`            | `routes/auth.js`            | Login, JWT issue, `/me`, change/forgot password, self-service profile edit (`PATCH /me` name + job_title, `POST`/`DELETE /me/avatar`), technician scorecard (`GET /me/stats` — on-hold/resolved counts, SLA breaches, avg survey rating) |
 | `/api/users`           | `routes/users.js`           | User CRUD (incl. job_title) + permission overrides + bulk import (`POST /import`) + avatar (`POST`/`DELETE /:id/avatar`) (`users.manage`)|
 | `/api/tickets`         | `routes/tickets.js`         | Tickets, activity, KB links, attachments, self-assign (`POST /:id/claim` & `/release`) |
 | `/api/maintenance`     | `routes/maintenance.js`     | Recurring work orders (preventive maintenance); staff-only (`requireRole('admin','agent')`) |
@@ -83,6 +85,8 @@ Mounted in `server/src/index.js` under `/api`:
 | `/api/departments`     | `routes/departments.js`     | Departments (list open; writes = `users.manage`) |
 | `/api/password-resets` | `routes/password-resets.js` | IT-mediated reset queue (`users.manage`)         |
 | `/api/chat`            | `routes/chat.js`            | Team chat rooms, messages, attachments, unread tracking (`GET /unread`, `POST /read`, `POST /read-all`), typing indicators (`POST`/`GET /typing`) |
+| `/api/messages`        | `routes/messages.js`        | Internal user-to-user mail (Mailbox). List by box (`?box=inbox\|sent`), `GET /unread-count`, send (`POST /`), `POST /:id/read`, `POST /read-all`, `DELETE /:id` (per-side soft delete) |
+| `/api/surveys`         | `routes/surveys.js`         | Post-resolution technician survey: `GET /` (all surveys for the Survey Reports page, `users.manage`), `GET /:ticketId` (respondent or staff), `POST /:ticketId` (respondent submits 1–5 ratings + comment, once) |
 | `/api/network`         | `routes/network.js`         | UniFi monitoring dashboard (live or mock)        |
 | `/api/notifications`   | `routes/notifications.js`   | Per-user notifications from ticket activity (assigned to them **or routed to their department**) plus chat activity (messages from others in the user's DMs/groups/Team Chat, one item per room); returns unread `count` + work-order-only `workOrders` count (drives the Work Orders nav badge) |
 
@@ -106,7 +110,7 @@ Bulk user import: the Users page parses a CSV/XLSX **client-side** with `xlsx` (
 
 Routes defined in `client/src/App.jsx`. Most routes wrap pages in `<ProtectedRoute>`. Gating is now permission-based via the `permission={[module, action]}` prop (not raw roles):
 
-- `permission={['users', 'manage']}` — `/users`, `/users/reports`, `/users/departments`, `/users/password-resets`
+- `permission={['users', 'manage']}` — `/users`, `/users/reports`, `/users/surveys`, `/users/departments`, `/users/password-resets`
 - `permission={['assets', 'manage']}` — `/assets/new`, `/assets/edit/:id`
 - `permission={['kb', 'manage']}` — `/kb/new`, `/kb/edit/:slug`
 - `permission={['network', 'view' | 'manage']}` — `/network`, `/network/reports*` (manage to create/edit reports)

@@ -7,6 +7,7 @@ import Avatar from './Avatar.jsx';
 import { usePendingResetCount } from '../lib/usePendingResetCount.js';
 import { useWorkOrderNotifications } from '../lib/useWorkOrderNotifications.js';
 import { useChatUnread } from '../lib/useChatUnread.js';
+import { useMailboxUnread } from '../lib/useMailboxUnread.js';
 import Modal from './Modal.jsx';
 
 function ticketsMenu(user) {
@@ -75,6 +76,7 @@ function usersMenu(pendingResets = 0) {
       items: [
         { to: '/users', label: 'Directory', desc: 'All Mainframe accounts and roles', icon: 'users' },
         { to: '/users/reports', label: 'Reports', desc: 'Account monitoring & charts', icon: 'chart' },
+        { to: '/users/surveys', label: 'Survey Reports', desc: 'Technician feedback & ratings', icon: 'star' },
         { to: '/users/departments', label: 'Departments', desc: 'Create and edit departments', icon: 'building' },
         { to: '/users/password-resets', label: 'Password Resets', desc: 'Review and resolve reset requests', icon: 'key', badge: pendingResets }
       ]
@@ -103,6 +105,7 @@ export default function DashboardHeader() {
   const usersSections = usersMenu(pendingResets);
   const workOrderAlerts = useWorkOrderNotifications(hasPermission('tickets', 'view', user));
   const chatUnread = useChatUnread(!!user);
+  const mailUnread = useMailboxUnread(!!user);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -193,13 +196,14 @@ export default function DashboardHeader() {
               )}
             </svg>
           </button>
+          <MailboxButton unread={mailUnread} />
           <NotificationBell />
           <ProfileMenu user={user} onSignOut={requestLogout} />
         </div>
       </div>
 
       {mobileOpen && (
-        <MobileNav user={user} usersSections={usersSections} chatUnread={chatUnread} onClose={() => setMobileOpen(false)} />
+        <MobileNav user={user} usersSections={usersSections} chatUnread={chatUnread} mailUnread={mailUnread} onClose={() => setMobileOpen(false)} />
       )}
     </header>
 
@@ -236,7 +240,7 @@ export default function DashboardHeader() {
   );
 }
 
-function MobileNav({ user, usersSections, chatUnread = 0, onClose }) {
+function MobileNav({ user, usersSections, chatUnread = 0, mailUnread = 0, onClose }) {
   const sections = [];
   sections.push({
     heading: 'Overview',
@@ -252,8 +256,11 @@ function MobileNav({ user, usersSections, chatUnread = 0, onClose }) {
     sections.push({ heading: 'Knowledge Base', items: KB_MENU.flatMap((s) => s.items) });
   }
   sections.push({
-    heading: 'Chat',
-    items: [{ to: '/chat', label: 'Chat Room', desc: 'Team-wide messaging', badge: chatUnread }]
+    heading: 'Messages',
+    items: [
+      { to: '/chat', label: 'Chat Room', desc: 'Team-wide messaging', badge: chatUnread },
+      { to: '/mailbox', label: 'Mailbox', desc: 'Internal messages — inbox & sent', badge: mailUnread }
+    ]
   });
   if (hasPermission('users', 'manage', user)) {
     sections.push({
@@ -261,6 +268,13 @@ function MobileNav({ user, usersSections, chatUnread = 0, onClose }) {
       items: usersSections.flatMap((s) => s.items)
     });
   }
+  sections.push({
+    heading: 'Account',
+    items: [
+      { to: '/profile', label: 'Profile', desc: 'Your profile information and access' },
+      { to: '/settings', label: 'Settings', desc: 'Account security and preferences' }
+    ]
+  });
 
   return (
     <div className="lg:hidden border-t border-slate-200 bg-white max-h-[calc(100vh-4rem)] overflow-y-auto dark:bg-slate-900 dark:border-slate-800">
@@ -297,6 +311,26 @@ function MobileNav({ user, usersSections, chatUnread = 0, onClose }) {
         ))}
       </nav>
     </div>
+  );
+}
+
+function MailboxButton({ unread = 0 }) {
+  return (
+    <Link
+      to="/mailbox"
+      aria-label={unread > 0 ? `Mailbox, ${unread} unread` : 'Mailbox'}
+      className="relative inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+    >
+      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <path d="m3 7 9 6 9-6" />
+      </svg>
+      {unread > 0 && (
+        <span className="absolute -top-0.5 -right-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white dark:ring-slate-900">
+          {unread > 9 ? '9+' : unread}
+        </span>
+      )}
+    </Link>
   );
 }
 
@@ -372,6 +406,17 @@ function ProfileMenu({ user, onSignOut }) {
             <div className="text-xs text-slate-500 truncate dark:text-slate-400">{user?.email}</div>
           </div>
           <div className="py-1">
+            <Link
+              to="/profile"
+              role="menuitem"
+              className="group flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-brand-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+            >
+              <svg className="h-4 w-4 text-slate-500 group-hover:text-brand-900 dark:text-slate-400 dark:group-hover:text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+              Profile
+            </Link>
             <Link
               to="/settings"
               role="menuitem"
