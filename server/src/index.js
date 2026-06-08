@@ -21,6 +21,7 @@ import messages from './routes/messages.js';
 import surveys from './routes/surveys.js';
 import network from './routes/network.js';
 import notifications from './routes/notifications.js';
+import spaces from './routes/spaces.js';
 
 // Fail fast on a missing JWT secret — without it tokens can't be verified safely.
 if (!process.env.JWT_SECRET) {
@@ -97,6 +98,7 @@ app.use('/api/messages', messages);
 app.use('/api/surveys', surveys);
 app.use('/api/network', network);
 app.use('/api/notifications', notifications);
+app.use('/api/spaces', spaces);
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 

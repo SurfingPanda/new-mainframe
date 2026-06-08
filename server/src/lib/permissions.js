@@ -3,34 +3,38 @@
 // omit it to fall back to the role default.
 
 export const MODULES = {
-  tickets: ['view', 'create'],
-  assets:  ['view', 'manage'],
-  kb:      ['view', 'manage'],
-  users:   ['manage'],
-  network: ['view', 'manage']
+  tickets:  ['view', 'create'],
+  assets:   ['view', 'manage'],
+  kb:       ['view', 'manage'],
+  users:    ['manage'],
+  network:  ['view', 'manage'],
+  spaces:   ['view', 'manage']
 };
 
 export const ROLE_DEFAULTS = {
   admin: {
-    tickets: { view: true,  create: true  },
-    assets:  { view: true,  manage: true  },
-    kb:      { view: true,  manage: true  },
-    users:   { manage: true },
-    network: { view: true,  manage: true  }
+    tickets:  { view: true,  create: true  },
+    assets:   { view: true,  manage: true  },
+    kb:       { view: true,  manage: true  },
+    users:    { manage: true },
+    network:  { view: true,  manage: true  },
+    spaces:   { view: true,  manage: true  }
   },
   agent: {
-    tickets: { view: true,  create: true  },
-    assets:  { view: true,  manage: true  },
-    kb:      { view: true,  manage: true  },
-    users:   { manage: false },
-    network: { view: true,  manage: true  }
+    tickets:  { view: true,  create: true  },
+    assets:   { view: true,  manage: true  },
+    kb:       { view: true,  manage: true  },
+    users:    { manage: false },
+    network:  { view: true,  manage: true  },
+    spaces:   { view: true,  manage: false }
   },
   user: {
-    tickets: { view: true,  create: true  },
-    assets:  { view: true,  manage: false },
-    kb:      { view: true,  manage: false },
-    users:   { manage: false },
-    network: { view: false, manage: false }
+    tickets:  { view: true,  create: true  },
+    assets:   { view: true,  manage: false },
+    kb:       { view: true,  manage: false },
+    users:    { manage: false },
+    network:  { view: false, manage: false },
+    spaces:   { view: true,  manage: false }
   }
 };
 

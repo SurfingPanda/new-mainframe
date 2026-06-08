@@ -46,29 +46,6 @@ function ticketsMenu(user) {
   return sections;
 }
 
-function assetsMenu(user) {
-  const sections = [
-    {
-      heading: 'Inventory',
-      items: [
-        { to: '/assets/all', label: 'All Assets', desc: 'Full inventory across departments', icon: 'box' },
-        { to: '/assets/assigned', label: 'Assigned Assets', desc: 'Currently issued to employees', icon: 'user-check' },
-        { to: '/assets/available', label: 'Available Assets', desc: 'Ready to be issued', icon: 'check-circle' },
-        { to: '/assets/maintenance', label: 'Under Maintenance', desc: 'Out for repair or service', icon: 'wrench' },
-        { to: '/assets/retired', label: 'Retired Assets', desc: 'Decommissioned hardware', icon: 'archive' }
-      ]
-    }
-  ];
-  const actions = [
-    { to: '/assets/request', label: 'Asset Request', desc: 'Request equipment for an employee', icon: 'inbox-in', tone: 'accent' }
-  ];
-  if (hasPermission('assets', 'manage', user)) {
-    actions.unshift({ to: '/assets/new', label: 'Add New Asset', desc: 'Register hardware in inventory', icon: 'plus', tone: 'accent' });
-  }
-  sections.push({ heading: 'Actions', items: actions });
-  return sections;
-}
-
 function usersMenu(pendingResets = 0) {
   return [
     {
@@ -150,11 +127,22 @@ export default function DashboardHeader() {
           {hasPermission('tickets', 'view', user) && (
             <NavDropdown label="Work Orders" basePath="/tickets" sections={ticketsMenu(user)} badge={workOrderAlerts} />
           )}
-          {hasPermission('assets', 'view', user) && (
-            <NavDropdown label="Assets" basePath="/assets" sections={assetsMenu(user)} />
-          )}
           {hasPermission('kb', 'view', user) && (
             <NavDropdown label="Knowledge Base" basePath="/kb" sections={KB_MENU} />
+          )}
+          {hasPermission('spaces', 'view', user) && (
+            <NavLink
+              to="/spaces"
+              className={({ isActive }) =>
+                `rounded-md px-2 py-1.5 text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'text-brand-900 bg-slate-100 dark:text-white dark:bg-slate-800'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800'
+                }`
+              }
+            >
+              Spaces
+            </NavLink>
           )}
           <NavLink
             to="/chat"
@@ -249,11 +237,14 @@ function MobileNav({ user, usersSections, chatUnread = 0, mailUnread = 0, onClos
   if (hasPermission('tickets', 'view', user)) {
     sections.push({ heading: 'Work Orders', items: ticketsMenu(user).flatMap((s) => s.items) });
   }
-  if (hasPermission('assets', 'view', user)) {
-    sections.push({ heading: 'Assets', items: assetsMenu(user).flatMap((s) => s.items) });
-  }
   if (hasPermission('kb', 'view', user)) {
     sections.push({ heading: 'Knowledge Base', items: KB_MENU.flatMap((s) => s.items) });
+  }
+  if (hasPermission('spaces', 'view', user)) {
+    sections.push({
+      heading: 'Spaces',
+      items: [{ to: '/spaces', label: 'Spaces', desc: 'Project spaces — boards, items & members' }]
+    });
   }
   sections.push({
     heading: 'Messages',

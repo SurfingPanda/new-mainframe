@@ -31,17 +31,14 @@ export default function Dashboard() {
 
 function StaffDashboard({ user }) {
   const [tickets, setTickets] = useState([]);
-  const [assets, setAssets] = useState([]);
   const [kb, setKb] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const canViewAssets = hasPermission('assets', 'view', user);
 
   useEffect(() => {
-    Promise.all([api('/api/tickets'), api('/api/assets'), api('/api/kb')])
-      .then(([t, a, k]) => {
+    Promise.all([api('/api/tickets'), api('/api/kb')])
+      .then(([t, k]) => {
         setTickets(t);
-        setAssets(a);
         setKb(k);
       })
       .catch((e) => setError(e.message))
@@ -50,7 +47,6 @@ function StaffDashboard({ user }) {
 
   const openTickets = tickets.filter((t) => t.status !== 'closed' && t.status !== 'resolved');
   const highPriority = tickets.filter((t) => t.priority === 'high' || t.priority === 'urgent').length;
-  const inMaintenance = assets.filter((a) => a.status === 'repair').length;
   const greeting = getGreeting();
 
   return (
@@ -83,15 +79,6 @@ function StaffDashboard({ user }) {
               </svg>
               Report Incident
             </Link>
-            {canViewAssets && (
-              <Link to="/assets/request" className="btn-secondary !px-3.5 !py-2 text-xs">
-                <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 13h5l2 3h4l2-3h5" />
-                  <path d="M5 13V5h14v8" />
-                </svg>
-                Request Asset
-              </Link>
-            )}
           </div>
         </section>
 
@@ -101,7 +88,7 @@ function StaffDashboard({ user }) {
           </div>
         )}
 
-        <section className="grid gap-5 md:grid-cols-3">
+        <section className="grid gap-5 md:grid-cols-2">
           <StatCard
             label="Open work orders"
             value={openTickets.length}
@@ -110,18 +97,6 @@ function StaffDashboard({ user }) {
             icon={
               <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15a4 4 0 0 1-4 4H8l-5 4V6a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v9z" />
-              </svg>
-            }
-          />
-          <StatCard
-            label="Tracked assets"
-            value={assets.length}
-            sub={`${inMaintenance} under maintenance`}
-            tone="brand"
-            icon={
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 7l9-4 9 4-9 4-9-4z" />
-                <path d="M3 7v10l9 4 9-4V7" />
               </svg>
             }
           />
@@ -291,15 +266,6 @@ function UserDashboard({ user }) {
               </svg>
               Report Incident
             </Link>
-            {canViewAssets && (
-              <Link to="/assets/request" className="btn-secondary !px-3.5 !py-2 text-xs">
-                <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 13h5l2 3h4l2-3h5" />
-                  <path d="M5 13V5h14v8" />
-                </svg>
-                Request Asset
-              </Link>
-            )}
           </div>
         </section>
 

@@ -36,6 +36,8 @@ import NetworkReports from './pages/NetworkReports.jsx';
 import NetworkReportEditor from './pages/NetworkReportEditor.jsx';
 import NetworkReportView from './pages/NetworkReportView.jsx';
 import ChatRoom from './pages/ChatRoom.jsx';
+import Spaces from './pages/Spaces.jsx';
+import SpaceDetail from './pages/SpaceDetail.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 
 export default function App() {
@@ -90,6 +92,22 @@ export default function App() {
         element={
           <ProtectedRoute>
             <ChatRoom />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/spaces"
+        element={
+          <ProtectedRoute permission={['spaces', 'view']}>
+            <Spaces />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/spaces/:id"
+        element={
+          <ProtectedRoute permission={['spaces', 'view']}>
+            <SpaceDetail />
           </ProtectedRoute>
         }
       />

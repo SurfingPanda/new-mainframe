@@ -281,6 +281,128 @@ CREATE TABLE IF NOT EXISTS asset_requests (
   INDEX idx_ar_status (status)
 );
 
+-- Jira-style project spaces (separate from IT work orders / tickets).
+CREATE TABLE IF NOT EXISTS spaces (
+  id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  space_key    VARCHAR(10) NOT NULL UNIQUE,
+  name         VARCHAR(120) NOT NULL,
+  description  TEXT,
+  owner_id     INT UNSIGNED NOT NULL,
+  owner_name   VARCHAR(120) NOT NULL,
+  item_seq     INT UNSIGNED NOT NULL DEFAULT 0,
+  is_archived  TINYINT(1) NOT NULL DEFAULT 0,
+  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_spaces_owner (owner_id)
+);
+
+CREATE TABLE IF NOT EXISTS space_members (
+  space_id   INT UNSIGNED NOT NULL,
+  user_id    INT UNSIGNED NOT NULL,
+  role       ENUM('owner','member') NOT NULL DEFAULT 'member',
+  added_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (space_id, user_id),
+  INDEX idx_sm_user (user_id),
+  FOREIGN KEY (space_id) REFERENCES spaces(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS space_items (
+  id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  space_id       INT UNSIGNED NOT NULL,
+  item_key       VARCHAR(20) NOT NULL,
+  title          VARCHAR(255) NOT NULL,
+  description    MEDIUMTEXT,
+  type           ENUM('epic','task','subtask') NOT NULL DEFAULT 'task',
+  status         ENUM('todo','in_progress','done') NOT NULL DEFAULT 'todo',
+  priority       ENUM('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
+  assignee_id    INT UNSIGNED NULL,
+  assignee_name  VARCHAR(120) NULL,
+  reporter_id    INT UNSIGNED NOT NULL,
+  reporter_name  VARCHAR(120) NOT NULL,
+  parent_id      INT UNSIGNED NULL,
+  position       INT NOT NULL DEFAULT 0,
+  sla_days       SMALLINT UNSIGNED NULL,
+  due_at         DATE NULL,
+  start_date     DATE NULL,
+  labels         VARCHAR(255) NULL,
+  team           VARCHAR(120) NULL,
+  completed_at   TIMESTAMP NULL,
+  created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_space_item_key (space_id, item_key),
+  INDEX idx_si_space_status (space_id, status),
+  INDEX idx_si_space_assignee (space_id, assignee_id),
+  INDEX idx_si_parent (parent_id),
+  FOREIGN KEY (space_id) REFERENCES spaces(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS space_item_comments (
+  id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  item_id      INT UNSIGNED NOT NULL,
+  space_id     INT UNSIGNED NOT NULL,
+  author_id    INT UNSIGNED NOT NULL,
+  author_name  VARCHAR(120) NOT NULL,
+  body         TEXT NOT NULL,
+  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_sic_item (item_id),
+  FOREIGN KEY (item_id) REFERENCES space_items(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS space_item_links (
+  id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  space_id       INT UNSIGNED NOT NULL,
+  item_id        INT UNSIGNED NOT NULL,
+  linked_item_id INT UNSIGNED NOT NULL,
+  created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_link (item_id, linked_item_id),
+  INDEX idx_sil_linked (linked_item_id),
+  FOREIGN KEY (item_id) REFERENCES space_items(id) ON DELETE CASCADE,
+  FOREIGN KEY (linked_item_id) REFERENCES space_items(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS space_item_history (
+  id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  item_id     INT UNSIGNED NOT NULL,
+  space_id    INT UNSIGNED NOT NULL,
+  actor_id    INT UNSIGNED NULL,
+  actor_name  VARCHAR(120) NOT NULL,
+  field       VARCHAR(40) NOT NULL,
+  old_value   VARCHAR(255) NULL,
+  new_value   VARCHAR(255) NULL,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_sih_item (item_id),
+  FOREIGN KEY (item_id) REFERENCES space_items(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS space_docs (
+  id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  space_id     INT UNSIGNED NOT NULL,
+  title        VARCHAR(200) NOT NULL,
+  body         MEDIUMTEXT,
+  author_id    INT UNSIGNED NOT NULL,
+  author_name  VARCHAR(120) NOT NULL,
+  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_sd_space (space_id),
+  FOREIGN KEY (space_id) REFERENCES spaces(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS space_goals (
+  id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  space_id     INT UNSIGNED NOT NULL,
+  title        VARCHAR(200) NOT NULL,
+  description  TEXT,
+  status       ENUM('on_track','at_risk','off_track','done') NOT NULL DEFAULT 'on_track',
+  progress     TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  target_date  DATE NULL,
+  created_by   VARCHAR(120),
+  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_sg_space (space_id),
+  FOREIGN KEY (space_id) REFERENCES spaces(id) ON DELETE CASCADE
+);
+
 -- Seed admin user (password: admin123)
 INSERT INTO users (email, password_hash, name, role, department, is_active) VALUES
   ('admin@mainframe.local',
