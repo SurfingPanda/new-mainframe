@@ -1,4 +1,4 @@
-# Mainframe
+# Hubly
 
 Internal IT operations platform for the IT department. Combines **ticketing**, **IT asset inventory**, and a **knowledge base** in one app.
 

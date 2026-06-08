@@ -1,6 +1,46 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
+// Colour families for the menu item icon chips.
+const TONE_STYLES = {
+  accent: 'bg-accent-50 ring-accent-200 text-accent-700 group-hover:bg-accent-100',
+  sky: 'bg-sky-50 ring-sky-200 text-sky-700 group-hover:bg-sky-100',
+  violet: 'bg-violet-50 ring-violet-200 text-violet-700 group-hover:bg-violet-100',
+  indigo: 'bg-indigo-50 ring-indigo-200 text-indigo-700 group-hover:bg-indigo-100',
+  amber: 'bg-amber-50 ring-amber-200 text-amber-700 group-hover:bg-amber-100',
+  rose: 'bg-rose-50 ring-rose-200 text-rose-700 group-hover:bg-rose-100',
+  teal: 'bg-teal-50 ring-teal-200 text-teal-700 group-hover:bg-teal-100',
+  brand: 'bg-brand-50 ring-brand-200 text-brand-700 group-hover:bg-brand-100',
+  slate: 'bg-slate-50 ring-slate-200 text-slate-600 group-hover:bg-white group-hover:text-brand-900'
+};
+
+// Default colour per icon so every menu item is colourful (an item can still
+// override with its own `tone`).
+const ICON_TONE = {
+  queue: 'sky',
+  submitted: 'indigo',
+  list: 'violet',
+  chart: 'amber',
+  alert: 'rose',
+  plus: 'accent',
+  box: 'amber',
+  'user-check': 'accent',
+  'check-circle': 'accent',
+  wrench: 'teal',
+  archive: 'slate',
+  'inbox-in': 'sky',
+  book: 'violet',
+  'life-buoy': 'teal',
+  help: 'sky',
+  shield: 'brand',
+  wifi: 'sky',
+  clipboard: 'amber',
+  users: 'sky',
+  building: 'indigo',
+  key: 'rose',
+  star: 'amber'
+};
+
 export default function NavDropdown({ label, basePath, sections, badge }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -96,9 +136,7 @@ export default function NavDropdown({ label, basePath, sections, badge }) {
                   >
                     <span
                       className={`mt-0.5 inline-flex h-7 w-7 flex-none items-center justify-center rounded-md ring-1 ring-inset transition-colors ${
-                        item.tone === 'accent'
-                          ? 'bg-accent-50 ring-accent-200 text-accent-700 group-hover:bg-accent-100'
-                          : 'bg-slate-50 ring-slate-200 text-slate-600 group-hover:bg-white group-hover:text-brand-900'
+                        TONE_STYLES[item.tone || ICON_TONE[item.icon] || 'slate']
                       }`}
                     >
                       <Icon name={item.icon} />

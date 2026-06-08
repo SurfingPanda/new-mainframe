@@ -198,6 +198,11 @@ CREATE TABLE IF NOT EXISTS messages (
   -- Optional in-app CTA (e.g. a system message linking to a resolution survey).
   link_url          VARCHAR(255) NULL,
   link_label        VARCHAR(80) NULL,
+  -- Optional single file attachment (stored on disk, served via /uploads/messages).
+  attachment_url      VARCHAR(255) NULL,
+  attachment_filename VARCHAR(255) NULL,
+  attachment_mime     VARCHAR(120) NULL,
+  attachment_size     INT UNSIGNED NULL,
   is_read           TINYINT(1) NOT NULL DEFAULT 0,
   read_at           TIMESTAMP NULL,
   sender_deleted    TINYINT(1) NOT NULL DEFAULT 0,
@@ -262,6 +267,22 @@ CREATE TABLE IF NOT EXISTS departments (
   INDEX idx_departments_active (is_active)
 );
 
+-- System announcements / maintenance notices shown on the dashboard.
+CREATE TABLE IF NOT EXISTS announcements (
+  id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  title           VARCHAR(160) NOT NULL,
+  body            TEXT,
+  type            ENUM('info','maintenance','warning') NOT NULL DEFAULT 'info',
+  starts_at       DATETIME NULL,
+  ends_at         DATETIME NULL,
+  is_active       TINYINT(1) NOT NULL DEFAULT 1,
+  created_by      INT UNSIGNED NULL,
+  created_by_name VARCHAR(120) NULL,
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_ann_active (is_active)
+);
+
 CREATE TABLE IF NOT EXISTS asset_requests (
   id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   requester_id    INT UNSIGNED NOT NULL,
@@ -287,6 +308,7 @@ CREATE TABLE IF NOT EXISTS spaces (
   space_key    VARCHAR(10) NOT NULL UNIQUE,
   name         VARCHAR(120) NOT NULL,
   description  TEXT,
+  icon_url     VARCHAR(255) NULL,
   owner_id     INT UNSIGNED NOT NULL,
   owner_name   VARCHAR(120) NOT NULL,
   item_seq     INT UNSIGNED NOT NULL DEFAULT 0,
@@ -303,6 +325,24 @@ CREATE TABLE IF NOT EXISTS space_members (
   added_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (space_id, user_id),
   INDEX idx_sm_user (user_id),
+  FOREIGN KEY (space_id) REFERENCES spaces(id) ON DELETE CASCADE
+);
+
+-- Requests from non-members to join a (member-private) space. One row per
+-- (space, user); a re-request flips an old denied/approved row back to pending.
+CREATE TABLE IF NOT EXISTS space_join_requests (
+  id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  space_id    INT UNSIGNED NOT NULL,
+  user_id     INT UNSIGNED NOT NULL,
+  user_name   VARCHAR(120) NOT NULL,
+  status      ENUM('pending','approved','denied') NOT NULL DEFAULT 'pending',
+  message     VARCHAR(500) NULL,
+  reviewed_by INT UNSIGNED NULL,
+  reviewed_at TIMESTAMP NULL,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_sjr_space_user (space_id, user_id),
+  INDEX idx_sjr_space_status (space_id, status),
   FOREIGN KEY (space_id) REFERENCES spaces(id) ON DELETE CASCADE
 );
 
@@ -380,6 +420,10 @@ CREATE TABLE IF NOT EXISTS space_docs (
   space_id     INT UNSIGNED NOT NULL,
   title        VARCHAR(200) NOT NULL,
   body         MEDIUMTEXT,
+  file_path    VARCHAR(255) NULL,
+  file_name    VARCHAR(255) NULL,
+  mime         VARCHAR(120) NULL,
+  size         INT UNSIGNED NULL,
   author_id    INT UNSIGNED NOT NULL,
   author_name  VARCHAR(120) NOT NULL,
   created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

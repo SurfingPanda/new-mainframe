@@ -39,7 +39,7 @@ function layout(heading, bodyHtml, cta) {
   <div style="font-size:14px;line-height:1.6;color:#334155;">${bodyHtml}</div>
   ${button}
   <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;" />
-  <p style="font-size:12px;color:#94a3b8;">Mainframe — internal IT operations. This is an automated message.</p>
+  <p style="font-size:12px;color:#94a3b8;">Hubly — internal IT operations. This is an automated message.</p>
 </div>`;
 }
 
@@ -115,11 +115,11 @@ export function assetRequestDecision(request) {
 
 export function passwordResetLink(name, url) {
   return {
-    subject: 'Reset your Mainframe password',
-    text: `Hi ${name || ''},\n\nA password reset was requested for your Mainframe account. Use this link within 1 hour to set a new password:\n\n${url}\n\nIf you didn't request this, you can ignore this email — your password won't change.`,
+    subject: 'Reset your Hubly password',
+    text: `Hi ${name || ''},\n\nA password reset was requested for your Hubly account. Use this link within 1 hour to set a new password:\n\n${url}\n\nIf you didn't request this, you can ignore this email — your password won't change.`,
     html: layout(
       'Reset your password',
-      `<p>Hi ${escapeHtml(name || '')},</p><p>A password reset was requested for your Mainframe account. This link expires in <strong>1 hour</strong>.</p><p style="font-size:12px;color:#94a3b8;">If you didn't request this, ignore this email — your password won't change.</p>`,
+      `<p>Hi ${escapeHtml(name || '')},</p><p>A password reset was requested for your Hubly account. This link expires in <strong>1 hour</strong>.</p><p style="font-size:12px;color:#94a3b8;">If you didn't request this, ignore this email — your password won't change.</p>`,
       { label: 'Set a new password', url }
     )
   };

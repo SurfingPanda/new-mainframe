@@ -11,7 +11,7 @@ const formatTicketId = (id) => `WO${String(id ?? 0).padStart(8, '0')}`;
 // System sender marker for Mailbox messages (no real user account). messages.shape
 // never treats sender_id 0 as "mine" since real user ids are positive.
 const SYSTEM_SENDER_ID = 0;
-const SYSTEM_SENDER_NAME = 'Mainframe';
+const SYSTEM_SENDER_NAME = 'Hubly';
 
 // tickets.requester / assignee are free-text (a display name OR an email).
 // Resolve to a real, active user row so we can deliver to their Mailbox.

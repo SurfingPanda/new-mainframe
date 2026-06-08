@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import Modal from '../components/Modal.jsx';
 import Avatar from '../components/Avatar.jsx';
 import UserPicker from '../components/UserPicker.jsx';
-import MarkdownEditor from '../components/MarkdownEditor.jsx';
 import { ChartDoughnut, ChartBar } from '../components/DashboardCharts.jsx';
 import { api, getUser } from '../lib/auth.js';
 
@@ -32,6 +31,22 @@ const TABS = ['summary', 'board', 'list', 'calendar', 'timeline', 'goals', 'docu
 const toYmd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 const labelOf = (list, key) => list.find((x) => x.key === key)?.label || key;
+
+// Deterministic gradient per space key (matches the Spaces list badges).
+const KEY_GRADIENTS = [
+  'from-violet-500 to-indigo-600',
+  'from-sky-500 to-blue-600',
+  'from-emerald-500 to-teal-600',
+  'from-amber-500 to-orange-600',
+  'from-rose-500 to-pink-600',
+  'from-fuchsia-500 to-purple-600',
+  'from-cyan-500 to-sky-600'
+];
+function keyGradient(key = '') {
+  let h = 0;
+  for (const c of String(key)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return KEY_GRADIENTS[h % KEY_GRADIENTS.length];
+}
 
 const TYPE_BADGE = {
   epic: 'bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300',
@@ -192,11 +207,27 @@ export default function SpaceDetail() {
 
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <span className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-brand-900 text-xs font-bold tracking-wider text-white dark:bg-brand-600">
-              {space.space_key}
-            </span>
+            {space.icon_url ? (
+              <img src={space.icon_url} alt={space.name} className="h-12 w-12 rounded-xl object-cover ring-1 ring-inset ring-black/5" />
+            ) : (
+              <span className={`inline-flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br ${keyGradient(space.space_key)} text-xs font-bold tracking-wider text-white shadow-sm`}>
+                {space.space_key}
+              </span>
+            )}
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-brand-900 dark:text-white">{space.name}</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold tracking-tight text-brand-900 dark:text-white">{space.name}</h1>
+                {space.is_archived ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    Archived
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-accent-50 px-2 py-0.5 text-[11px] font-semibold text-accent-700 dark:bg-accent-500/15 dark:text-accent-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-accent-500" />
+                    Active
+                  </span>
+                )}
+              </div>
               {space.description && <p className="text-sm text-slate-600 dark:text-slate-300">{space.description}</p>}
             </div>
           </div>
@@ -231,7 +262,7 @@ export default function SpaceDetail() {
           </div>
         </div>
 
-        {tab === 'summary' && <Summary items={items} />}
+        {tab === 'summary' && <Summary items={items} onView={setTab} />}
         {tab === 'board' && (
           <Board items={items} onMove={moveItem} onOpen={(item) => setItemModal({ item })} onCreate={(status) => setItemModal({ status })} />
         )}
@@ -239,7 +270,7 @@ export default function SpaceDetail() {
         {tab === 'calendar' && <CalendarView items={items} onOpen={(item) => setItemModal({ item })} />}
         {tab === 'timeline' && <TimelineView items={items} onOpen={(item) => setItemModal({ item })} />}
         {tab === 'goals' && <GoalsView spaceId={id} />}
-        {tab === 'documents' && <DocumentsView spaceId={id} />}
+        {tab === 'documents' && <DocumentsView spaceId={id} canManage={space.can_administer} />}
         {tab === 'members' && <Members space={space} onChanged={loadSpace} />}
       </main>
 
@@ -269,7 +300,7 @@ export default function SpaceDetail() {
 
 /* ---------------- Summary ---------------- */
 
-function Summary({ items }) {
+function Summary({ items, onView }) {
   const stats = useMemo(() => {
     const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
     const within = (v) => v && new Date(v).getTime() >= weekAgo;
@@ -291,36 +322,41 @@ function Summary({ items }) {
   );
 
   const cards = [
-    { label: 'Completed (7d)', value: stats.completed },
-    { label: 'Updated (7d)', value: stats.updated },
-    { label: 'Created (7d)', value: stats.created },
-    { label: 'Total items', value: stats.total }
+    { tone: 'accent', icon: 'check', value: stats.completed, label: 'Completed', sub: 'in the last 7 days' },
+    { tone: 'sky', icon: 'refresh', value: stats.updated, label: 'Updated', sub: 'in the last 7 days' },
+    { tone: 'amber', icon: 'plus', value: stats.created, label: 'Created', sub: 'in the last 7 days' },
+    { tone: 'purple', icon: 'stack', value: stats.total, label: 'Total items', sub: 'across this space' }
   ];
+
+  const hasItems = items.length > 0;
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {cards.map((c) => (
-          <div key={c.label} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <div className="text-3xl font-bold text-brand-900 dark:text-white">{c.value}</div>
-            <div className="mt-1 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{c.label}</div>
-          </div>
+          <SummaryStat key={c.label} {...c} />
         ))}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Status overview">
-          <ChartDoughnut labels={STATUSES.map((s) => s.label)} values={stats.byStatus} colors={STATUSES.map((s) => s.color)} emptyLabel="No items yet" />
+        <Panel title="Status overview" tone="sky" onView={hasItems ? () => onView('board') : null}>
+          {hasItems
+            ? <ChartDoughnut labels={STATUSES.map((s) => s.label)} values={stats.byStatus} colors={STATUSES.map((s) => s.color)} emptyLabel="No items yet" />
+            : <EmptyPanel message="There are no items yet to display." />}
         </Panel>
-        <Panel title="Priority breakdown">
-          <ChartBar labels={PRIORITIES.map((p) => p.label)} values={stats.byPriority} color="#3f5b95" emptyLabel="No items yet" />
+        <Panel title="Priority breakdown" tone="violet" onView={hasItems ? () => onView('list') : null}>
+          {hasItems
+            ? <ChartBar labels={PRIORITIES.map((p) => p.label)} values={stats.byPriority} color="#3f5b95" emptyLabel="No items yet" />
+            : <EmptyPanel message="There are no items yet to display." />}
         </Panel>
-        <Panel title="Types of work">
-          <ChartBar labels={TYPES.map((t) => t.label)} values={stats.byType} color="#7c3aed" horizontal emptyLabel="No items yet" />
+        <Panel title="Types of work" tone="amber" onView={hasItems ? () => onView('list') : null}>
+          {hasItems
+            ? <ChartBar labels={TYPES.map((t) => t.label)} values={stats.byType} color="#7c3aed" horizontal emptyLabel="No items yet" />
+            : <EmptyPanel message="There are no items with types to display." />}
         </Panel>
-        <Panel title="Recent activity">
+        <Panel title="Recent activity" tone="accent" onView={recent.length ? () => onView('list') : null}>
           {recent.length === 0 ? (
-            <div className="flex h-52 items-center justify-center text-sm text-slate-500 dark:text-slate-400">No activity yet</div>
+            <EmptyPanel message="Recent activity will appear here." />
           ) : (
             <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {recent.map((i) => (
@@ -357,16 +393,86 @@ function Summary({ items }) {
   );
 }
 
-function Panel({ title, children }) {
+// Tinted icon + value summary card at the top of the Summary view.
+const STAT_TONE = {
+  accent: { chip: 'bg-accent-50 text-accent-600 ring-accent-200 dark:bg-accent-500/15 dark:text-accent-300 dark:ring-accent-500/30', glow: 'from-accent-50/70' },
+  sky: { chip: 'bg-sky-50 text-sky-600 ring-sky-200 dark:bg-sky-500/15 dark:text-sky-300 dark:ring-sky-500/30', glow: 'from-sky-50/70' },
+  amber: { chip: 'bg-amber-50 text-amber-600 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/30', glow: 'from-amber-50/70' },
+  purple: { chip: 'bg-purple-50 text-purple-600 ring-purple-200 dark:bg-purple-500/15 dark:text-purple-300 dark:ring-purple-500/30', glow: 'from-purple-50/70' }
+};
+const STAT_ICON = {
+  check: 'M20 6L9 17l-5-5',
+  refresh: 'M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15',
+  plus: 'M12 5v14M5 12h14',
+  stack: 'M12 2l9 5-9 5-9-5 9-5zM3 12l9 5 9-5M3 17l9 5 9-5'
+};
+
+function SummaryStat({ tone, icon, value, label, sub }) {
+  const t = STAT_TONE[tone] || STAT_TONE.accent;
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <h3 className="mb-3 text-sm font-semibold text-brand-900 dark:text-slate-100">{title}</h3>
+    <div className={`flex items-start gap-3 rounded-2xl border border-slate-200 bg-gradient-to-br ${t.glow} to-white p-5 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:to-slate-900`}>
+      <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${t.chip}`}>
+        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d={STAT_ICON[icon]} />
+        </svg>
+      </span>
+      <div className="min-w-0">
+        <div className="text-3xl font-bold leading-none text-brand-900 dark:text-white">{value}</div>
+        <div className="mt-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">{label}</div>
+        <div className="text-[11px] text-slate-400 dark:text-slate-500">{sub}</div>
+      </div>
+    </div>
+  );
+}
+
+const PANEL_BAR = {
+  sky: 'bg-sky-500',
+  violet: 'bg-violet-500',
+  amber: 'bg-amber-500',
+  accent: 'bg-accent-500'
+};
+
+function Panel({ title, children, onView, tone = 'accent' }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-brand-900 dark:text-slate-100">
+          <span className={`h-4 w-1.5 rounded-full ${PANEL_BAR[tone] || PANEL_BAR.accent}`} />
+          {title}
+        </h3>
+        {onView && (
+          <button type="button" onClick={onView} className="inline-flex items-center gap-0.5 text-xs font-semibold text-accent-700 hover:underline dark:text-accent-300">
+            View all
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+          </button>
+        )}
+      </div>
       {children}
     </div>
   );
 }
 
+// Illustrated empty state for Summary panels with no data.
+function EmptyPanel({ message }) {
+  return (
+    <div className="flex h-52 flex-col items-center justify-center gap-3 text-center">
+      <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-300 dark:bg-slate-800 dark:text-slate-600">
+        <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="4" y="3" width="16" height="18" rx="2" /><path d="M9 8h6M9 12h6M9 16h4" />
+        </svg>
+      </span>
+      <p className="text-sm text-slate-500 dark:text-slate-400">{message}</p>
+    </div>
+  );
+}
+
 /* ---------------- Board ---------------- */
+
+const BOARD_COL = {
+  todo: { accent: 'bg-slate-400', head: 'text-slate-600 dark:text-slate-300', count: 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-200' },
+  in_progress: { accent: 'bg-blue-500', head: 'text-blue-600 dark:text-blue-300', count: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-200' },
+  done: { accent: 'bg-emerald-500', head: 'text-emerald-600 dark:text-emerald-300', count: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200' }
+};
 
 function Board({ items, onMove, onOpen, onCreate }) {
   const [dragId, setDragId] = useState(null);
@@ -377,24 +483,25 @@ function Board({ items, onMove, onOpen, onCreate }) {
     <div className="grid gap-4 md:grid-cols-3">
       {STATUSES.map((col) => {
         const colItems = boardItems.filter((i) => i.status === col.key);
+        const c = BOARD_COL[col.key] || BOARD_COL.todo;
         return (
           <div
             key={col.key}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => { e.preventDefault(); const itemId = Number(e.dataTransfer.getData('text/plain')); if (itemId) onMove(itemId, col.key); setDragId(null); }}
-            className="flex flex-col rounded-xl border border-slate-200 bg-slate-100/60 p-3 dark:border-slate-800 dark:bg-slate-900/40"
+            className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40"
           >
-            <div className="mb-2 flex items-center justify-between px-1">
-              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: col.color }} />
+            <span className={`h-1 w-full ${c.accent}`} />
+            <div className="flex items-center justify-between px-3 pt-3 pb-2">
+              <span className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ${c.head}`}>
                 {col.label}
-                <span className="text-slate-400">{colItems.length}</span>
+                <span className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10px] font-bold ${c.count}`}>{colItems.length}</span>
               </span>
-              <button type="button" onClick={() => onCreate(col.key)} className="rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-800" aria-label={`Add to ${col.label}`}>
+              <button type="button" onClick={() => onCreate(col.key)} className="rounded-md p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-800" aria-label={`Add to ${col.label}`}>
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
               </button>
             </div>
-            <div className="flex min-h-[80px] flex-1 flex-col gap-2">
+            <div className="flex min-h-[80px] flex-1 flex-col gap-2 px-3 pb-3">
               {colItems.map((item) => (
                 <BoardCard
                   key={item.id}
@@ -566,18 +673,18 @@ function ListView({ items, onOpen }) {
           {STATUSES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
       </div>
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <table className="min-w-full divide-y divide-slate-100 text-sm dark:divide-slate-800">
           <thead>
-            <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              <th className="px-4 py-2.5">Key</th>
-              <th className="px-4 py-2.5">Title</th>
-              <th className="px-4 py-2.5">Type</th>
-              <th className="px-4 py-2.5">Status</th>
-              <th className="px-4 py-2.5">Priority</th>
-              <th className="px-4 py-2.5">Assignee</th>
-              <th className="px-4 py-2.5">Due</th>
-              <th className="px-4 py-2.5">Updated</th>
+            <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
+              <th className="px-4 py-3">Key</th>
+              <th className="px-4 py-3">Title</th>
+              <th className="px-4 py-3">Type</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Priority</th>
+              <th className="px-4 py-3">Assignee</th>
+              <th className="px-4 py-3">Due</th>
+              <th className="px-4 py-3">Updated</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -588,7 +695,7 @@ function ListView({ items, onOpen }) {
                 <td className="px-4 py-2.5 font-mono text-xs text-slate-400">{i.item_key}</td>
                 <td className="px-4 py-2.5 font-medium text-slate-800 dark:text-slate-100">{i.title}</td>
                 <td className="px-4 py-2.5"><span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${TYPE_BADGE[i.type]}`}>{i.type}</span></td>
-                <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300">{labelOf(STATUSES, i.status)}</td>
+                <td className="px-4 py-2.5"><span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_PILL[i.status]}`}><span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[i.status]}`} />{labelOf(STATUSES, i.status)}</span></td>
                 <td className="px-4 py-2.5"><span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${PRIORITY_BADGE[i.priority]}`}>{i.priority}</span></td>
                 <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300">{i.assignee_name || <span className="text-slate-400">—</span>}</td>
                 <td className="px-4 py-2.5">{dueInfo(i) ? <DueBadge item={i} /> : <span className="text-slate-400">—</span>}</td>
@@ -609,8 +716,30 @@ function Members({ space, onChanged }) {
   const [pick, setPick] = useState('');
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
+  const [requests, setRequests] = useState([]);
+  const [busyReq, setBusyReq] = useState(null);
 
   useEffect(() => { api('/api/users/directory').then(setDirectory).catch(() => setDirectory([])); }, []);
+
+  const loadRequests = () => {
+    if (!space.can_administer) return;
+    api(`/api/spaces/${space.id}/join-requests`).then((d) => setRequests(Array.isArray(d) ? d : [])).catch(() => setRequests([]));
+  };
+  useEffect(loadRequests, [space.id, space.can_administer]);
+
+  const decideRequest = async (reqId, action) => {
+    setBusyReq(reqId);
+    setError('');
+    try {
+      await api(`/api/spaces/${space.id}/join-requests/${reqId}/${action}`, { method: 'POST' });
+      setRequests((prev) => prev.filter((r) => r.id !== reqId));
+      if (action === 'approve') await onChanged(); // refresh members
+    } catch (e) {
+      setError(e.message || 'Failed to update request');
+    } finally {
+      setBusyReq(null);
+    }
+  };
 
   const memberIds = new Set(space.members.map((m) => m.user_id));
   const candidates = directory.filter((u) => !memberIds.has(u.id));
@@ -643,6 +772,32 @@ function Members({ space, onChanged }) {
 
   return (
     <div className="max-w-2xl space-y-4">
+      {space.can_administer && requests.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-amber-200 bg-amber-50/60 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/10">
+          <div className="flex items-center gap-2 border-b border-amber-200/70 px-4 py-3 dark:border-amber-500/20">
+            <svg className="h-4 w-4 text-amber-600 dark:text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6" /></svg>
+            <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">Join requests</h3>
+            <span className="ml-auto rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-bold text-amber-800 dark:bg-amber-500/25 dark:text-amber-200">{requests.length}</span>
+          </div>
+          <ul className="divide-y divide-amber-200/60 dark:divide-amber-500/20">
+            {requests.map((r) => (
+              <li key={r.id} className="flex items-center gap-3 px-4 py-3">
+                <Avatar name={r.name} src={r.avatar_url} size="h-9 w-9" />
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-slate-800 dark:text-slate-100">{r.name}</span>
+                  <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{r.email}{r.department ? ` · ${r.department}` : ''}</span>
+                  {r.message && <span className="mt-0.5 block truncate text-xs italic text-slate-500 dark:text-slate-400">“{r.message}”</span>}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button type="button" disabled={busyReq === r.id} onClick={() => decideRequest(r.id, 'approve')} className="rounded-md bg-accent-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-700 disabled:opacity-60">Approve</button>
+                  <button type="button" disabled={busyReq === r.id} onClick={() => decideRequest(r.id, 'deny')} className="rounded-md px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white hover:text-rose-600 disabled:opacity-60 dark:text-slate-300 dark:hover:bg-slate-800">Deny</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {space.can_administer && (
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <h3 className="mb-2 text-sm font-semibold text-brand-900 dark:text-slate-100">Add a member</h3>
@@ -736,27 +891,27 @@ function ItemModal({ spaceId, members, item, defaultStatus, onClose, onSaved, on
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Type">
-            <select className={INPUT} value={type} onChange={(e) => setType(e.target.value)}>
+            <Select value={type} onChange={(e) => setType(e.target.value)}>
               {TYPES.filter((t) => t.key !== 'subtask').map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-            </select>
+            </Select>
           </Field>
           <Field label="Status">
-            <select className={INPUT} value={status} onChange={(e) => setStatus(e.target.value)}>
+            <Select value={status} onChange={(e) => setStatus(e.target.value)}>
               {STATUSES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-            </select>
+            </Select>
           </Field>
           <Field label="Priority">
-            <select className={INPUT} value={priority} onChange={(e) => setPriority(e.target.value)}>
+            <Select value={priority} onChange={(e) => setPriority(e.target.value)}>
               {PRIORITIES.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-            </select>
+            </Select>
           </Field>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Assignee">
-            <select className={INPUT} value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
+            <Select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
               <option value="">Unassigned</option>
               {members.map((m) => <option key={m.user_id} value={m.user_id}>{m.name}</option>)}
-            </select>
+            </Select>
           </Field>
           <Field label="SLA — finish within (days)">
             <input
@@ -799,15 +954,37 @@ function Field({ label, children }) {
   );
 }
 
+// Native select restyled with a custom chevron (appearance-none) so dropdowns
+// match the rest of the modernized form controls.
+function Select({ value, onChange, children, className = '' }) {
+  return (
+    <div className="relative">
+      <select
+        value={value}
+        onChange={onChange}
+        className={`${INPUT} cursor-pointer appearance-none pr-9 ${className}`}
+      >
+        {children}
+      </select>
+      <svg className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6 9l6 6 6-6" />
+      </svg>
+    </div>
+  );
+}
+
 /* ---------------- Space settings (rename / archive / delete) ---------------- */
 
 function SpaceSettingsButton({ space, onDeleted, onUpdated }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(space.name);
   const [description, setDescription] = useState(space.description || '');
+  const [iconUrl, setIconUrl] = useState(space.icon_url || null);
   const [saving, setSaving] = useState(false);
+  const [iconBusy, setIconBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState('');
+  const iconRef = useRef(null);
 
   const save = async (e) => {
     e.preventDefault();
@@ -821,6 +998,39 @@ function SpaceSettingsButton({ space, onDeleted, onUpdated }) {
       setError(err.message || 'Failed to save');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const pickIcon = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setIconBusy(true);
+    setError('');
+    try {
+      const fd = new FormData();
+      fd.append('icon', file);
+      const updated = await api(`/api/spaces/${space.id}/icon`, { method: 'POST', body: fd });
+      setIconUrl(updated.icon_url);
+      await onUpdated();
+    } catch (err) {
+      setError(err.message || 'Failed to upload icon');
+    } finally {
+      setIconBusy(false);
+    }
+  };
+
+  const removeIcon = async () => {
+    setIconBusy(true);
+    setError('');
+    try {
+      const updated = await api(`/api/spaces/${space.id}/icon`, { method: 'DELETE' });
+      setIconUrl(updated.icon_url);
+      await onUpdated();
+    } catch (err) {
+      setError(err.message || 'Failed to remove icon');
+    } finally {
+      setIconBusy(false);
     }
   };
 
@@ -843,6 +1053,28 @@ function SpaceSettingsButton({ space, onDeleted, onUpdated }) {
           <form onSubmit={save} className="space-y-4">
             {error && <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">{error}</div>}
             <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-700 dark:text-slate-300">Profile icon</label>
+              <div className="flex items-center gap-3">
+                <input ref={iconRef} type="file" accept="image/*" className="hidden" onChange={pickIcon} />
+                {iconUrl ? (
+                  <img src={iconUrl} alt="Space icon" className="h-14 w-14 rounded-lg object-cover ring-1 ring-inset ring-black/5" />
+                ) : (
+                  <span className="inline-flex h-14 w-14 items-center justify-center rounded-lg bg-brand-900 text-sm font-bold tracking-wider text-white dark:bg-brand-600">
+                    {space.space_key}
+                  </span>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="btn-secondary !px-3 !py-1.5 text-xs" onClick={() => iconRef.current?.click()} disabled={iconBusy}>
+                    {iconBusy ? 'Working…' : iconUrl ? 'Change' : 'Upload icon'}
+                  </button>
+                  {iconUrl && (
+                    <button type="button" className="text-xs font-semibold text-rose-600 hover:underline disabled:opacity-50 dark:text-rose-400" onClick={removeIcon} disabled={iconBusy}>Remove</button>
+                  )}
+                </div>
+              </div>
+              <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">PNG, JPEG, GIF, WebP, or HEIC — up to 5 MB. Square works best.</p>
+            </div>
+            <div>
               <label className="mb-1 block text-xs font-semibold text-slate-700 dark:text-slate-300">Name</label>
               <input className={INPUT} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
             </div>
@@ -857,17 +1089,30 @@ function SpaceSettingsButton({ space, onDeleted, onUpdated }) {
           </form>
 
           <div className="mt-6 border-t border-slate-100 pt-4 dark:border-slate-800">
-            {confirmDelete ? (
-              <div className="rounded-md bg-rose-50 p-3 dark:bg-rose-500/10">
-                <p className="text-sm text-rose-700 dark:text-rose-300">Delete this space and all its items? This cannot be undone.</p>
-                <div className="mt-3 flex justify-end gap-2">
-                  <button type="button" className="btn-ghost !px-3 !py-1.5 text-xs" onClick={() => setConfirmDelete(false)}>Cancel</button>
-                  <button type="button" onClick={remove} disabled={saving} className="inline-flex items-center rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700">Delete space</button>
-                </div>
+            <button type="button" className="text-xs font-semibold text-rose-600 hover:underline dark:text-rose-400" onClick={() => setConfirmDelete(true)}>Delete this space</button>
+          </div>
+        </Modal>
+      )}
+
+      {confirmDelete && (
+        <Modal open onClose={() => !saving && setConfirmDelete(false)} title="Delete space" size="sm">
+          <div className="space-y-4">
+            <div className="flex items-start gap-3">
+              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300">
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01" /></svg>
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-brand-900 dark:text-white">Delete “{space.name}”?</p>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">This permanently removes the space and all of its items, documents, goals, and members. This cannot be undone.</p>
               </div>
-            ) : (
-              <button type="button" className="text-xs font-semibold text-rose-600 hover:underline dark:text-rose-400" onClick={() => setConfirmDelete(true)}>Delete this space</button>
-            )}
+            </div>
+            {error && <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">{error}</div>}
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn-ghost !px-3.5 !py-2 text-xs" onClick={() => setConfirmDelete(false)} disabled={saving}>Cancel</button>
+              <button type="button" onClick={remove} disabled={saving} className="inline-flex items-center rounded-md bg-rose-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-60">
+                {saving ? 'Deleting…' : 'Delete space'}
+              </button>
+            </div>
           </div>
         </Modal>
       )}
@@ -1389,6 +1634,24 @@ function ItemFilters({ items, filters, onChange }) {
   );
 }
 
+// Status colour for calendar event pills (left bar + dot).
+const CAL_EVENT = {
+  todo: 'border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700',
+  in_progress: 'border-blue-400 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-500/50 dark:bg-blue-500/10 dark:text-blue-200 dark:hover:bg-blue-500/20',
+  done: 'border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/50 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20'
+};
+
+// Short relative label for a YYYY-MM-DD due date (Today / Tomorrow / Mon, Jun 9).
+function relativeDue(ymd) {
+  const d = ymdToLocal(ymd); if (!d) return '';
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const diff = Math.round((d - today) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Tomorrow';
+  if (diff === -1) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 function CalendarView({ items, onOpen }) {
   const [cursor, setCursor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; });
   const [filters, setFilters] = useState({ assignee: 'all', type: 'all', status: 'all' });
@@ -1405,53 +1668,130 @@ function CalendarView({ items, onOpen }) {
     return map;
   }, [filtered]);
 
+  const todayYmd = toYmd(new Date());
+
+  // Upcoming + overdue tasks (open items with a due date), soonest first.
+  const upcoming = useMemo(() =>
+    filtered
+      .filter((it) => it.due_at && it.status !== 'done')
+      .sort((a, b) => a.due_at.localeCompare(b.due_at))
+      .slice(0, 30),
+    [filtered]);
+
   const monthLabel = cursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   const gridStart = new Date(cursor); gridStart.setDate(1 - cursor.getDay());
   const days = Array.from({ length: 42 }, (_, i) => { const d = new Date(gridStart); d.setDate(gridStart.getDate() + i); return d; });
-  const todayYmd = toYmd(new Date());
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-brand-900 dark:text-white">{monthLabel}</h2>
-        <div className="flex flex-wrap items-center gap-2">
-          <ItemFilters items={items} filters={filters} onChange={setFilters} />
-          <div className="flex items-center gap-1">
-            <button type="button" onClick={() => setCursor((c) => { const d = new Date(c); d.setMonth(d.getMonth() - 1); return d; })} className="btn-secondary !px-2.5 !py-1.5 text-xs">‹</button>
-            <button type="button" onClick={() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); setCursor(d); }} className="btn-secondary !px-3 !py-1.5 text-xs">Today</button>
-            <button type="button" onClick={() => setCursor((c) => { const d = new Date(c); d.setMonth(d.getMonth() + 1); return d; })} className="btn-secondary !px-2.5 !py-1.5 text-xs">›</button>
+    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+      {/* Calendar */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold text-brand-900 dark:text-white">{monthLabel}</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <ItemFilters items={items} filters={filters} onChange={setFilters} />
+            <div className="inline-flex items-center overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+              <button type="button" aria-label="Previous month" onClick={() => setCursor((c) => { const d = new Date(c); d.setMonth(d.getMonth() - 1); return d; })} className="px-2.5 py-1.5 text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800">‹</button>
+              <button type="button" onClick={() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); setCursor(d); }} className="border-x border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Today</button>
+              <button type="button" aria-label="Next month" onClick={() => setCursor((c) => { const d = new Date(c); d.setMonth(d.getMonth() + 1); return d; })} className="px-2.5 py-1.5 text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800">›</button>
+            </div>
           </div>
         </div>
-      </div>
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div className="grid grid-cols-7 border-b border-slate-100 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:border-slate-800">
-          {WEEKDAYS.map((w) => <div key={w} className="py-2">{w}</div>)}
-        </div>
-        <div className="grid grid-cols-7">
-          {days.map((d, i) => {
-            const ymd = toYmd(d);
-            const inMonth = d.getMonth() === cursor.getMonth();
-            const dayItems = byDay[ymd] || [];
-            return (
-              <div key={i} className={`min-h-[92px] border-b border-r border-slate-100 p-1.5 dark:border-slate-800 ${inMonth ? '' : 'bg-slate-50/60 dark:bg-slate-950/40'}`}>
-                <div className={`mb-1 text-right text-xs ${ymd === todayYmd ? 'font-bold text-accent-600' : inMonth ? 'text-slate-500 dark:text-slate-400' : 'text-slate-300 dark:text-slate-600'}`}>
-                  {ymd === todayYmd ? <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent-500 text-white">{d.getDate()}</span> : d.getDate()}
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50/70 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:border-slate-800 dark:bg-slate-800/40">
+            {WEEKDAYS.map((w) => <div key={w} className="py-2.5">{w}</div>)}
+          </div>
+          <div className="grid grid-cols-7">
+            {days.map((d, i) => {
+              const ymd = toYmd(d);
+              const inMonth = d.getMonth() === cursor.getMonth();
+              const isToday = ymd === todayYmd;
+              const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+              const dayItems = byDay[ymd] || [];
+              return (
+                <div
+                  key={i}
+                  className={`min-h-[104px] border-b border-r border-slate-100 p-1.5 transition-colors last:border-r-0 dark:border-slate-800 ${
+                    !inMonth ? 'bg-slate-50/60 dark:bg-slate-950/40' : isWeekend ? 'bg-slate-50/30 dark:bg-slate-900/40' : ''
+                  } ${isToday ? 'ring-1 ring-inset ring-accent-400/60' : ''}`}
+                >
+                  <div className="mb-1 flex justify-end">
+                    {isToday ? (
+                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-accent-500 text-xs font-bold text-white shadow-sm">{d.getDate()}</span>
+                    ) : (
+                      <span className={`inline-flex h-6 w-6 items-center justify-center text-xs ${inMonth ? 'text-slate-600 dark:text-slate-300' : 'text-slate-300 dark:text-slate-600'}`}>{d.getDate()}</span>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    {dayItems.slice(0, 3).map((it) => (
+                      <button
+                        key={it.id}
+                        type="button"
+                        onClick={() => onOpen(it)}
+                        title={it.title}
+                        className={`flex w-full items-center gap-1.5 truncate rounded-md border-l-2 px-1.5 py-1 text-left text-[11px] font-medium transition-colors ${CAL_EVENT[it.status]}`}
+                      >
+                        <span className="truncate">{it.title}</span>
+                      </button>
+                    ))}
+                    {dayItems.length > 3 && <div className="px-1 text-[10px] font-medium text-slate-400">+{dayItems.length - 3} more</div>}
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  {dayItems.slice(0, 3).map((it) => (
-                    <button key={it.id} type="button" onClick={() => onOpen(it)} className="flex w-full items-center gap-1 truncate rounded bg-slate-100 px-1.5 py-0.5 text-left text-[11px] text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
-                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[it.status]}`} />
-                      <span className="truncate">{it.title}</span>
+              );
+            })}
+          </div>
+        </div>
+        <p className="text-xs text-slate-400">Items are placed on their <span className="font-medium">due date</span>. Set an SLA on an item to give it one.</p>
+      </div>
+
+      {/* Upcoming Tasks */}
+      <aside className="lg:sticky lg:top-6 lg:self-start">
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-brand-900 dark:text-white">
+              <svg className="h-4 w-4 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+              Upcoming Tasks
+            </h3>
+            {upcoming.length > 0 && (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{upcoming.length}</span>
+            )}
+          </div>
+          {upcoming.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-300 dark:bg-slate-800 dark:text-slate-600">
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+              </span>
+              <p className="text-sm text-slate-500 dark:text-slate-400">No upcoming due dates.</p>
+            </div>
+          ) : (
+            <ul className="max-h-[640px] divide-y divide-slate-100 overflow-y-auto dark:divide-slate-800">
+              {upcoming.map((it) => {
+                const overdue = it.due_at < todayYmd;
+                return (
+                  <li key={it.id}>
+                    <button type="button" onClick={() => onOpen(it)} className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                      <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[it.status]}`} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-brand-900 dark:text-slate-100">{it.title}</span>
+                        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+                          <span className={`inline-flex items-center gap-1 font-semibold ${overdue ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+                            {overdue ? `Overdue · ${relativeDue(it.due_at)}` : relativeDue(it.due_at)}
+                          </span>
+                          <span className={`rounded px-1.5 py-0.5 font-medium ${PRIORITY_BADGE[it.priority]}`}>{labelOf(PRIORITIES, it.priority)}</span>
+                        </span>
+                      </span>
+                      {it.assignee_name && (
+                        <Avatar name={it.assignee_name} src={it.assignee_avatar} size="h-6 w-6" textClass="text-[10px]" className="mt-0.5 shrink-0" />
+                      )}
                     </button>
-                  ))}
-                  {dayItems.length > 3 && <div className="px-1 text-[10px] text-slate-400">+{dayItems.length - 3} more</div>}
-                </div>
-              </div>
-            );
-          })}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
-      </div>
-      <p className="text-xs text-slate-400">Items are placed on their <span className="font-medium">due date</span>. Set an SLA on an item to give it one.</p>
+      </aside>
     </div>
   );
 }
@@ -1597,7 +1937,9 @@ function GoalsView({ spaceId }) {
           {goals.map((g) => {
             const st = GOAL_STATUS[g.status] || GOAL_STATUS.on_track;
             return (
-              <div key={g.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <div key={g.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
+                <span className={`block h-1 w-full ${st.bar}`} />
+                <div className="p-4">
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="font-semibold text-brand-900 dark:text-white">{g.title}</h3>
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${st.cls}`}>{st.label}</span>
@@ -1615,6 +1957,7 @@ function GoalsView({ spaceId }) {
                     <button type="button" className="font-semibold text-slate-500 hover:text-accent-700 dark:text-slate-300" onClick={() => setModal({ goal: g })}>Edit</button>
                     <button type="button" className="font-semibold text-rose-500 hover:underline" onClick={() => remove(g.id)}>Delete</button>
                   </span>
+                </div>
                 </div>
               </div>
             );
@@ -1660,9 +2003,9 @@ function GoalModal({ spaceId, goal, onClose, onSaved }) {
         <Field label="Description"><textarea className={`${INPUT} min-h-[80px]`} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Status">
-            <select className={INPUT} value={status} onChange={(e) => setStatus(e.target.value)}>
+            <Select value={status} onChange={(e) => setStatus(e.target.value)}>
               {GOAL_STATUS_KEYS.map((k) => <option key={k} value={k}>{GOAL_STATUS[k].label}</option>)}
-            </select>
+            </Select>
           </Field>
           <Field label="Progress %"><input className={INPUT} type="number" min="0" max="100" value={progress} onChange={(e) => setProgress(e.target.value)} /></Field>
           <Field label="Target date"><input className={INPUT} type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} /></Field>
@@ -1678,11 +2021,34 @@ function GoalModal({ spaceId, goal, onClose, onSaved }) {
 
 /* ---------------- Documents ---------------- */
 
-function DocumentsView({ spaceId }) {
+// Map a document mime type to a tinted file-type chip.
+function docKind(mime = '') {
+  if (mime === 'application/pdf') return { label: 'PDF', tone: 'bg-rose-50 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300' };
+  if (mime.startsWith('image/')) return { label: 'IMG', tone: 'bg-purple-50 text-purple-600 dark:bg-purple-500/15 dark:text-purple-300' };
+  if (mime.includes('spreadsheet') || mime.includes('ms-excel') || mime === 'text/csv') return { label: 'XLS', tone: 'bg-accent-50 text-accent-600 dark:bg-accent-500/15 dark:text-accent-300' };
+  if (mime.includes('word') || mime.includes('document')) return { label: 'DOC', tone: 'bg-sky-50 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300' };
+  if (mime.includes('presentation') || mime.includes('powerpoint')) return { label: 'PPT', tone: 'bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300' };
+  if (mime === 'application/zip') return { label: 'ZIP', tone: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300' };
+  return { label: 'FILE', tone: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300' };
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let v = bytes;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function DocumentsView({ spaceId, canManage }) {
+  const me = getUser();
+  const fileRef = useRef(null);
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [editing, setEditing] = useState(null); // { id } existing | 'new' | null
+  const [uploading, setUploading] = useState(false);
+  const [busyId, setBusyId] = useState(null);
 
   const load = () => {
     setLoading(true);
@@ -1690,17 +2056,55 @@ function DocumentsView({ spaceId }) {
   };
   useEffect(load, [spaceId]);
 
-  if (editing) {
-    return <DocEditor spaceId={spaceId} docId={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />;
-  }
+  const onPick = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file
+    if (!file) return;
+    setUploading(true);
+    setError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const saved = await api(`/api/spaces/${spaceId}/docs`, { method: 'POST', body: fd });
+      setDocs((prev) => [saved, ...prev]);
+    } catch (err) {
+      setError(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const remove = async (docId) => {
+    if (!window.confirm('Delete this document?')) return;
+    setBusyId(docId);
+    setError('');
+    try {
+      await api(`/api/spaces/${spaceId}/docs/${docId}`, { method: 'DELETE' });
+      setDocs((prev) => prev.filter((d) => d.id !== docId));
+    } catch (err) {
+      setError(err.message || 'Delete failed');
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   return (
     <div className="space-y-4">
+      <input ref={fileRef} type="file" className="hidden" onChange={onPick} />
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-brand-900 dark:text-white">Documents</h2>
-        <button type="button" className="btn-primary !py-2 text-xs" onClick={() => setEditing('new')}>
-          <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-          New document
+        <button type="button" className="btn-primary !py-2 text-xs" onClick={() => fileRef.current?.click()} disabled={uploading}>
+          {uploading ? (
+            <>
+              <svg className="h-4 w-4 mr-1.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.219-8.56" strokeLinecap="round" /></svg>
+              Uploading…
+            </>
+          ) : (
+            <>
+              <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" /></svg>
+              Upload document
+            </>
+          )}
         </button>
       </div>
       {loading ? (
@@ -1708,80 +2112,48 @@ function DocumentsView({ spaceId }) {
       ) : error ? (
         <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">{error}</div>
       ) : docs.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="block w-full rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center transition hover:border-accent-400 hover:bg-accent-50/30 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-accent-500/40"
+        >
+          <span className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500">
+            <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" /></svg>
+          </span>
           <h3 className="text-base font-semibold text-brand-900 dark:text-white">No documents yet</h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Write notes, specs, or meeting minutes in Markdown.</p>
-        </div>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Upload PDFs, specs, spreadsheets, or images for this space.</p>
+        </button>
       ) : (
         <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
-          {docs.map((d) => (
-            <li key={d.id}>
-              <button type="button" onClick={() => setEditing(d.id)} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                <svg className="h-5 w-5 shrink-0 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium text-brand-900 dark:text-slate-100">{d.title}</span>
-                  <span className="block text-xs text-slate-400">{d.author_name} · updated {timeAgo(d.updated_at)}</span>
-                </span>
-              </button>
-            </li>
-          ))}
+          {docs.map((d) => {
+            const kind = docKind(d.mime);
+            const canDelete = canManage || (me && d.author_id === me.id);
+            return (
+              <li key={d.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                <a href={d.file_path || '#'} download={d.file_name || d.title} className="flex min-w-0 flex-1 items-center gap-3">
+                  <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold tracking-wide ${kind.tone}`}>
+                    {kind.label}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium text-brand-900 dark:text-slate-100">{d.title}</span>
+                    <span className="block text-xs text-slate-400">
+                      {d.size != null && <>{formatBytes(d.size)} · </>}{d.author_name} · {timeAgo(d.updated_at)}
+                    </span>
+                  </span>
+                </a>
+                <a href={d.file_path || '#'} download={d.file_name || d.title} className="shrink-0 rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-accent-600 dark:hover:bg-slate-700" title="Download" aria-label="Download">
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
+                </a>
+                {canDelete && (
+                  <button type="button" onClick={() => remove(d.id)} disabled={busyId === d.id} className="shrink-0 rounded p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 dark:hover:bg-rose-500/10" title="Delete" aria-label="Delete">
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
-    </div>
-  );
-}
-
-function DocEditor({ spaceId, docId, onClose, onSaved }) {
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
-  const [loading, setLoading] = useState(!!docId);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (!docId) return;
-    api(`/api/spaces/${spaceId}/docs/${docId}`)
-      .then((d) => { setTitle(d.title); setBody(d.body || ''); })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [spaceId, docId]);
-
-  const save = async () => {
-    if (!title.trim()) { setError('Title is required'); return; }
-    setSaving(true);
-    setError('');
-    const payload = { title: title.trim(), body };
-    try {
-      if (docId) await api(`/api/spaces/${spaceId}/docs/${docId}`, { method: 'PATCH', body: JSON.stringify(payload) });
-      else await api(`/api/spaces/${spaceId}/docs`, { method: 'POST', body: JSON.stringify(payload) });
-      onSaved();
-    } catch (err) {
-      setError(err.message || 'Failed to save');
-      setSaving(false);
-    }
-  };
-
-  const remove = async () => {
-    if (!docId) return;
-    setSaving(true);
-    try { await api(`/api/spaces/${spaceId}/docs/${docId}`, { method: 'DELETE' }); onSaved(); }
-    catch (err) { setError(err.message || 'Failed to delete'); setSaving(false); }
-  };
-
-  if (loading) return <div className="h-64 animate-pulse rounded-xl bg-white dark:bg-slate-900" />;
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <button type="button" onClick={onClose} className="btn-secondary !px-3 !py-1.5 text-xs">← Back</button>
-        <div className="ml-auto flex gap-2">
-          {docId && <button type="button" onClick={remove} disabled={saving} className="text-xs font-semibold text-rose-600 hover:underline">Delete</button>}
-          <button type="button" onClick={save} disabled={saving} className="btn-primary !px-3.5 !py-1.5 text-xs">{saving ? 'Saving…' : 'Save'}</button>
-        </div>
-      </div>
-      {error && <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">{error}</div>}
-      <input className={`${INPUT} text-lg font-semibold`} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Document title" maxLength={200} />
-      <MarkdownEditor value={body} onChange={setBody} minRows={14} />
     </div>
   );
 }

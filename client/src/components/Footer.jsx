@@ -10,7 +10,7 @@ export default function Footer() {
             <img src="/images/logo.png" alt="Eljin Corp" className="h-9 w-auto" />
           </div>
           <p className="mt-4 text-sm text-slate-400 max-w-xs leading-relaxed">
-            <span className="text-white font-semibold">Mainframe</span> — internal IT operations portal.
+            <span className="text-white font-semibold">Hubly</span> — Eljin Corp's internal operations portal.
             For use by Eljin Corp employees and authorized contractors only.
           </p>
         </div>
@@ -19,7 +19,7 @@ export default function Footer() {
           <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-accent-400">Modules</h4>
           <ul className="mt-3 space-y-2 text-sm">
             <li><a href="#modules" className="hover:text-white transition-colors">Work Orders</a></li>
-            <li><a href="#modules" className="hover:text-white transition-colors">Asset Inventory</a></li>
+            <li><a href="#modules" className="hover:text-white transition-colors">Spaces</a></li>
             <li><a href="#modules" className="hover:text-white transition-colors">Knowledge Base</a></li>
           </ul>
         </div>
@@ -37,7 +37,7 @@ export default function Footer() {
       <div className="border-t border-white/10">
         <div className="container-page py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-400">
           <div>© {new Date().getFullYear()} Eljin Corp. All rights reserved.</div>
-          <div className="font-mono">Mainframe v1.0.0 · build {new Date().toISOString().slice(0, 10)}</div>
+          <div className="font-mono">Hubly v1.0.0 · build {new Date().toISOString().slice(0, 10)}</div>
         </div>
       </div>
     </footer>

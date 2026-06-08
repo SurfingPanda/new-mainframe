@@ -54,10 +54,10 @@ export default function ForgotPassword() {
         <div className="relative max-w-md">
           <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-accent-300">
             <span className="h-1.5 w-1.5 rounded-full bg-accent-400" />
-            Eljin Corp · IT Portal
+            Eljin Corp · Internal Portal
           </span>
           <h1 className="mt-3 text-4xl font-bold tracking-tight text-white leading-tight">
-            Locked out of <span className="text-accent-400">Mainframe</span>?
+            Locked out of <span className="text-accent-400">Hubly</span>?
           </h1>
           <p className="mt-4 text-slate-300 leading-relaxed">
             Enter your work email and we'll send a secure link to reset your password. The link works once
@@ -74,7 +74,7 @@ export default function ForgotPassword() {
         <div className="relative flex items-center gap-3 text-xs text-slate-400">
           <span>© {new Date().getFullYear()} Eljin Corp</span>
           <span className="text-slate-600">·</span>
-          <span className="font-mono">Mainframe v1.0.0</span>
+          <span className="font-mono">Hubly v1.0.0</span>
         </div>
       </aside>
 
@@ -156,7 +156,7 @@ export default function ForgotPassword() {
                   <div>
                     <span className="eyebrow">Forgot password</span>
                     <h2 className="mt-2 text-2xl sm:text-3xl font-bold text-brand-900 tracking-tight">
-                      Reset your Mainframe password
+                      Reset your Hubly password
                     </h2>
                     <p className="mt-1.5 text-sm text-slate-600">
                       Enter your work email and we'll send you a reset link.

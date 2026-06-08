@@ -40,10 +40,10 @@ export default function SignIn() {
   return (
     <div className="h-screen flex overflow-hidden">
       {/* Brand panel — desktop only */}
-      <aside className="relative hidden lg:flex lg:w-5/12 flex-col justify-between bg-brand-950 text-slate-100 p-12 overflow-hidden">
+      <aside className="signin-brand-anim relative hidden lg:flex lg:w-5/12 flex-col justify-between bg-brand-950 text-slate-100 p-12 overflow-hidden">
         <div className="absolute inset-0 bg-grid-dark mask-fade-radial opacity-80" />
-        <div className="absolute -top-32 -left-24 h-[420px] w-[420px] rounded-full bg-brand-700/40 blur-3xl" />
-        <div className="absolute -bottom-32 -right-24 h-[420px] w-[420px] rounded-full bg-accent-700/30 blur-3xl" />
+        <div className="signin-blob-1 absolute -top-32 -left-24 h-[420px] w-[420px] rounded-full bg-brand-700/40 blur-3xl" />
+        <div className="signin-blob-2 absolute -bottom-32 -right-24 h-[420px] w-[420px] rounded-full bg-accent-700/30 blur-3xl" />
         <div className="absolute inset-y-0 right-0 w-px bg-gradient-to-b from-transparent via-accent-500/40 to-transparent" />
 
         <div className="relative">
@@ -55,10 +55,10 @@ export default function SignIn() {
         <div className="relative max-w-md">
           <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-accent-300">
             <span className="h-1.5 w-1.5 rounded-full bg-accent-400" />
-            Eljin Corp · IT Portal
+            Eljin Corp · Internal Portal
           </span>
           <h1 className="mt-3 text-4xl font-bold tracking-tight text-white leading-tight">
-            Welcome to <span className="text-accent-400">Mainframe</span>.
+            Welcome to <span className="text-accent-400">Hubly</span>.
           </h1>
           <p className="mt-4 text-slate-300 leading-relaxed">
             Submit and track support work orders, manage corporate assets, and reference internal documentation —
@@ -75,12 +75,12 @@ export default function SignIn() {
         <div className="relative flex items-center gap-3 text-xs text-slate-400">
           <span>© {new Date().getFullYear()} Eljin Corp</span>
           <span className="text-slate-600">·</span>
-          <span className="font-mono">Mainframe v1.0.0</span>
+          <span className="font-mono">Hubly v1.0.0</span>
         </div>
       </aside>
 
       {/* Form panel */}
-      <main className="relative flex-1 bg-slate-50 overflow-y-auto overflow-x-hidden">
+      <main className="signin-form-anim relative flex-1 bg-slate-50 overflow-y-auto overflow-x-hidden">
         <div className="pointer-events-none absolute inset-0 -z-10 bg-grid mask-fade-radial opacity-60" />
         <div className="pointer-events-none absolute -z-10 -top-20 -right-20 h-[300px] w-[300px] rounded-full bg-brand-100/70 blur-3xl" />
         <div className="pointer-events-none absolute -z-10 -bottom-20 -left-20 h-[260px] w-[260px] rounded-full bg-accent-100/60 blur-3xl" />
@@ -106,11 +106,11 @@ export default function SignIn() {
             </Link>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white shadow-elevated p-7 sm:p-9">
+          <div className="signin-card-anim rounded-xl border border-slate-200 bg-white shadow-elevated p-7 sm:p-9">
             <div>
               <span className="eyebrow">Sign in</span>
               <h2 className="mt-2 text-2xl sm:text-3xl font-bold text-brand-900 tracking-tight">
-                Access your Mainframe account
+                Access your Hubly account
               </h2>
               <p className="mt-1.5 text-sm text-slate-600">
                 Use your Eljin Corp work credentials to continue.

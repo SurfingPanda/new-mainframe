@@ -1,4 +1,8 @@
 import { Router } from 'express';
+import multer from 'multer';
+import path from 'node:path';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
 import { requireAuth } from '../middleware/auth.js';
 
@@ -6,6 +10,52 @@ const router = Router();
 
 const SUBJECT_MAX = 200;
 const BODY_MAX = 5000;
+
+// --- Message attachments -----------------------------------------------------
+const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'messages');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const ALLOWED_MIME = new Set([
+  'application/pdf',
+  'text/plain',
+  'text/csv',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/zip',
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp'
+]);
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+    filename: (_req, file, cb) => {
+      const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
+      const stamp = Date.now().toString(36) + crypto.randomBytes(4).toString('hex');
+      cb(null, `${stamp}-${safe}`);
+    }
+  }),
+  limits: { fileSize: 15 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (!ALLOWED_MIME.has(file.mimetype)) return cb(new Error(`Unsupported file type: ${file.mimetype}`));
+    cb(null, true);
+  }
+});
+
+// Wrap upload.single('file') so multer size/mime errors return JSON.
+function attachmentMiddleware(req, res, next) {
+  upload.single('file')(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'Attachment is larger than 15 MB.' });
+    return res.status(400).json({ error: err.message || 'Could not process attachment.' });
+  });
+}
 
 // Shape a DB row for the client, framed from the current user's perspective so
 // the UI doesn't have to know which side they're on.
@@ -25,6 +75,10 @@ function shape(row, meId) {
     // Optional in-app CTA (e.g. the resolution-survey link on a system message).
     link_url: row.link_url || null,
     link_label: row.link_label || null,
+    // Optional single file attachment.
+    attachment: row.attachment_url
+      ? { url: row.attachment_url, filename: row.attachment_filename, mime: row.attachment_mime, size: row.attachment_size != null ? Number(row.attachment_size) : null }
+      : null,
     is_read: !!row.is_read,
     created_at: row.created_at
   };
@@ -41,7 +95,9 @@ router.get('/', requireAuth, async (req, res, next) => {
         : 'recipient_id = ? AND recipient_deleted = 0';
     const [rows] = await pool.query(
       `SELECT id, sender_id, sender_name, recipient_id, recipient_name,
-              subject, body, link_url, link_label, is_read, created_at
+              subject, body, link_url, link_label,
+              attachment_url, attachment_filename, attachment_mime, attachment_size,
+              is_read, created_at
          FROM messages
         WHERE ${where}
         ORDER BY created_at DESC
@@ -69,20 +125,26 @@ router.get('/unread-count', requireAuth, async (req, res, next) => {
   }
 });
 
-// POST /api/messages — send a message to another user.
-router.post('/', requireAuth, async (req, res, next) => {
+// POST /api/messages — send a message to another user. Accepts JSON or a
+// multipart form with an optional `file` attachment.
+router.post('/', requireAuth, attachmentMiddleware, async (req, res, next) => {
+  const cleanup = () => { if (req.file) fs.unlink(req.file.path, () => {}); };
   try {
     const recipientId = Number(req.body?.recipient_id);
     if (!Number.isInteger(recipientId) || recipientId <= 0) {
+      cleanup();
       return res.status(400).json({ error: 'recipient_id is required' });
     }
     if (recipientId === req.user.sub) {
+      cleanup();
       return res.status(400).json({ error: 'You cannot message yourself' });
     }
     const subject = String(req.body?.subject ?? '').trim().slice(0, SUBJECT_MAX);
     const body = String(req.body?.body ?? '').trim();
-    if (!body) return res.status(400).json({ error: 'Message body is required' });
+    // A message needs either text or an attachment.
+    if (!body && !req.file) { cleanup(); return res.status(400).json({ error: 'Message body is required' }); }
     if (body.length > BODY_MAX) {
+      cleanup();
       return res.status(400).json({ error: `Message is too long (max ${BODY_MAX} characters)` });
     }
 
@@ -90,22 +152,30 @@ router.post('/', requireAuth, async (req, res, next) => {
       'SELECT id, name FROM users WHERE id = ? AND is_active = 1 LIMIT 1',
       [recipientId]
     );
-    if (!recipients.length) return res.status(404).json({ error: 'Recipient not found' });
+    if (!recipients.length) { cleanup(); return res.status(404).json({ error: 'Recipient not found' }); }
+
+    const att = req.file
+      ? { url: `/uploads/messages/${req.file.filename}`, name: req.file.originalname, mime: req.file.mimetype, size: req.file.size }
+      : { url: null, name: null, mime: null, size: null };
 
     const [result] = await pool.query(
-      `INSERT INTO messages (sender_id, sender_name, recipient_id, recipient_name, subject, body)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [req.user.sub, req.user.name, recipientId, recipients[0].name, subject, body]
+      `INSERT INTO messages (sender_id, sender_name, recipient_id, recipient_name, subject, body,
+                             attachment_url, attachment_filename, attachment_mime, attachment_size)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.sub, req.user.name, recipientId, recipients[0].name, subject, body, att.url, att.name, att.mime, att.size]
     );
 
     const [[row]] = await pool.query(
       `SELECT id, sender_id, sender_name, recipient_id, recipient_name,
-              subject, body, link_url, link_label, is_read, created_at
+              subject, body, link_url, link_label,
+              attachment_url, attachment_filename, attachment_mime, attachment_size,
+              is_read, created_at
          FROM messages WHERE id = ?`,
       [result.insertId]
     );
     res.status(201).json(shape(row, req.user.sub));
   } catch (err) {
+    cleanup();
     next(err);
   }
 });
@@ -151,7 +221,7 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
     const meId = req.user.sub;
 
     const [[row]] = await pool.query(
-      'SELECT sender_id, recipient_id, sender_deleted, recipient_deleted FROM messages WHERE id = ? LIMIT 1',
+      'SELECT sender_id, recipient_id, sender_deleted, recipient_deleted, attachment_url FROM messages WHERE id = ? LIMIT 1',
       [id]
     );
     if (!row || (row.sender_id !== meId && row.recipient_id !== meId)) {
@@ -163,6 +233,7 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
 
     if (otherSideDeleted) {
       await pool.query('DELETE FROM messages WHERE id = ?', [id]);
+      if (row.attachment_url) fs.unlink(path.join(UPLOAD_DIR, path.basename(row.attachment_url)), () => {});
     } else {
       const col = iAmSender ? 'sender_deleted' : 'recipient_deleted';
       await pool.query(`UPDATE messages SET ${col} = 1 WHERE id = ?`, [id]);

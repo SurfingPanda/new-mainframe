@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 
 const SIZE = {
   sm: 'max-w-sm',
@@ -9,8 +9,6 @@ const SIZE = {
 };
 
 export default function Modal({ open, onClose, title, size = 'md', children }) {
-  const overlayRef = useRef(null);
-
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -26,13 +24,11 @@ export default function Modal({ open, onClose, title, size = 'md', children }) {
 
   return (
     <div
-      ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-8 bg-brand-900/40 backdrop-blur-sm overflow-y-auto dark:bg-black/60"
-      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-brand-950/50 backdrop-blur-sm overflow-y-auto dark:bg-black/70"
     >
-      <div className={`relative w-full ${SIZE[size] || SIZE.md} rounded-xl bg-white shadow-2xl ring-1 ring-slate-200 mb-8 dark:bg-slate-900 dark:ring-slate-700`}>
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sticky top-0 bg-white rounded-t-xl z-10 dark:bg-slate-900 dark:border-slate-800">
-          <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">{title}</h2>
+      <div className={`relative my-8 w-full ${SIZE[size] || SIZE.md} rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200/80 animate-[modalIn_0.16s_ease-out] dark:bg-slate-900 dark:ring-slate-700`}>
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sticky top-0 bg-white rounded-t-2xl z-10 dark:bg-slate-900 dark:border-slate-800">
+          <h2 className="text-base font-semibold text-brand-900 dark:text-slate-100">{title}</h2>
           <button
             onClick={onClose}
             aria-label="Close"

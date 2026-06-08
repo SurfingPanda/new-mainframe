@@ -58,7 +58,7 @@ export default function ResetPassword() {
         <div className="relative max-w-md">
           <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-accent-300">
             <span className="h-1.5 w-1.5 rounded-full bg-accent-400" />
-            Eljin Corp · IT Portal
+            Eljin Corp · Internal Portal
           </span>
           <h1 className="mt-3 text-4xl font-bold tracking-tight text-white leading-tight">
             Set a new <span className="text-accent-400">password</span>
@@ -71,7 +71,7 @@ export default function ResetPassword() {
         <div className="relative flex items-center gap-3 text-xs text-slate-400">
           <span>© {new Date().getFullYear()} Eljin Corp</span>
           <span className="text-slate-600">·</span>
-          <span className="font-mono">Mainframe v1.0.0</span>
+          <span className="font-mono">Hubly v1.0.0</span>
         </div>
       </aside>
 

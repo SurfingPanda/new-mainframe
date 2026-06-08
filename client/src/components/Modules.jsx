@@ -3,6 +3,8 @@ const modules = [
     id: 'ticketing',
     name: 'Work Orders',
     summary: 'Submit, triage, and resolve support requests.',
+    tone: 'from-sky-500 to-brand-700',
+    accent: 'text-sky-600',
     points: [
       'Single intake from email and the portal',
       'SLA timers with automatic escalation',
@@ -16,18 +18,20 @@ const modules = [
     )
   },
   {
-    id: 'inventory',
-    name: 'Asset Inventory',
-    summary: 'Track every device issued by Eljin Corp.',
+    id: 'spaces',
+    name: 'Spaces',
+    summary: 'Plan and track team projects on a board.',
+    tone: 'from-violet-500 to-indigo-600',
+    accent: 'text-violet-600',
     points: [
-      'Laptops, monitors, peripherals, and licenses',
-      'Owner, location, and lifecycle status',
-      'CSV import/export for audits'
+      'Board, list, calendar, and timeline views',
+      'Goals, documents, and per-item activity',
+      'Private to members — separate from IT work orders'
     ],
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="4" width="18" height="12" rx="2" />
-        <path d="M8 20h8M12 16v4" />
+        <path d="M3 7l9-4 9 4-9 4-9-4z" />
+        <path d="M3 12l9 4 9-4M3 17l9 4 9-4" />
       </svg>
     )
   },
@@ -35,6 +39,8 @@ const modules = [
     id: 'kb',
     name: 'Knowledge Base',
     summary: 'Internal documentation, written once.',
+    tone: 'from-emerald-500 to-teal-600',
+    accent: 'text-emerald-600',
     points: [
       'Markdown editor with versioning',
       'Categorized and full-text searchable',
@@ -61,8 +67,8 @@ export default function Modules() {
             Three connected services
           </h2>
           <p className="mt-3 text-slate-600">
-            Each module is part of the same platform. Work orders reference the assets they affect, and articles
-            are linked from the work orders where they apply.
+            Each module is part of the same platform. Work orders, project spaces, and articles all live
+            together — linked from wherever they apply.
           </p>
         </div>
 
@@ -70,14 +76,14 @@ export default function Modules() {
           {modules.map((m, i) => (
             <article
               key={m.id}
-              className="group relative rounded-lg border border-slate-200 bg-white p-6 shadow-card hover:shadow-elevated hover:border-accent-200 hover:-translate-y-0.5 transition-all"
+              className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-card transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-elevated"
             >
-              <span className="absolute inset-x-0 top-0 h-0.5 rounded-t-lg bg-gradient-to-r from-brand-900 via-accent-500 to-brand-900 opacity-0 group-hover:opacity-100 transition-opacity" />
+              <span className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${m.tone}`} />
               <div className="flex items-start justify-between">
-                <div className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-brand-900 text-white shadow-sm">
+                <div className={`inline-flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br ${m.tone} text-white shadow-sm`}>
                   <div className="h-5 w-5">{m.icon}</div>
                 </div>
-                <span className="font-mono text-xs font-semibold text-accent-600">0{i + 1}</span>
+                <span className={`font-mono text-xs font-semibold ${m.accent}`}>0{i + 1}</span>
               </div>
 
               <h3 className="mt-5 text-lg font-semibold text-brand-900">{m.name}</h3>
@@ -86,7 +92,7 @@ export default function Modules() {
               <ul className="mt-5 space-y-2 border-t border-slate-100 pt-4">
                 {m.points.map((p) => (
                   <li key={p} className="flex items-start gap-2 text-sm text-slate-700">
-                    <svg className="mt-0.5 h-4 w-4 flex-none text-accent-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className={`mt-0.5 h-4 w-4 flex-none ${m.accent}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M5 12l5 5L20 7" />
                     </svg>
                     {p}

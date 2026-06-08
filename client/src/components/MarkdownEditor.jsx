@@ -20,7 +20,7 @@ function inlineFormat(text) {
   return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : parts;
 }
 
-function MarkdownPreview({ body }) {
+export function MarkdownPreview({ body }) {
   if (!body?.trim()) {
     return <p className="text-sm text-slate-400 italic">Nothing to preview yet…</p>;
   }

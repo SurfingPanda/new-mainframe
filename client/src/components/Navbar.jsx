@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import SignInButton from './SignInButton.jsx';
 
 const links = [
   { href: '#modules', label: 'Modules' },
@@ -16,10 +17,7 @@ export default function Navbar() {
         <Link to="/" className="flex items-center gap-3">
           <img src="/images/logo.png" alt="Eljin Corp" className="h-9 w-auto" />
           <span className="hidden sm:inline-flex items-center gap-2 pl-3 border-l border-slate-200">
-            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Mainframe</span>
-            <span className="rounded-full bg-accent-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent-700 ring-1 ring-inset ring-accent-200">
-              IT Portal
-            </span>
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Hubly</span>
           </span>
         </Link>
 
@@ -32,7 +30,7 @@ export default function Navbar() {
         </div>
 
         <div className="hidden md:flex items-center gap-2">
-          <Link to="/signin" className="btn-primary">Sign in</Link>
+          <SignInButton className="btn-primary">Sign in</SignInButton>
         </div>
 
         <button
@@ -58,7 +56,7 @@ export default function Navbar() {
                 {l.label}
               </a>
             ))}
-            <Link to="/signin" onClick={() => setOpen(false)} className="btn-primary mt-3 self-start">Sign in</Link>
+            <SignInButton beforeNavigate={() => setOpen(false)} className="btn-primary mt-3 self-start">Sign in</SignInButton>
           </div>
         </div>
       )}

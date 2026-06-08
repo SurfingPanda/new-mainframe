@@ -4,6 +4,7 @@ import { api, getUser, hasPermission } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
 import { slaPill } from '../lib/sla.js';
 import DashboardHeader from '../components/DashboardHeader.jsx';
+import AnnouncementsBanner from '../components/AnnouncementsBanner.jsx';
 
 // A published article counts as "new" for a week after it was created.
 const NEW_ARTICLE_DAYS = 7;
@@ -32,14 +33,20 @@ export default function Dashboard() {
 function StaffDashboard({ user }) {
   const [tickets, setTickets] = useState([]);
   const [kb, setKb] = useState([]);
+  const [spaces, setSpaces] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([api('/api/tickets'), api('/api/kb')])
-      .then(([t, k]) => {
-        setTickets(t);
-        setKb(k);
+    Promise.all([
+      api('/api/tickets'),
+      api('/api/kb'),
+      api('/api/spaces').catch(() => [])
+    ])
+      .then(([t, k, s]) => {
+        setTickets(Array.isArray(t) ? t : []);
+        setKb(Array.isArray(k) ? k : []);
+        setSpaces(Array.isArray(s) ? s : []);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -47,6 +54,7 @@ function StaffDashboard({ user }) {
 
   const openTickets = tickets.filter((t) => t.status !== 'closed' && t.status !== 'resolved');
   const highPriority = tickets.filter((t) => t.priority === 'high' || t.priority === 'urgent').length;
+  const spaceItems = spaces.reduce((n, s) => n + (s.item_count || 0), 0);
   const greeting = getGreeting();
 
   return (
@@ -54,6 +62,8 @@ function StaffDashboard({ user }) {
       <DashboardHeader />
 
       <main className="container-app py-6 sm:py-10 space-y-6 sm:space-y-8">
+        <AnnouncementsBanner canManage={user?.role === 'admin' || (user?.department || '').trim().toUpperCase() === 'IT'} />
+
         <section className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <span className="eyebrow">Overview</span>
@@ -88,12 +98,13 @@ function StaffDashboard({ user }) {
           </div>
         )}
 
-        <section className="grid gap-5 md:grid-cols-2">
+        <section className="grid gap-5 md:grid-cols-3">
           <StatCard
             label="Open work orders"
             value={openTickets.length}
             sub={`${tickets.length} total · ${highPriority} high priority`}
             tone="amber"
+            to="/tickets/all"
             icon={
               <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15a4 4 0 0 1-4 4H8l-5 4V6a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v9z" />
@@ -105,10 +116,23 @@ function StaffDashboard({ user }) {
             value={kb.length}
             sub="published"
             tone="accent"
+            to="/kb/all"
             icon={
               <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 4h12a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4V4z" />
                 <path d="M4 16a4 4 0 0 1 4-4h12" />
+              </svg>
+            }
+          />
+          <StatCard
+            label="Spaces"
+            value={spaces.length}
+            sub={`${spaceItems} work item${spaceItems === 1 ? '' : 's'} tracked`}
+            tone="violet"
+            to="/spaces"
+            icon={
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 7l9-4 9 4-9 4-9-4zm0 5l9 4 9-4M3 17l9 4 9-4" />
               </svg>
             }
           />
@@ -201,8 +225,68 @@ function StaffDashboard({ user }) {
           </div>
         </section>
 
+        <section className="rounded-lg border border-slate-200 bg-white shadow-card dark:bg-slate-900 dark:border-slate-800">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
+            <div>
+              <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Spaces</h2>
+              <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">Project workspaces you can jump into</p>
+            </div>
+            <Link to="/spaces" className="text-xs font-semibold text-accent-700 hover:text-accent-800 dark:text-accent-400 dark:hover:text-accent-300">
+              View all →
+            </Link>
+          </div>
+          {loading ? (
+            <div className="px-5 py-10 text-center text-sm text-slate-500 dark:text-slate-400">Loading…</div>
+          ) : spaces.length === 0 ? (
+            <EmptyState
+              title="No spaces yet"
+              desc="Spin up a project space to plan and track work on a board."
+              cta={{ to: '/spaces', label: 'Create a space' }}
+            />
+          ) : (
+            <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {spaces.slice(0, 8).map((s) => (
+                <SpaceMiniCard key={s.id} space={s} />
+              ))}
+            </div>
+          )}
+        </section>
+
       </main>
     </div>
+  );
+}
+
+function SpaceMiniCard({ space: s }) {
+  return (
+    <Link
+      to={`/spaces/${s.id}`}
+      className="group flex flex-col rounded-xl border border-slate-200 bg-white p-4 transition hover:-translate-y-px hover:border-violet-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-violet-500/40"
+    >
+      <div className="flex items-center gap-3">
+        {s.icon_url ? (
+          <img src={s.icon_url} alt={s.name} className="h-10 w-10 shrink-0 rounded-lg object-cover ring-1 ring-inset ring-black/5" />
+        ) : (
+          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-brand-700 text-[11px] font-bold tracking-wider text-white">
+            {s.space_key}
+          </span>
+        )}
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold text-brand-900 group-hover:text-violet-700 dark:text-slate-100 dark:group-hover:text-violet-300">{s.name}</h3>
+          <p className="truncate text-xs text-slate-500 dark:text-slate-400">Owner · {s.owner_name}</p>
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-3 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+        <span className="inline-flex items-center gap-1">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" /></svg>
+          {s.member_count ?? 0}
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+          {s.item_count ?? 0}
+        </span>
+      </div>
+    </Link>
   );
 }
 
@@ -241,6 +325,8 @@ function UserDashboard({ user }) {
       <DashboardHeader />
 
       <main className="container-app py-6 sm:py-10 space-y-6 sm:space-y-8">
+        <AnnouncementsBanner canManage={user?.role === 'admin' || (user?.department || '').trim().toUpperCase() === 'IT'} />
+
         <section className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <span className="eyebrow">Overview</span>
@@ -477,24 +563,35 @@ function getGreeting() {
   return 'Good evening';
 }
 
-function StatCard({ label, value, sub, tone = 'brand', icon }) {
+function StatCard({ label, value, sub, tone = 'brand', icon, to }) {
   const tones = {
-    brand: 'bg-brand-50 text-brand-800 ring-brand-200 dark:bg-brand-500/15 dark:text-brand-200 dark:ring-brand-500/30',
-    accent: 'bg-accent-50 text-accent-700 ring-accent-200 dark:bg-accent-500/15 dark:text-accent-300 dark:ring-accent-500/30',
-    amber: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/30'
+    brand: { chip: 'bg-brand-50 text-brand-800 ring-brand-200 dark:bg-brand-500/15 dark:text-brand-200 dark:ring-brand-500/30', glow: 'from-brand-50/70', hover: 'hover:border-brand-300 dark:hover:border-brand-500/40' },
+    accent: { chip: 'bg-accent-50 text-accent-700 ring-accent-200 dark:bg-accent-500/15 dark:text-accent-300 dark:ring-accent-500/30', glow: 'from-accent-50/70', hover: 'hover:border-accent-300 dark:hover:border-accent-500/40' },
+    amber: { chip: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/30', glow: 'from-amber-50/70', hover: 'hover:border-amber-300 dark:hover:border-amber-500/40' },
+    violet: { chip: 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-500/15 dark:text-violet-300 dark:ring-violet-500/30', glow: 'from-violet-50/70', hover: 'hover:border-violet-300 dark:hover:border-violet-500/40' }
   };
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-card dark:bg-slate-900 dark:border-slate-800">
+  const t = tones[tone] || tones.brand;
+  const base = `group relative overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-br ${t.glow} to-white p-5 shadow-card transition dark:border-slate-800 dark:from-slate-900 dark:to-slate-900`;
+  const inner = (
+    <>
       <div className="flex items-start justify-between">
         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
-        <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ring-1 ring-inset ${tones[tone]}`}>
+        <span className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ring-1 ring-inset ${t.chip}`}>
           {icon}
         </span>
       </div>
       <div className="mt-3 text-3xl font-bold text-brand-900 tabular-nums dark:text-slate-100">{value}</div>
-      <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{sub}</div>
-    </div>
+      <div className="mt-1 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+        <span>{sub}</span>
+        {to && (
+          <span className="font-semibold text-accent-700 opacity-0 transition group-hover:opacity-100 dark:text-accent-400">View →</span>
+        )}
+      </div>
+    </>
   );
+  return to
+    ? <Link to={to} className={`${base} ${t.hover} hover:-translate-y-px hover:shadow-md`}>{inner}</Link>
+    : <div className={base}>{inner}</div>;
 }
 
 function PriorityPill({ priority }) {

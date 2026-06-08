@@ -46,7 +46,7 @@ async function getTransport() {
 }
 
 function fromAddress() {
-  return process.env.MAIL_FROM || 'Mainframe <no-reply@mainframe.local>';
+  return process.env.MAIL_FROM || 'Hubly <no-reply@mainframe.local>';
 }
 
 // Build an absolute link into the client app (e.g. a password-reset URL).

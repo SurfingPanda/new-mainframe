@@ -1166,12 +1166,11 @@ function LeaveGroupConfirm({ group, onCancel, onConfirm }) {
     try { await onConfirm(); } catch (e) { setError(e.message || 'Could not leave.'); } finally { setBusy(false); }
   };
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
       <div
         role="dialog"
         aria-modal="true"
         className="w-full max-w-sm rounded-xl bg-white shadow-elevated border border-slate-200 p-5 dark:bg-slate-900 dark:border-slate-700"
-        onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-base font-semibold text-brand-900 dark:text-slate-100">Leave group?</h3>
         <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
@@ -1387,12 +1386,11 @@ function DateDivider({ value }) {
 
 function DeleteConfirm({ message, onCancel, onConfirm }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
       <div
         role="dialog"
         aria-modal="true"
         className="w-full max-w-sm rounded-xl bg-white shadow-elevated border border-slate-200 p-5 dark:bg-slate-900 dark:border-slate-700"
-        onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-base font-semibold text-brand-900 dark:text-slate-100">Unsend message?</h3>
         <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
@@ -1469,11 +1467,9 @@ function CreateGroupModal({ directory, onCancel, onSubmit }) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
-      onClick={onCancel}
     >
       <form
         onSubmit={submit}
-        onClick={(e) => e.stopPropagation()}
         className="w-full max-w-lg rounded-xl bg-white shadow-elevated border border-slate-200 dark:bg-slate-900 dark:border-slate-700 flex flex-col max-h-[80vh]"
       >
         <header className="border-b border-slate-100 dark:border-slate-800 px-5 py-3 flex items-center justify-between">

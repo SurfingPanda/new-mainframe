@@ -1,9 +1,88 @@
 import { Router } from 'express';
+import multer from 'multer';
+import path from 'node:path';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { hasPermission } from '../lib/permissions.js';
+import { saveAvatar, removeAvatarFile, InvalidImageError } from '../lib/avatar-upload.js';
 
 const router = Router();
+
+// --- Document uploads (Documents tab) ----------------------------------------
+const DOC_UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'spaces');
+fs.mkdirSync(DOC_UPLOAD_DIR, { recursive: true });
+
+const DOC_ALLOWED_MIME = new Set([
+  'application/pdf',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/zip',
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp'
+]);
+
+const docUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, DOC_UPLOAD_DIR),
+    filename: (_req, file, cb) => {
+      const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
+      const stamp = Date.now().toString(36) + crypto.randomBytes(4).toString('hex');
+      cb(null, `${stamp}-${safe}`);
+    }
+  }),
+  limits: { fileSize: 25 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (!DOC_ALLOWED_MIME.has(file.mimetype)) {
+      return cb(new Error(`Unsupported file type: ${file.mimetype}`));
+    }
+    cb(null, true);
+  }
+});
+
+// Wrap upload.single so multer size/mime errors come back as JSON.
+function docUploadMiddleware(req, res, next) {
+  docUpload.single('file')(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'File is larger than 25 MB.' });
+    }
+    return res.status(400).json({ error: err.message || 'Could not process upload.' });
+  });
+}
+
+// --- Space icon uploads ------------------------------------------------------
+// Reuse the avatar pipeline (sharp-validated square WebP under /uploads/avatars).
+const iconUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (!/^image\/(png|jpe?g|gif|webp|heic|heif|avif)$/.test(file.mimetype)) {
+      return cb(new Error('Icon must be a PNG, JPEG, GIF, WebP, HEIC, or AVIF image.'));
+    }
+    cb(null, true);
+  }
+});
+
+function iconUploadMiddleware(req, res, next) {
+  iconUpload.single('icon')(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'Icon is larger than 5 MB.' });
+    }
+    return res.status(400).json({ error: err.message || 'Could not process the image.' });
+  });
+}
 
 const TYPES = ['epic', 'task', 'subtask'];
 const STATUSES = ['todo', 'in_progress', 'done'];
@@ -82,11 +161,17 @@ function shapeSpace(row) {
     space_key: row.space_key,
     name: row.name,
     description: row.description,
+    icon_url: row.icon_url ?? null,
     owner_id: row.owner_id,
     owner_name: row.owner_name,
     is_archived: !!row.is_archived,
     member_count: row.member_count != null ? Number(row.member_count) : undefined,
     item_count: row.item_count != null ? Number(row.item_count) : undefined,
+    // Per-request viewer context (set by the list query): is the caller a member,
+    // and the status of any join request they've made.
+    my_role: row.my_role ?? null,
+    is_member: row.my_role != null,
+    join_status: row.my_request_status ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at
   };
@@ -222,25 +307,23 @@ function parseDate(raw) {
   return { ok: true, value: s };
 }
 
-// GET /api/spaces — spaces the user belongs to (admins with manage: all).
+// GET /api/spaces — every (non-archived) space is discoverable. Each row is
+// tagged with the caller's membership role and any join-request status so the
+// client can show "Open" vs "Request to join". Space contents stay member-only.
 router.get('/', async (req, res, next) => {
   try {
-    const all = canManageAll(req.user);
-    const params = [];
-    let where = 'WHERE s.is_archived = 0';
-    if (!all) {
-      where += ' AND s.id IN (SELECT space_id FROM space_members WHERE user_id = ?)';
-      params.push(req.user.sub);
-    }
+    const meId = req.user.sub;
     const [rows] = await pool.query(
       `SELECT s.*,
               (SELECT COUNT(*) FROM space_members m WHERE m.space_id = s.id) AS member_count,
-              (SELECT COUNT(*) FROM space_items i WHERE i.space_id = s.id) AS item_count
+              (SELECT COUNT(*) FROM space_items i WHERE i.space_id = s.id) AS item_count,
+              (SELECT role FROM space_members m WHERE m.space_id = s.id AND m.user_id = ?) AS my_role,
+              (SELECT status FROM space_join_requests r WHERE r.space_id = s.id AND r.user_id = ?) AS my_request_status
          FROM spaces s
-         ${where}
+        WHERE s.is_archived = 0
         ORDER BY s.updated_at DESC
         LIMIT 500`,
-      params
+      [meId, meId]
     );
     res.json(rows.map(shapeSpace));
   } catch (err) {
@@ -297,10 +380,20 @@ router.get('/:id', async (req, res, next) => {
         ORDER BY (m.role = 'owner') DESC, u.name ASC`,
       [id]
     );
+    const admin = canAdminister(access, req.user);
+    let pendingJoinRequests = 0;
+    if (admin) {
+      const [[{ pending }]] = await pool.query(
+        `SELECT COUNT(*) AS pending FROM space_join_requests WHERE space_id = ? AND status = 'pending'`,
+        [id]
+      );
+      pendingJoinRequests = Number(pending) || 0;
+    }
     res.json({
       ...shapeSpace(access.space),
       my_role: access.membership?.role || null,
-      can_administer: canAdminister(access, req.user),
+      can_administer: admin,
+      pending_join_requests: pendingJoinRequests,
       members: members.map(shapeMember)
     });
   } catch (err) {
@@ -353,7 +446,52 @@ router.delete('/:id', async (req, res, next) => {
     if (!canAdminister(access, req.user)) return res.status(403).json({ error: 'Only the space owner can delete this space' });
 
     await pool.query('DELETE FROM spaces WHERE id = ?', [id]);
+    removeAvatarFile(access.space.icon_url); // best-effort icon cleanup
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/spaces/:id/icon — upload/replace the space profile icon (owner or manage).
+router.post('/:id/icon', iconUploadMiddleware, async (req, res, next) => {
+  try {
+    const id = intId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'invalid space id' });
+    const access = await loadAccess(id, req.user);
+    if (!access) return res.status(404).json({ error: 'Space not found' });
+    if (!canAdminister(access, req.user)) return res.status(403).json({ error: 'Only the space owner can edit this space' });
+    if (!req.file) return res.status(400).json({ error: 'An image is required' });
+
+    let iconUrl;
+    try {
+      iconUrl = await saveAvatar(req.file.buffer);
+    } catch (err) {
+      if (err instanceof InvalidImageError) return res.status(400).json({ error: err.message });
+      throw err;
+    }
+    await pool.query('UPDATE spaces SET icon_url = ? WHERE id = ?', [iconUrl, id]);
+    removeAvatarFile(access.space.icon_url); // drop the previous file
+    const [[space]] = await pool.query('SELECT * FROM spaces WHERE id = ? LIMIT 1', [id]);
+    res.json(shapeSpace(space));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/spaces/:id/icon — remove the space profile icon (owner or manage).
+router.delete('/:id/icon', async (req, res, next) => {
+  try {
+    const id = intId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'invalid space id' });
+    const access = await loadAccess(id, req.user);
+    if (!access) return res.status(404).json({ error: 'Space not found' });
+    if (!canAdminister(access, req.user)) return res.status(403).json({ error: 'Only the space owner can edit this space' });
+
+    await pool.query('UPDATE spaces SET icon_url = NULL WHERE id = ?', [id]);
+    removeAvatarFile(access.space.icon_url);
+    const [[space]] = await pool.query('SELECT * FROM spaces WHERE id = ? LIMIT 1', [id]);
+    res.json(shapeSpace(space));
   } catch (err) {
     next(err);
   }
@@ -422,6 +560,104 @@ router.delete('/:id/members/:userId', async (req, res, next) => {
     next(err);
   }
 });
+
+// POST /api/spaces/:id/join — a non-member requests to join the space. Any user
+// with spaces.view can request (the space is discoverable); contents stay locked
+// until an owner/admin approves.
+router.post('/:id/join', async (req, res, next) => {
+  try {
+    const id = intId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'invalid space id' });
+    const [[space]] = await pool.query('SELECT id, is_archived FROM spaces WHERE id = ? LIMIT 1', [id]);
+    if (!space || space.is_archived) return res.status(404).json({ error: 'Space not found' });
+
+    const [[member]] = await pool.query(
+      'SELECT 1 AS yes FROM space_members WHERE space_id = ? AND user_id = ? LIMIT 1',
+      [id, req.user.sub]
+    );
+    if (member) return res.status(400).json({ error: 'You are already a member of this space' });
+
+    const message = String(req.body?.message ?? '').trim().slice(0, 500) || null;
+    await pool.query(
+      `INSERT INTO space_join_requests (space_id, user_id, user_name, status, message)
+       VALUES (?, ?, ?, 'pending', ?)
+       ON DUPLICATE KEY UPDATE status = 'pending', message = VALUES(message),
+                               reviewed_by = NULL, reviewed_at = NULL, updated_at = CURRENT_TIMESTAMP`,
+      [id, req.user.sub, req.user.name, message]
+    );
+    res.status(201).json({ ok: true, status: 'pending' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/spaces/:id/join-requests — pending requests for the space (owner/admin).
+router.get('/:id/join-requests', async (req, res, next) => {
+  try {
+    const id = intId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'invalid space id' });
+    const access = await loadAccess(id, req.user);
+    if (!access) return res.status(404).json({ error: 'Space not found' });
+    if (!canAdminister(access, req.user)) return res.status(403).json({ error: 'Only the space owner can review join requests' });
+
+    const [rows] = await pool.query(
+      `SELECT r.id, r.user_id, r.message, r.created_at,
+              u.name, u.email, u.avatar_url, u.department
+         FROM space_join_requests r
+         JOIN users u ON u.id = r.user_id
+        WHERE r.space_id = ? AND r.status = 'pending'
+        ORDER BY r.created_at ASC`,
+      [id]
+    );
+    res.json(rows.map((r) => ({
+      id: r.id,
+      user_id: r.user_id,
+      name: r.name,
+      email: r.email,
+      avatar_url: r.avatar_url,
+      department: r.department,
+      message: r.message,
+      created_at: r.created_at
+    })));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/spaces/:id/join-requests/:reqId/(approve|deny) — owner/admin decision.
+async function decideJoinRequest(req, res, next, decision) {
+  try {
+    const id = intId(req.params.id);
+    const reqId = intId(req.params.reqId);
+    if (!id || !reqId) return res.status(400).json({ error: 'invalid id' });
+    const access = await loadAccess(id, req.user);
+    if (!access) return res.status(404).json({ error: 'Space not found' });
+    if (!canAdminister(access, req.user)) return res.status(403).json({ error: 'Only the space owner can review join requests' });
+
+    const [[jr]] = await pool.query(
+      `SELECT user_id FROM space_join_requests WHERE id = ? AND space_id = ? AND status = 'pending' LIMIT 1`,
+      [reqId, id]
+    );
+    if (!jr) return res.status(404).json({ error: 'Request not found' });
+
+    if (decision === 'approved') {
+      await pool.query(
+        `INSERT INTO space_members (space_id, user_id, role) VALUES (?, ?, 'member')
+         ON DUPLICATE KEY UPDATE role = role`,
+        [id, jr.user_id]
+      );
+    }
+    await pool.query(
+      `UPDATE space_join_requests SET status = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [decision, req.user.sub, reqId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+}
+router.post('/:id/join-requests/:reqId/approve', (req, res, next) => decideJoinRequest(req, res, next, 'approved'));
+router.post('/:id/join-requests/:reqId/deny', (req, res, next) => decideJoinRequest(req, res, next, 'denied'));
 
 // GET /api/spaces/:id/items — all work items (optional filters).
 router.get('/:id/items', async (req, res, next) => {
@@ -871,6 +1107,10 @@ function shapeDoc(row, withBody = true) {
     id: row.id,
     space_id: row.space_id,
     title: row.title,
+    file_path: row.file_path ?? null,
+    file_name: row.file_name ?? null,
+    mime: row.mime ?? null,
+    size: row.size != null ? Number(row.size) : null,
     author_id: row.author_id,
     author_name: row.author_name,
     created_at: row.created_at,
@@ -888,7 +1128,7 @@ router.get('/:id/docs', async (req, res, next) => {
     const access = await loadAccess(id, req.user);
     if (!access) return res.status(404).json({ error: 'Space not found' });
     const [rows] = await pool.query(
-      'SELECT id, space_id, title, author_id, author_name, created_at, updated_at FROM space_docs WHERE space_id = ? ORDER BY updated_at DESC',
+      'SELECT id, space_id, title, file_path, file_name, mime, size, author_id, author_name, created_at, updated_at FROM space_docs WHERE space_id = ? ORDER BY updated_at DESC',
       [id]
     );
     res.json(rows.map((r) => shapeDoc(r, false)));
@@ -913,27 +1153,29 @@ router.get('/:id/docs/:docId', async (req, res, next) => {
   }
 });
 
-// POST /api/spaces/:id/docs — create (any member).
-router.post('/:id/docs', async (req, res, next) => {
+// POST /api/spaces/:id/docs — upload a document file (any member).
+// Multipart form: `file` (required) + optional `title` (defaults to filename).
+router.post('/:id/docs', docUploadMiddleware, async (req, res, next) => {
+  const cleanup = () => { if (req.file) fs.unlink(req.file.path, () => {}); };
   try {
     const id = intId(req.params.id);
-    if (!id) return res.status(400).json({ error: 'invalid space id' });
+    if (!id) { cleanup(); return res.status(400).json({ error: 'invalid space id' }); }
     const access = await loadAccess(id, req.user);
-    if (!access) return res.status(404).json({ error: 'Space not found' });
-    if (!access.membership && !canManageAll(req.user)) return res.status(403).json({ error: 'Only members can add documents' });
+    if (!access) { cleanup(); return res.status(404).json({ error: 'Space not found' }); }
+    if (!access.membership && !canManageAll(req.user)) { cleanup(); return res.status(403).json({ error: 'Only members can add documents' }); }
+    if (!req.file) return res.status(400).json({ error: 'A file is required' });
 
-    const title = String(req.body?.title ?? '').trim();
-    if (!title) return res.status(400).json({ error: 'Title is required' });
-    if (title.length > DOC_TITLE_MAX) return res.status(400).json({ error: `Title must be ${DOC_TITLE_MAX} characters or fewer` });
-    const body = String(req.body?.body ?? '');
+    const title = (String(req.body?.title ?? '').trim() || req.file.originalname).slice(0, DOC_TITLE_MAX);
+    const filePath = `/uploads/spaces/${req.file.filename}`;
 
     const [result] = await pool.query(
-      'INSERT INTO space_docs (space_id, title, body, author_id, author_name) VALUES (?, ?, ?, ?, ?)',
-      [id, title, body, req.user.sub, req.user.name]
+      'INSERT INTO space_docs (space_id, title, file_path, file_name, mime, size, author_id, author_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, title, filePath, req.file.originalname, req.file.mimetype, req.file.size, req.user.sub, req.user.name]
     );
     const [[doc]] = await pool.query('SELECT * FROM space_docs WHERE id = ? LIMIT 1', [result.insertId]);
     res.status(201).json(shapeDoc(doc));
   } catch (err) {
+    cleanup();
     next(err);
   }
 });
@@ -979,12 +1221,17 @@ router.delete('/:id/docs/:docId', async (req, res, next) => {
     if (!id || !docId) return res.status(400).json({ error: 'invalid id' });
     const access = await loadAccess(id, req.user);
     if (!access) return res.status(404).json({ error: 'Space not found' });
-    const [[doc]] = await pool.query('SELECT author_id FROM space_docs WHERE id = ? AND space_id = ? LIMIT 1', [docId, id]);
+    const [[doc]] = await pool.query('SELECT author_id, file_path FROM space_docs WHERE id = ? AND space_id = ? LIMIT 1', [docId, id]);
     if (!doc) return res.status(404).json({ error: 'Document not found' });
     if (doc.author_id !== req.user.sub && !canAdminister(access, req.user)) {
       return res.status(403).json({ error: 'You can only delete your own documents' });
     }
     await pool.query('DELETE FROM space_docs WHERE id = ?', [docId]);
+    // Remove the backing file from disk (basename-guarded to the docs dir).
+    if (doc.file_path) {
+      const abs = path.join(DOC_UPLOAD_DIR, path.basename(doc.file_path));
+      fs.unlink(abs, () => {});
+    }
     res.json({ ok: true });
   } catch (err) {
     next(err);

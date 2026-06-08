@@ -51,7 +51,7 @@ function usersMenu(pendingResets = 0) {
     {
       heading: 'Manage',
       items: [
-        { to: '/users', label: 'Directory', desc: 'All Mainframe accounts and roles', icon: 'users' },
+        { to: '/users', label: 'Directory', desc: 'All Hubly accounts and roles', icon: 'users' },
         { to: '/users/reports', label: 'Reports', desc: 'Account monitoring & charts', icon: 'chart' },
         { to: '/users/surveys', label: 'Survey Reports', desc: 'Technician feedback & ratings', icon: 'star' },
         { to: '/users/departments', label: 'Departments', desc: 'Create and edit departments', icon: 'building' },
@@ -103,7 +103,7 @@ export default function DashboardHeader() {
         <Link to="/dashboard" className="flex items-center gap-2 sm:gap-3 min-w-0">
           <img src="/images/logo.png" alt="Eljin Corp" className="h-8 sm:h-9 w-auto" />
           <span className="hidden sm:inline-flex items-center gap-2 pl-3 border-l border-slate-200 dark:border-slate-700">
-            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Mainframe</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Hubly</span>
             <span className="rounded-full bg-accent-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent-700 ring-1 ring-inset ring-accent-200">
               Internal
             </span>
@@ -199,7 +199,7 @@ export default function DashboardHeader() {
       <p className="text-sm text-slate-700 dark:text-slate-300">
         Are you sure you want to sign out
         {user?.name ? <>, <span className="font-semibold text-brand-900 dark:text-white">{user.name}</span></> : ''}
-        ? You'll need to sign in again to access Mainframe.
+        ? You'll need to sign in again to access Hubly.
       </p>
       <div className="mt-5 flex justify-end gap-2">
         <button

@@ -248,6 +248,20 @@ export async function ensureSchema() {
     }
   }
 
+  // messages attachment columns — a Mailbox message can carry one uploaded file.
+  for (const stmt of [
+    `ALTER TABLE messages ADD COLUMN attachment_url      VARCHAR(255) NULL`,
+    `ALTER TABLE messages ADD COLUMN attachment_filename VARCHAR(255) NULL`,
+    `ALTER TABLE messages ADD COLUMN attachment_mime     VARCHAR(120) NULL`,
+    `ALTER TABLE messages ADD COLUMN attachment_size     INT UNSIGNED NULL`
+  ]) {
+    try {
+      await pool.query(stmt);
+    } catch (err) {
+      if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+    }
+  }
+
   // Post-resolution technician survey (one row per work order).
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ticket_surveys (
@@ -376,6 +390,7 @@ export async function ensureSchema() {
       space_key    VARCHAR(10) NOT NULL UNIQUE,
       name         VARCHAR(120) NOT NULL,
       description  TEXT,
+      icon_url     VARCHAR(255) NULL,
       owner_id     INT UNSIGNED NOT NULL,
       owner_name   VARCHAR(120) NOT NULL,
       item_seq     INT UNSIGNED NOT NULL DEFAULT 0,
@@ -385,6 +400,13 @@ export async function ensureSchema() {
       INDEX idx_spaces_owner (owner_id)
     )
   `);
+
+  // spaces.icon_url — optional per-space profile icon (square WebP under /uploads/avatars).
+  try {
+    await pool.query(`ALTER TABLE spaces ADD COLUMN icon_url VARCHAR(255) NULL AFTER description`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS space_members (
@@ -500,12 +522,66 @@ export async function ensureSchema() {
       space_id     INT UNSIGNED NOT NULL,
       title        VARCHAR(200) NOT NULL,
       body         MEDIUMTEXT,
+      file_path    VARCHAR(255) NULL,
+      file_name    VARCHAR(255) NULL,
+      mime         VARCHAR(120) NULL,
+      size         INT UNSIGNED NULL,
       author_id    INT UNSIGNED NOT NULL,
       author_name  VARCHAR(120) NOT NULL,
       created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_sd_space (space_id),
       FOREIGN KEY (space_id) REFERENCES spaces(id) ON DELETE CASCADE
+    )
+  `);
+
+  // space_docs file-upload columns — Documents now stores uploaded files
+  // (PDF/Office/images) instead of only Markdown notes.
+  for (const stmt of [
+    `ALTER TABLE space_docs ADD COLUMN file_path VARCHAR(255) NULL AFTER body`,
+    `ALTER TABLE space_docs ADD COLUMN file_name VARCHAR(255) NULL AFTER file_path`,
+    `ALTER TABLE space_docs ADD COLUMN mime      VARCHAR(120) NULL AFTER file_name`,
+    `ALTER TABLE space_docs ADD COLUMN size      INT UNSIGNED NULL AFTER mime`
+  ]) {
+    try {
+      await pool.query(stmt);
+    } catch (err) {
+      if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+    }
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS space_join_requests (
+      id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      space_id    INT UNSIGNED NOT NULL,
+      user_id     INT UNSIGNED NOT NULL,
+      user_name   VARCHAR(120) NOT NULL,
+      status      ENUM('pending','approved','denied') NOT NULL DEFAULT 'pending',
+      message     VARCHAR(500) NULL,
+      reviewed_by INT UNSIGNED NULL,
+      reviewed_at TIMESTAMP NULL,
+      created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_sjr_space_user (space_id, user_id),
+      INDEX idx_sjr_space_status (space_id, status),
+      FOREIGN KEY (space_id) REFERENCES spaces(id) ON DELETE CASCADE
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS announcements (
+      id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      title           VARCHAR(160) NOT NULL,
+      body            TEXT,
+      type            ENUM('info','maintenance','warning') NOT NULL DEFAULT 'info',
+      starts_at       DATETIME NULL,
+      ends_at         DATETIME NULL,
+      is_active       TINYINT(1) NOT NULL DEFAULT 1,
+      created_by      INT UNSIGNED NULL,
+      created_by_name VARCHAR(120) NULL,
+      created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_ann_active (is_active)
     )
   `);
 

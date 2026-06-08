@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import SignInButton from './SignInButton.jsx';
 
 export default function AccessCTA() {
   return (
@@ -14,7 +14,7 @@ export default function AccessCTA() {
             Get started
           </span>
           <h2 className="mt-3 text-3xl sm:text-4xl font-bold tracking-tight text-white">
-            Ready to access Mainframe?
+            Ready to access Hubly?
           </h2>
           <p className="mt-4 text-slate-300 leading-relaxed">
             Sign in with your Eljin Corp account to open the IT portal. If you do not yet have access,
@@ -22,12 +22,12 @@ export default function AccessCTA() {
           </p>
 
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Link to="/signin" className="btn-accent">
-              Sign in to Mainframe
+            <SignInButton className="btn-accent">
+              Sign in to Hubly
               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M5 12h14M13 5l7 7-7 7" />
               </svg>
-            </Link>
+            </SignInButton>
             <a
               href="mailto:it-helpdesk@eljin.corp"
               className="inline-flex items-center justify-center rounded-md border border-white/20 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white hover:bg-white/10 transition-colors"

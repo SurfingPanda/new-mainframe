@@ -60,7 +60,9 @@
       "Bash(ls -d dist)",
       "Bash(find dist *)",
       "Bash(JWT_SECRET=\"\" node src/index.js)",
-      "Bash(echo \"exit code: $?\")"
+      "Bash(echo \"exit code: $?\")",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -e \"SHOW COLUMNS FROM space_docs;\")",
+      "Bash(/c/xampp/mysql/bin/mysql.exe *)"
     ]
   }
 }

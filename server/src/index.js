@@ -22,6 +22,7 @@ import surveys from './routes/surveys.js';
 import network from './routes/network.js';
 import notifications from './routes/notifications.js';
 import spaces from './routes/spaces.js';
+import announcements from './routes/announcements.js';
 
 // Fail fast on a missing JWT secret — without it tokens can't be verified safely.
 if (!process.env.JWT_SECRET) {
@@ -99,6 +100,7 @@ app.use('/api/surveys', surveys);
 app.use('/api/network', network);
 app.use('/api/notifications', notifications);
 app.use('/api/spaces', spaces);
+app.use('/api/announcements', announcements);
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
@@ -112,5 +114,5 @@ ensureSchema()
   .catch((err) => console.error('schema bootstrap failed:', err));
 
 app.listen(PORT, () => {
-  console.log(`Mainframe API listening on http://localhost:${PORT}`);
+  console.log(`Hubly API listening on http://localhost:${PORT}`);
 });

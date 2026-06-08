@@ -42,7 +42,7 @@ export default function Profile() {
           <div>
             <span className="eyebrow">Account</span>
             <h1 className="mt-1 text-3xl font-bold tracking-tight text-brand-900">Profile</h1>
-            <p className="mt-1 text-slate-600">Your Mainframe profile information and access.</p>
+            <p className="mt-1 text-slate-600">Your Hubly profile information and access.</p>
           </div>
           <Link to="/settings" className="text-xs font-semibold text-accent-700 hover:text-accent-900">
             Account settings →
