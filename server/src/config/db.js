@@ -82,6 +82,14 @@ export async function ensureSchema() {
     if (err.code !== 'ER_DUP_FIELDNAME') throw err;
   }
 
+  // Date an SLA-breach Mailbox reminder was last sent for this work order —
+  // guards the daily reminder job so each breached ticket nudges at most once/day.
+  try {
+    await pool.query(`ALTER TABLE tickets ADD COLUMN sla_reminded_at DATE NULL`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ticket_activity (
       id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -408,6 +416,14 @@ export async function ensureSchema() {
     if (err.code !== 'ER_DUP_FIELDNAME') throw err;
   }
 
+  // spaces.group_seq — monotonic counter of top-level item "groups" (one per
+  // top-level task); drives the per-task letter in item keys (MA, MB, MC…).
+  try {
+    await pool.query(`ALTER TABLE spaces ADD COLUMN group_seq INT UNSIGNED NOT NULL DEFAULT 0 AFTER item_seq`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS space_members (
       space_id   INT UNSIGNED NOT NULL,
@@ -457,7 +473,15 @@ export async function ensureSchema() {
     `ALTER TABLE space_items ADD COLUMN due_at DATE NULL AFTER sla_days`,
     `ALTER TABLE space_items ADD COLUMN start_date DATE NULL AFTER due_at`,
     `ALTER TABLE space_items ADD COLUMN labels VARCHAR(255) NULL AFTER start_date`,
-    `ALTER TABLE space_items ADD COLUMN team VARCHAR(120) NULL AFTER labels`
+    `ALTER TABLE space_items ADD COLUMN team VARCHAR(120) NULL AFTER labels`,
+    // Date a "due/overdue" Mailbox reminder was last sent for this item — guards
+    // the daily reminder job so each item nudges at most once per day.
+    `ALTER TABLE space_items ADD COLUMN due_reminded_at DATE NULL AFTER due_at`,
+    // Per-task ID grouping: each top-level item starts a lettered group (A, B…);
+    // the item + its descendants share that letter and are numbered within it,
+    // so item_key = <space letter><group letter>-<item_no> (e.g. MA-1, MA-2).
+    `ALTER TABLE space_items ADD COLUMN group_letter VARCHAR(8) NULL AFTER position`,
+    `ALTER TABLE space_items ADD COLUMN item_no INT UNSIGNED NULL AFTER group_letter`
   ]) {
     try {
       await pool.query(stmt);

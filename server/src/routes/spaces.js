@@ -7,6 +7,12 @@ import { pool } from '../config/db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { hasPermission } from '../lib/permissions.js';
 import { saveAvatar, removeAvatarFile, InvalidImageError } from '../lib/avatar-upload.js';
+import {
+  notifyItemAssigned,
+  notifyItemComment,
+  notifyJoinRequested,
+  notifyJoinDecision
+} from '../lib/space-notify.js';
 
 const router = Router();
 
@@ -137,11 +143,16 @@ router.use(requireAuth, requirePermission('spaces', 'view'));
 
 const canManageAll = (user) => hasPermission(user, 'spaces', 'manage');
 
-// Derive a short uppercase key from the space name (e.g. "My Kanban Space" -> "MKS"),
-// then ensure it is unique by appending a numeric suffix within the 10-char column.
+// Derive a short uppercase key from the space name, then ensure it is unique by
+// appending a numeric suffix within the 10-char column. Multi-word names use the
+// initials ("My Kanban Space" -> "MKS", "Finance Dept" -> "FD"); single-word
+// names use the first few letters so the prefix isn't a lone letter
+// ("Meeting" -> "MEET", "IT" -> "IT").
 async function generateSpaceKey(conn, name) {
   const words = String(name).toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
-  let base = words.map((w) => w[0]).join('').slice(0, 4);
+  let base = words.length >= 2
+    ? words.map((w) => w[0]).join('').slice(0, 4)
+    : (words[0] || '').slice(0, 4);
   if (!base) base = 'SP';
   let key = base;
   let n = 1;
@@ -153,6 +164,18 @@ async function generateSpaceKey(conn, name) {
     const suffix = String(n);
     key = base.slice(0, Math.max(1, 10 - suffix.length)) + suffix;
   }
+}
+
+// Bijective base-26 letters for task groups: 1->A, 2->B, … 26->Z, 27->AA, 28->AB…
+function toGroupLetters(n) {
+  let x = Number(n);
+  let s = '';
+  while (x > 0) {
+    x -= 1;
+    s = String.fromCharCode(65 + (x % 26)) + s;
+    x = Math.floor(x / 26);
+  }
+  return s || 'A';
 }
 
 function shapeSpace(row) {
@@ -363,6 +386,36 @@ router.post('/', async (req, res, next) => {
   }
 });
 
+// GET /api/spaces/items/mine — work items assigned to the caller across every
+// space they belong to (or all spaces with spaces.manage), that aren't done and
+// carry a due date. Sorted soonest-due first so the Overview can surface
+// overdue/due-soon work. Defined before /:id so 'items' isn't read as a space id.
+router.get('/items/mine', async (req, res, next) => {
+  try {
+    const meId = req.user.sub;
+    const manage = canManageAll(req.user);
+    const memberClause = manage
+      ? ''
+      : 'AND EXISTS (SELECT 1 FROM space_members m WHERE m.space_id = i.space_id AND m.user_id = ?)';
+    const params = manage ? [meId] : [meId, meId];
+    const [rows] = await pool.query(
+      `SELECT i.*, s.space_key, s.name AS space_name
+         FROM space_items i
+         JOIN spaces s ON s.id = i.space_id
+        WHERE i.assignee_id = ?
+          AND i.status <> 'done'
+          AND i.due_at IS NOT NULL
+          ${memberClause}
+        ORDER BY i.due_at ASC, i.id ASC
+        LIMIT 100`,
+      params
+    );
+    res.json(rows.map((r) => ({ ...shapeItem(r), space_key: r.space_key, space_name: r.space_name })));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/spaces/:id — space detail + members.
 router.get('/:id', async (req, res, next) => {
   try {
@@ -568,7 +621,7 @@ router.post('/:id/join', async (req, res, next) => {
   try {
     const id = intId(req.params.id);
     if (!id) return res.status(400).json({ error: 'invalid space id' });
-    const [[space]] = await pool.query('SELECT id, is_archived FROM spaces WHERE id = ? LIMIT 1', [id]);
+    const [[space]] = await pool.query('SELECT id, name, is_archived FROM spaces WHERE id = ? LIMIT 1', [id]);
     if (!space || space.is_archived) return res.status(404).json({ error: 'Space not found' });
 
     const [[member]] = await pool.query(
@@ -585,6 +638,8 @@ router.post('/:id/join', async (req, res, next) => {
                                reviewed_by = NULL, reviewed_at = NULL, updated_at = CURRENT_TIMESTAMP`,
       [id, req.user.sub, req.user.name, message]
     );
+    // Let the space owner(s) know a request is waiting. Fire-and-forget.
+    notifyJoinRequested({ space, requester: { id: req.user.sub, name: req.user.name } });
     res.status(201).json({ ok: true, status: 'pending' });
   } catch (err) {
     next(err);
@@ -651,6 +706,8 @@ async function decideJoinRequest(req, res, next, decision) {
       `UPDATE space_join_requests SET status = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?`,
       [decision, req.user.sub, reqId]
     );
+    // Tell the requester the outcome. Fire-and-forget.
+    notifyJoinDecision({ space: access.space, userId: jr.user_id, decision, actor: req.user });
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -747,25 +804,44 @@ router.post('/:id/items', async (req, res, next) => {
 
     await conn.beginTransaction();
     started = true;
-    const [[space]] = await conn.query('SELECT space_key, item_seq FROM spaces WHERE id = ? FOR UPDATE', [id]);
-    const seq = Number(space.item_seq) + 1;
-    const itemKey = `${space.space_key}-${seq}`;
-    await conn.query('UPDATE spaces SET item_seq = ? WHERE id = ?', [seq, id]);
+    const [[space]] = await conn.query('SELECT space_key, item_seq, group_seq FROM spaces WHERE id = ? FOR UPDATE', [id]);
+    const position = Number(space.item_seq) + 1; // board order (monotonic per space)
+    const spaceLetter = String(space.space_key || 'S').charAt(0).toUpperCase();
+
+    // Per-task ID grouping: a top-level item opens a new lettered group (A, B…);
+    // a child inherits its parent's group letter and takes the next number in it.
+    // item_key = <space letter><group letter>-<item_no>  (e.g. MA-1, MA-2, MB-1).
+    let groupLetter, itemNo;
+    if (parentId == null) {
+      const groupSeq = Number(space.group_seq) + 1;
+      groupLetter = toGroupLetters(groupSeq);
+      itemNo = 1;
+      await conn.query('UPDATE spaces SET item_seq = ?, group_seq = ? WHERE id = ?', [position, groupSeq, id]);
+    } else {
+      const [[parent]] = await conn.query('SELECT group_letter FROM space_items WHERE id = ? AND space_id = ? LIMIT 1', [parentId, id]);
+      groupLetter = parent?.group_letter || toGroupLetters(1);
+      const [[mx]] = await conn.query('SELECT COALESCE(MAX(item_no), 0) AS m FROM space_items WHERE space_id = ? AND group_letter = ?', [id, groupLetter]);
+      itemNo = Number(mx.m) + 1;
+      await conn.query('UPDATE spaces SET item_seq = ? WHERE id = ?', [position, id]);
+    }
+    const itemKey = `${spaceLetter}${groupLetter}-${itemNo}`;
     const completedAt = status === 'done' ? new Date() : null;
     const [result] = await conn.query(
       `INSERT INTO space_items
          (space_id, item_key, title, description, type, status, priority,
           assignee_id, assignee_name, reporter_id, reporter_name, position,
-          sla_days, due_at, start_date, labels, team, parent_id, completed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          group_letter, item_no, sla_days, due_at, start_date, labels, team, parent_id, completed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, itemKey, title, description, type, status, priority,
-       assignee.id, assignee.name, req.user.sub, req.user.name, seq,
-       sla.value, dueAt, start.value, labels, team, parentId, completedAt]
+       assignee.id, assignee.name, req.user.sub, req.user.name, position,
+       groupLetter, itemNo, sla.value, dueAt, start.value, labels, team, parentId, completedAt]
     );
     await conn.commit();
 
     await recordHistory(result.insertId, id, req.user, [{ field: 'created', old: null, new: null }]);
     const [[item]] = await pool.query('SELECT * FROM space_items WHERE id = ? LIMIT 1', [result.insertId]);
+    // Tell the assignee (unless they assigned it to themselves). Fire-and-forget.
+    notifyItemAssigned({ space: access.space, item, assigneeId: assignee.id, actor: req.user });
     res.status(201).json(shapeItem(item));
   } catch (err) {
     if (started) await conn.rollback();
@@ -793,6 +869,7 @@ router.patch('/:id/items/:itemId', async (req, res, next) => {
     const sets = [];
     const params = [];
     const changes = []; // history entries
+    let notifyAssigneeId = null; // set when reassigned to a new (non-null) user
     const b = req.body || {};
     if (b.title !== undefined) {
       const title = String(b.title).trim();
@@ -850,7 +927,10 @@ router.patch('/:id/items/:itemId', async (req, res, next) => {
         const resolved = await resolveAssignee(id, intId(b.assignee_id));
         if (!resolved) return res.status(400).json({ error: 'Assignee must be a member of this space' });
         sets.push('assignee_id = ?', 'assignee_name = ?'); params.push(resolved.id, resolved.name);
-        if (resolved.id !== item.assignee_id) changes.push({ field: 'assignee', old: item.assignee_name || 'Unassigned', new: resolved.name });
+        if (resolved.id !== item.assignee_id) {
+          changes.push({ field: 'assignee', old: item.assignee_name || 'Unassigned', new: resolved.name });
+          notifyAssigneeId = resolved.id;
+        }
       }
     }
     if (b.start_date !== undefined) {
@@ -892,6 +972,8 @@ router.patch('/:id/items/:itemId', async (req, res, next) => {
     await pool.query(`UPDATE space_items SET ${sets.join(', ')} WHERE id = ?`, params);
     await recordHistory(itemId, id, req.user, changes);
     const [[updated]] = await pool.query('SELECT * FROM space_items WHERE id = ? LIMIT 1', [itemId]);
+    // Notify a newly-assigned member (unless they reassigned it to themselves).
+    if (notifyAssigneeId) notifyItemAssigned({ space: access.space, item: updated, assigneeId: notifyAssigneeId, actor: req.user });
     res.json(shapeItem(updated));
   } catch (err) {
     next(err);
@@ -994,7 +1076,8 @@ router.post('/:id/items/:itemId/comments', async (req, res, next) => {
     const access = await loadAccess(id, req.user);
     if (!access) return res.status(404).json({ error: 'Space not found' });
     if (!access.membership && !canManageAll(req.user)) return res.status(403).json({ error: 'Only members can comment' });
-    if (!(await itemInSpace(id, itemId))) return res.status(404).json({ error: 'Item not found' });
+    const item = await loadItem(id, itemId);
+    if (!item) return res.status(404).json({ error: 'Item not found' });
 
     const body = String(req.body?.body ?? '').trim().slice(0, DESC_MAX);
     if (!body) return res.status(400).json({ error: 'Comment cannot be empty' });
@@ -1009,6 +1092,8 @@ router.post('/:id/items/:itemId/comments', async (req, res, next) => {
          LEFT JOIN users u ON u.id = c.author_id WHERE c.id = ? LIMIT 1`,
       [result.insertId]
     );
+    // Notify the item's assignee (unless they wrote the comment). Fire-and-forget.
+    notifyItemComment({ space: access.space, item, commenterId: req.user.sub, commenterName: req.user.name });
     res.status(201).json(shapeComment(row));
   } catch (err) {
     next(err);

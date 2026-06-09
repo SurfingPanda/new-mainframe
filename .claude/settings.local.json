@@ -62,7 +62,10 @@
       "Bash(JWT_SECRET=\"\" node src/index.js)",
       "Bash(echo \"exit code: $?\")",
       "Bash(/c/xampp/mysql/bin/mysql.exe -u root mainframe_app -e \"SHOW COLUMNS FROM space_docs;\")",
-      "Bash(/c/xampp/mysql/bin/mysql.exe *)"
+      "Bash(/c/xampp/mysql/bin/mysql.exe *)",
+      "Bash(grep *)",
+      "Bash(awk NR>=2074 && NR<=2080 {printf \"%d: %s\\\\n\", NR, $0} *)",
+      "Bash(awk 'NR>=1852 && NR<=1858 {printf \"%d: %s\\\\n\", NR, $0}' ../client/src/pages/SpaceDetail.jsx)"
     ]
   }
 }

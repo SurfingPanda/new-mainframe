@@ -26,7 +26,7 @@ const PRIORITIES = [
   { key: 'high', label: 'High', color: '#f59e0b' },
   { key: 'urgent', label: 'Urgent', color: '#ef4444' }
 ];
-const TABS = ['summary', 'board', 'list', 'calendar', 'timeline', 'goals', 'documents', 'members'];
+const TABS = ['summary', 'board', 'list', 'calendar', 'documents', 'members'];
 
 const toYmd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -146,6 +146,20 @@ export default function SpaceDetail() {
   };
 
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [id]);
+
+  // Open a specific item when deep-linked via ?item=<id> (e.g. a Mailbox CTA),
+  // then strip the param so closing the modal doesn't reopen it.
+  useEffect(() => {
+    if (loading) return;
+    const itemParam = params.get('item');
+    if (!itemParam) return;
+    const target = items.find((i) => String(i.id) === itemParam);
+    if (target) setItemModal({ item: target });
+    const next = new URLSearchParams(params);
+    next.delete('item');
+    setParams(next, { replace: true });
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [loading, items, params]);
 
   const setTab = (next) => setParams(next === 'summary' ? {} : { view: next }, { replace: true });
 
@@ -267,9 +281,7 @@ export default function SpaceDetail() {
           <Board items={items} onMove={moveItem} onOpen={(item) => setItemModal({ item })} onCreate={(status) => setItemModal({ status })} />
         )}
         {tab === 'list' && <ListView items={items} onOpen={(item) => setItemModal({ item })} />}
-        {tab === 'calendar' && <CalendarView items={items} onOpen={(item) => setItemModal({ item })} />}
-        {tab === 'timeline' && <TimelineView items={items} onOpen={(item) => setItemModal({ item })} />}
-        {tab === 'goals' && <GoalsView spaceId={id} />}
+        {tab === 'calendar' && <CalendarView items={items} onOpen={(item) => setItemModal({ item })} onCreate={(ymd) => setItemModal({ status: 'todo', dueDate: ymd })} />}
         {tab === 'documents' && <DocumentsView spaceId={id} canManage={space.can_administer} />}
         {tab === 'members' && <Members space={space} onChanged={loadSpace} />}
       </main>
@@ -290,6 +302,7 @@ export default function SpaceDetail() {
           spaceId={id}
           members={space.members}
           defaultStatus={itemModal.status}
+          defaultDue={itemModal.dueDate}
           onClose={() => setItemModal(null)}
           onSaved={(saved) => { setItems((prev) => [...prev, saved]); setItemModal(null); }}
         />
@@ -627,23 +640,19 @@ function SlaBar({ item }) {
   const t = SLA_TONE[tone];
 
   return (
-    <div className={`rounded-xl border px-3.5 py-3 ${t.wrap}`}>
-      <div className="flex items-center gap-2.5">
-        <svg className={`h-5 w-5 shrink-0 ${t.text}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+    <div className={`rounded-lg border px-3 py-2 ${t.wrap}`}>
+      <div className="flex items-center gap-2">
+        <svg className={`h-4 w-4 shrink-0 ${t.text}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           {icon === 'check' && <><circle cx="12" cy="12" r="9" /><path d="m8.5 12 2.5 2.5 4.5-5" /></>}
           {icon === 'alert' && <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12" y2="17" /></>}
           {icon === 'clock' && <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>}
         </svg>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <span className={`text-sm font-semibold ${t.text}`}>{label}</span>
-            {item.sla_days != null && <span className={`shrink-0 text-[11px] font-medium ${t.sub}`}>{plural(item.sla_days)} SLA</span>}
-          </div>
-          <div className={`mt-2 h-1.5 overflow-hidden rounded-full ${t.track}`}>
-            <div className={`h-full rounded-full ${t.bar} transition-[width]`} style={{ width: `${fill}%` }} />
-          </div>
-          <div className={`mt-1 text-[11px] font-medium ${t.sub}`}>{detail}</div>
-        </div>
+        <span className={`text-xs font-semibold ${t.text}`}>{label}</span>
+        <span className={`min-w-0 truncate text-[11px] font-medium ${t.sub}`}>· {detail}</span>
+        {item.sla_days != null && <span className={`ml-auto shrink-0 text-[11px] font-medium ${t.sub}`}>{plural(item.sla_days)} SLA</span>}
+      </div>
+      <div className={`mt-1.5 h-1 overflow-hidden rounded-full ${t.track}`}>
+        <div className={`h-full rounded-full ${t.bar} transition-[width]`} style={{ width: `${fill}%` }} />
       </div>
     </div>
   );
@@ -838,7 +847,7 @@ function Members({ space, onChanged }) {
 
 /* ---------------- Item create/edit modal ---------------- */
 
-function ItemModal({ spaceId, members, item, defaultStatus, onClose, onSaved, onDeleted }) {
+function ItemModal({ spaceId, members, item, defaultStatus, defaultDue, onClose, onSaved, onDeleted }) {
   const editing = !!item;
   const [title, setTitle] = useState(item?.title || '');
   const [description, setDescription] = useState(item?.description || '');
@@ -846,7 +855,19 @@ function ItemModal({ spaceId, members, item, defaultStatus, onClose, onSaved, on
   const [status, setStatus] = useState(item?.status || defaultStatus || 'todo');
   const [priority, setPriority] = useState(item?.priority || 'normal');
   const [assigneeId, setAssigneeId] = useState(item?.assignee_id ? String(item.assignee_id) : '');
-  const [slaDays, setSlaDays] = useState(item?.sla_days != null ? String(item.sla_days) : '');
+  // When created from a calendar day, seed the SLA so the derived due date lands
+  // on that day (due_at = today + sla_days). Only works for future days — a clicked
+  // today/past day can't be expressed as a positive SLA, so it's left blank.
+  const [slaDays, setSlaDays] = useState(() => {
+    if (item?.sla_days != null) return String(item.sla_days);
+    if (!item && defaultDue) {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const target = new Date(`${defaultDue}T00:00:00`);
+      const days = Math.round((target.getTime() - today.getTime()) / 86400000);
+      if (days >= 1) return String(days);
+    }
+    return '';
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -1184,10 +1205,10 @@ function ItemDetailModal({ spaceId, members, allItems, itemId, onClose, onChange
           {/* Left column */}
           <div className="min-w-0 space-y-6">
             {detail.parent && (
-              <button type="button" onClick={() => setActiveId(detail.parent.id)} className="flex items-center gap-1.5 text-xs font-medium text-accent-700 hover:underline">
-                <span className="font-mono">{detail.parent.item_key}</span>
+              <button type="button" onClick={() => setActiveId(detail.parent.id)} className="group flex items-center gap-1.5 text-xs font-medium text-accent-700 dark:text-accent-300">
+                <span className="font-mono underline underline-offset-2 group-hover:text-accent-900 dark:group-hover:text-accent-200">{detail.parent.item_key}</span>
                 <span className="text-slate-400">/</span>
-                <span className="text-slate-500">{detail.parent.title}</span>
+                <span className="text-slate-500 group-hover:underline dark:text-slate-400">{detail.parent.title}</span>
               </button>
             )}
             <div>
@@ -1421,7 +1442,7 @@ function SubtasksSection({ subtasks, onOpen, onAdd, onToggle }) {
         )}
         {subtasks.map((s) => (
           <li key={s.id} className="flex items-center gap-2 px-3 py-2 text-sm">
-            <button type="button" onClick={() => onOpen(s.id)} className="font-mono text-xs text-accent-700 hover:underline">{s.item_key}</button>
+            <button type="button" onClick={() => onOpen(s.id)} className="font-mono text-xs text-accent-700 underline underline-offset-2 hover:text-accent-900 dark:text-accent-300 dark:hover:text-accent-200">{s.item_key}</button>
             <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200">{s.title}</span>
             <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${PRIORITY_BADGE[s.priority]}`}>{s.priority}</span>
             <select value={s.status} onChange={(e) => onToggle(s.id, e.target.value)} className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] text-slate-600 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
@@ -1470,7 +1491,7 @@ function LinksSection({ links, allItems, activeId, onOpen, onAdd, onRemove }) {
         {links.length === 0 && !adding && <li className="text-xs text-slate-400">No linked items.</li>}
         {links.map((l) => (
           <li key={l.link_id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
-            <button type="button" onClick={() => onOpen(l.item.id)} className="font-mono text-xs text-accent-700 hover:underline">{l.item.item_key}</button>
+            <button type="button" onClick={() => onOpen(l.item.id)} className="font-mono text-xs text-accent-700 underline underline-offset-2 hover:text-accent-900 dark:text-accent-300 dark:hover:text-accent-200">{l.item.item_key}</button>
             <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200">{l.item.title}</span>
             <span className="text-[10px] uppercase text-slate-400">{labelOf(STATUSES, l.item.status)}</span>
             <button type="button" onClick={() => onRemove(l.item.id)} className="text-slate-400 hover:text-rose-500" aria-label="Remove link">
@@ -1575,6 +1596,34 @@ function ActivitySection({ comments, history, me, onAdd, onDelete }) {
   );
 }
 
+// Colored value chips for the history feed — status/priority values get their
+// own tones (keyed by the stored display labels); everything else stays neutral.
+const HISTORY_NEUTRAL_CHIP = 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700';
+const HISTORY_STATUS_CHIP = {
+  'To Do': HISTORY_NEUTRAL_CHIP,
+  'In Progress': 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-500/15 dark:text-blue-300 dark:ring-blue-500/30',
+  'Done': 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30'
+};
+const HISTORY_PRIORITY_CHIP = {
+  'Low': HISTORY_NEUTRAL_CHIP,
+  'Normal': 'bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-500/15 dark:text-sky-300 dark:ring-sky-500/30',
+  'High': 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30',
+  'Urgent': 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30'
+};
+function historyChipClass(field, value) {
+  if (field === 'status') return HISTORY_STATUS_CHIP[value] || HISTORY_NEUTRAL_CHIP;
+  if (field === 'priority') return HISTORY_PRIORITY_CHIP[value] || HISTORY_NEUTRAL_CHIP;
+  return HISTORY_NEUTRAL_CHIP;
+}
+
+function HistoryChip({ field, value }) {
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset ${historyChipClass(field, value)}`}>
+      {value || '—'}
+    </span>
+  );
+}
+
 function HistoryText({ h }) {
   if (h.field === 'created') return <>created this item</>;
   if (h.field === 'description') return <>updated the description</>;
@@ -1583,8 +1632,8 @@ function HistoryText({ h }) {
   return (
     <>
       changed <span className="font-medium">{label}</span> from{' '}
-      <span className="rounded bg-slate-100 px-1 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">{h.old_value || '—'}</span> to{' '}
-      <span className="rounded bg-slate-100 px-1 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">{h.new_value || '—'}</span>
+      <HistoryChip field={h.field} value={h.old_value} /> to{' '}
+      <HistoryChip field={h.field} value={h.new_value} />
     </>
   );
 }
@@ -1594,42 +1643,106 @@ function HistoryText({ h }) {
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const STATUS_DOT = { todo: 'bg-slate-400', in_progress: 'bg-blue-500', done: 'bg-emerald-500' };
 
-const FILTER_SELECT =
-  'rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-medium text-slate-600 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200';
+// A compact multi-select dropdown with checkboxes. `selected` is an array of
+// values; an empty array means "all" (no filter). Closes on outside click.
+function MultiSelect({ label, options, selected, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
 
-// Filter items by assignee / type / status (shared by Calendar & Timeline).
-function applyItemFilters(items, { assignee, type, status }) {
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  const toggle = (value) =>
+    onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]);
+
+  const summary = selected.length === 0
+    ? label
+    : selected.length === 1
+      ? (options.find((o) => o.value === selected[0])?.label ?? '1 selected')
+      : `${selected.length} selected`;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-medium transition-colors dark:bg-slate-800 ${
+          selected.length
+            ? 'border-accent-400 text-accent-700 ring-1 ring-accent-500/30 dark:border-accent-500/50 dark:text-accent-200'
+            : 'border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700'
+        }`}
+      >
+        <span className="max-w-[150px] truncate">{summary}</span>
+        {selected.length > 1 && (
+          <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-accent-500 px-1 text-[10px] font-bold text-white">{selected.length}</span>
+        )}
+        <svg className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+      </button>
+      {open && (
+        <div className="absolute left-0 z-30 mt-1.5 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-800 dark:ring-white/10">
+          <div className="flex items-center justify-between px-2 py-1.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</span>
+            {selected.length > 0 && (
+              <button type="button" onClick={() => onChange([])} className="text-[11px] font-semibold text-accent-700 hover:text-accent-900 dark:text-accent-300">Clear</button>
+            )}
+          </div>
+          <ul className="scrollbar-pretty max-h-64 space-y-0.5 overflow-y-auto">
+            {options.map((o) => {
+              const checked = selected.includes(o.value);
+              return (
+                <li key={o.value}>
+                  <button type="button" onClick={() => toggle(o.value)} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700/60">
+                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${checked ? 'border-accent-500 bg-accent-500 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
+                      {checked && <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 7" /></svg>}
+                    </span>
+                    <span className="truncate">{o.label}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Filter items by assignee / type / status. Each filter is an array of selected
+// values; an empty array means "all". 'unassigned' is a special assignee value.
+function applyItemFilters(items, { assignees = [], types = [], statuses = [] }) {
   return items.filter((it) => {
-    if (type !== 'all' && it.type !== type) return false;
-    if (status !== 'all' && it.status !== status) return false;
-    if (assignee === 'unassigned') return !it.assignee_id;
-    if (assignee !== 'all' && String(it.assignee_id) !== String(assignee)) return false;
+    if (types.length && !types.includes(it.type)) return false;
+    if (statuses.length && !statuses.includes(it.status)) return false;
+    if (assignees.length) {
+      const match = assignees.some((a) =>
+        a === 'unassigned' ? !it.assignee_id : String(it.assignee_id) === String(a)
+      );
+      if (!match) return false;
+    }
     return true;
   });
 }
 
 function ItemFilters({ items, filters, onChange }) {
-  const assignees = useMemo(() => {
+  const assigneeOptions = useMemo(() => {
     const m = new Map();
     for (const it of items) if (it.assignee_id) m.set(it.assignee_id, it.assignee_name);
-    return [...m.entries()].map(([id, name]) => ({ id, name }));
+    return [
+      { value: 'unassigned', label: 'Unassigned' },
+      ...[...m.entries()].map(([id, name]) => ({ value: String(id), label: name }))
+    ];
   }, [items]);
-  const set = (k) => (e) => onChange({ ...filters, [k]: e.target.value });
+  const typeOptions = TYPES.map((t) => ({ value: t.key, label: t.label }));
+  const statusOptions = STATUSES.map((s) => ({ value: s.key, label: s.label }));
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <select className={FILTER_SELECT} value={filters.assignee} onChange={set('assignee')} aria-label="Filter by assignee">
-        <option value="all">All assignees</option>
-        <option value="unassigned">Unassigned</option>
-        {assignees.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-      </select>
-      <select className={FILTER_SELECT} value={filters.type} onChange={set('type')} aria-label="Filter by type">
-        <option value="all">All types</option>
-        {TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-      </select>
-      <select className={FILTER_SELECT} value={filters.status} onChange={set('status')} aria-label="Filter by status">
-        <option value="all">All statuses</option>
-        {STATUSES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-      </select>
+    <div className="flex flex-wrap items-center gap-2">
+      <MultiSelect label="All assignees" options={assigneeOptions} selected={filters.assignees} onChange={(v) => onChange({ ...filters, assignees: v })} />
+      <MultiSelect label="All types" options={typeOptions} selected={filters.types} onChange={(v) => onChange({ ...filters, types: v })} />
+      <MultiSelect label="All statuses" options={statusOptions} selected={filters.statuses} onChange={(v) => onChange({ ...filters, statuses: v })} />
     </div>
   );
 }
@@ -1652,9 +1765,9 @@ function relativeDue(ymd) {
   return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-function CalendarView({ items, onOpen }) {
+function CalendarView({ items, onOpen, onCreate }) {
   const [cursor, setCursor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; });
-  const [filters, setFilters] = useState({ assignee: 'all', type: 'all', status: 'all' });
+  const [filters, setFilters] = useState({ assignees: [], types: [], statuses: [] });
 
   const filtered = useMemo(() => applyItemFilters(items, filters), [items, filters]);
 
@@ -1698,7 +1811,7 @@ function CalendarView({ items, onOpen }) {
           </div>
         </div>
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50/70 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:border-slate-800 dark:bg-slate-800/40">
+          <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-100 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
             {WEEKDAYS.map((w) => <div key={w} className="py-2.5">{w}</div>)}
           </div>
           <div className="grid grid-cols-7">
@@ -1711,15 +1824,23 @@ function CalendarView({ items, onOpen }) {
               return (
                 <div
                   key={i}
-                  className={`min-h-[104px] border-b border-r border-slate-100 p-1.5 transition-colors last:border-r-0 dark:border-slate-800 ${
-                    !inMonth ? 'bg-slate-50/60 dark:bg-slate-950/40' : isWeekend ? 'bg-slate-50/30 dark:bg-slate-900/40' : ''
-                  } ${isToday ? 'ring-1 ring-inset ring-accent-400/60' : ''}`}
+                  onClick={() => onCreate(ymd)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onCreate(ymd); } }}
+                  title="Add a task on this day"
+                  className={`group relative min-h-[104px] cursor-pointer border-b border-r border-slate-200 p-1.5 transition-colors last:border-r-0 hover:bg-accent-50 dark:border-slate-800 dark:hover:bg-accent-500/5 ${
+                    !inMonth ? 'bg-slate-100/80 dark:bg-slate-950/40' : isWeekend ? 'bg-slate-50/80 dark:bg-slate-900/40' : ''
+                  } ${isToday ? 'ring-2 ring-inset ring-accent-500 dark:ring-accent-400' : ''}`}
                 >
-                  <div className="mb-1 flex justify-end">
+                  <div className="mb-1 flex items-center justify-between">
+                    <svg className="h-4 w-4 text-accent-500 opacity-0 transition-opacity group-hover:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 5v14M5 12h14" />
+                    </svg>
                     {isToday ? (
                       <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-accent-500 text-xs font-bold text-white shadow-sm">{d.getDate()}</span>
                     ) : (
-                      <span className={`inline-flex h-6 w-6 items-center justify-center text-xs ${inMonth ? 'text-slate-600 dark:text-slate-300' : 'text-slate-300 dark:text-slate-600'}`}>{d.getDate()}</span>
+                      <span className={`inline-flex h-6 w-6 items-center justify-center text-xs font-medium ${inMonth ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 dark:text-slate-600'}`}>{d.getDate()}</span>
                     )}
                   </div>
                   <div className="space-y-1">
@@ -1727,7 +1848,7 @@ function CalendarView({ items, onOpen }) {
                       <button
                         key={it.id}
                         type="button"
-                        onClick={() => onOpen(it)}
+                        onClick={(e) => { e.stopPropagation(); onOpen(it); }}
                         title={it.title}
                         className={`flex w-full items-center gap-1.5 truncate rounded-md border-l-2 px-1.5 py-1 text-left text-[11px] font-medium transition-colors ${CAL_EVENT[it.status]}`}
                       >
@@ -1741,7 +1862,7 @@ function CalendarView({ items, onOpen }) {
             })}
           </div>
         </div>
-        <p className="text-xs text-slate-400">Items are placed on their <span className="font-medium">due date</span>. Set an SLA on an item to give it one.</p>
+        <p className="text-xs text-slate-400">Items are placed on their <span className="font-medium">due date</span>. Click any day to add a task due then.</p>
       </div>
 
       {/* Upcoming Tasks */}
@@ -1793,229 +1914,6 @@ function CalendarView({ items, onOpen }) {
         </div>
       </aside>
     </div>
-  );
-}
-
-/* ---------------- Timeline ---------------- */
-
-const STATUS_BAR = { todo: 'bg-slate-400', in_progress: 'bg-blue-500', done: 'bg-emerald-500' };
-
-function TimelineView({ items, onOpen }) {
-  const [filters, setFilters] = useState({ assignee: 'all', type: 'all', status: 'all' });
-  const filtered = useMemo(() => applyItemFilters(items, filters), [items, filters]);
-
-  const rows = useMemo(() => filtered
-    .map((it) => {
-      const s = ymdToLocal(it.start_date) || ymdToLocal(it.due_at);
-      const e = ymdToLocal(it.due_at) || ymdToLocal(it.start_date);
-      if (!s || !e) return null;
-      return { it, start: s < e ? s : e, end: e > s ? e : s };
-    })
-    .filter(Boolean)
-    .sort((a, b) => a.start - b.start), [filtered]);
-
-  const range = useMemo(() => {
-    if (!rows.length) return null;
-    let min = rows[0].start, max = rows[0].end;
-    for (const r of rows) { if (r.start < min) min = r.start; if (r.end > max) max = r.end; }
-    // pad a few days each side
-    min = new Date(min); min.setDate(min.getDate() - 2);
-    max = new Date(max); max.setDate(max.getDate() + 2);
-    return { min, max, span: Math.max(1, (max - min) / 86400000) };
-  }, [rows]);
-
-  // Month gridlines across the range.
-  const months = useMemo(() => {
-    if (!range) return [];
-    const out = [];
-    const d = new Date(range.min.getFullYear(), range.min.getMonth(), 1);
-    while (d <= range.max) {
-      const left = Math.max(0, ((d - range.min) / 86400000 / range.span) * 100);
-      out.push({ left, label: d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }) });
-      d.setMonth(d.getMonth() + 1);
-    }
-    return out;
-  }, [range]);
-
-  const pct = (d) => range ? ((d - range.min) / 86400000 / range.span) * 100 : 0;
-
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-brand-900 dark:text-white">Timeline</h2>
-        <ItemFilters items={items} filters={filters} onChange={setFilters} />
-      </div>
-      {!rows.length ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-          No items match — or none have a start or due date yet. Add an SLA (due date) or a start date to see them on the timeline.
-        </div>
-      ) : (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-      <div className="min-w-[640px]">
-        {/* Month header */}
-        <div className="relative mb-2 ml-48 h-5 border-b border-slate-100 dark:border-slate-800">
-          {months.map((m, i) => (
-            <span key={i} className="absolute -top-0 text-[10px] font-medium text-slate-400" style={{ left: `${m.left}%` }}>{m.label}</span>
-          ))}
-        </div>
-        <div className="space-y-1.5">
-          {rows.map(({ it, start, end }) => {
-            const left = pct(start);
-            const width = Math.max(1.5, pct(end) - left);
-            return (
-              <div key={it.id} className="flex items-center gap-2">
-                <button type="button" onClick={() => onOpen(it)} className="w-44 shrink-0 truncate text-left text-xs text-slate-700 hover:text-accent-700 dark:text-slate-200">
-                  <span className="font-mono text-[10px] text-slate-400">{it.item_key}</span> {it.title}
-                </button>
-                <div className="relative h-6 flex-1">
-                  {months.map((m, i) => (
-                    <span key={i} className="absolute top-0 h-full w-px bg-slate-100 dark:bg-slate-800" style={{ left: `${m.left}%` }} />
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => onOpen(it)}
-                    title={`${toYmd(start)} → ${toYmd(end)}`}
-                    className={`absolute top-1 h-4 rounded ${STATUS_BAR[it.status]} opacity-90 hover:opacity-100`}
-                    style={{ left: `${left}%`, width: `${width}%` }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-      )}
-    </div>
-  );
-}
-
-/* ---------------- Goals ---------------- */
-
-const GOAL_STATUS = {
-  on_track: { label: 'On track', cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300', bar: 'bg-emerald-500' },
-  at_risk: { label: 'At risk', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300', bar: 'bg-amber-500' },
-  off_track: { label: 'Off track', cls: 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300', bar: 'bg-rose-500' },
-  done: { label: 'Done', cls: 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300', bar: 'bg-sky-500' }
-};
-const GOAL_STATUS_KEYS = Object.keys(GOAL_STATUS);
-
-function GoalsView({ spaceId }) {
-  const [goals, setGoals] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [modal, setModal] = useState(null); // { goal } | {} | null
-
-  const load = () => {
-    setLoading(true);
-    api(`/api/spaces/${spaceId}/goals`).then((d) => { setGoals(d); setError(''); }).catch((e) => setError(e.message)).finally(() => setLoading(false));
-  };
-  useEffect(load, [spaceId]);
-
-  const remove = async (goalId) => { await api(`/api/spaces/${spaceId}/goals/${goalId}`, { method: 'DELETE' }); load(); };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-brand-900 dark:text-white">Goals</h2>
-        <button type="button" className="btn-primary !py-2 text-xs" onClick={() => setModal({})}>
-          <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-          New goal
-        </button>
-      </div>
-      {loading ? (
-        <div className="h-24 animate-pulse rounded-xl bg-white dark:bg-slate-900" />
-      ) : error ? (
-        <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">{error}</div>
-      ) : goals.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="text-base font-semibold text-brand-900 dark:text-white">No goals yet</h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Track objectives for this space and their progress.</p>
-        </div>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          {goals.map((g) => {
-            const st = GOAL_STATUS[g.status] || GOAL_STATUS.on_track;
-            return (
-              <div key={g.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
-                <span className={`block h-1 w-full ${st.bar}`} />
-                <div className="p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-semibold text-brand-900 dark:text-white">{g.title}</h3>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${st.cls}`}>{st.label}</span>
-                </div>
-                {g.description && <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{g.description}</p>}
-                <div className="mt-3 flex items-center gap-2">
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-                    <div className={`h-full rounded-full ${st.bar}`} style={{ width: `${g.progress}%` }} />
-                  </div>
-                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{g.progress}%</span>
-                </div>
-                <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                  <span>{g.target_date ? `Target ${formatYmd(g.target_date)}` : 'No target date'}</span>
-                  <span className="flex gap-2">
-                    <button type="button" className="font-semibold text-slate-500 hover:text-accent-700 dark:text-slate-300" onClick={() => setModal({ goal: g })}>Edit</button>
-                    <button type="button" className="font-semibold text-rose-500 hover:underline" onClick={() => remove(g.id)}>Delete</button>
-                  </span>
-                </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {modal && <GoalModal spaceId={spaceId} goal={modal.goal} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
-    </div>
-  );
-}
-
-function GoalModal({ spaceId, goal, onClose, onSaved }) {
-  const editing = !!goal;
-  const [title, setTitle] = useState(goal?.title || '');
-  const [description, setDescription] = useState(goal?.description || '');
-  const [status, setStatus] = useState(goal?.status || 'on_track');
-  const [progress, setProgress] = useState(goal?.progress != null ? String(goal.progress) : '0');
-  const [targetDate, setTargetDate] = useState(goal?.target_date || '');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!title.trim()) { setError('Title is required'); return; }
-    setSaving(true);
-    setError('');
-    const body = { title: title.trim(), description: description.trim(), status, progress: Number(progress) || 0, target_date: targetDate || null };
-    try {
-      if (editing) await api(`/api/spaces/${spaceId}/goals/${goal.id}`, { method: 'PATCH', body: JSON.stringify(body) });
-      else await api(`/api/spaces/${spaceId}/goals`, { method: 'POST', body: JSON.stringify(body) });
-      onSaved();
-    } catch (err) {
-      setError(err.message || 'Failed to save goal');
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Modal open onClose={onClose} title={editing ? 'Edit goal' : 'New goal'} size="md">
-      <form onSubmit={submit} className="space-y-4">
-        {error && <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">{error}</div>}
-        <Field label="Title"><input className={INPUT} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} autoFocus /></Field>
-        <Field label="Description"><textarea className={`${INPUT} min-h-[80px]`} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Field label="Status">
-            <Select value={status} onChange={(e) => setStatus(e.target.value)}>
-              {GOAL_STATUS_KEYS.map((k) => <option key={k} value={k}>{GOAL_STATUS[k].label}</option>)}
-            </Select>
-          </Field>
-          <Field label="Progress %"><input className={INPUT} type="number" min="0" max="100" value={progress} onChange={(e) => setProgress(e.target.value)} /></Field>
-          <Field label="Target date"><input className={INPUT} type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} /></Field>
-        </div>
-        <div className="flex justify-end gap-2 pt-1">
-          <button type="button" className="btn-ghost !px-3.5 !py-2 text-xs" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn-primary !px-3.5 !py-2 text-xs" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save' : 'Create goal'}</button>
-        </div>
-      </form>
-    </Modal>
   );
 }
 

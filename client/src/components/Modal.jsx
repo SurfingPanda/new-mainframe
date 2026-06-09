@@ -24,10 +24,10 @@ export default function Modal({ open, onClose, title, size = 'md', children }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-brand-950/50 backdrop-blur-sm overflow-y-auto dark:bg-black/70"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-brand-950/50 backdrop-blur-sm dark:bg-black/70"
     >
-      <div className={`relative my-8 w-full ${SIZE[size] || SIZE.md} rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200/80 animate-[modalIn_0.16s_ease-out] dark:bg-slate-900 dark:ring-slate-700`}>
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sticky top-0 bg-white rounded-t-2xl z-10 dark:bg-slate-900 dark:border-slate-800">
+      <div className={`relative flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden ${SIZE[size] || SIZE.md} rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200/80 animate-[modalIn_0.16s_ease-out] dark:bg-slate-900 dark:ring-slate-700`}>
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4 bg-white rounded-t-2xl z-10 dark:bg-slate-900 dark:border-slate-800">
           <h2 className="text-base font-semibold text-brand-900 dark:text-slate-100">{title}</h2>
           <button
             onClick={onClose}
@@ -39,7 +39,7 @@ export default function Modal({ open, onClose, title, size = 'md', children }) {
             </svg>
           </button>
         </div>
-        <div className="px-5 py-5">{children}</div>
+        <div className="scrollbar-pretty flex-1 overflow-y-auto px-5 py-5">{children}</div>
       </div>
     </div>
   );

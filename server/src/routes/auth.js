@@ -226,7 +226,7 @@ router.get('/me/stats', requireAuth, async (req, res, next) => {
     if (tickets.length) {
       const ids = tickets.map((t) => t.id);
       const [changes] = await pool.query(
-        `SELECT ticket_id, old_value, new_value, created_at
+        `SELECT ticket_id, field, old_value, new_value, created_at
            FROM ticket_activity
           WHERE ticket_id IN (?) AND type = 'change' AND field = 'status'
           ORDER BY created_at ASC`,

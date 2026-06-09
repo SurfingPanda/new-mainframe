@@ -195,21 +195,21 @@ export default function Users() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <DashboardHeader />
 
-      <main className="container-app py-10 space-y-6">
-        <nav className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
-          <Link to="/dashboard" className="hover:text-slate-800">Dashboard</Link>
-          <span className="text-slate-300">/</span>
+      <main className="container-app py-10 space-y-8">
+        <nav className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <Link to="/dashboard" className="hover:text-slate-800 dark:hover:text-slate-200">Dashboard</Link>
+          <span className="text-slate-300 dark:text-slate-600">/</span>
           <span className="text-accent-700">Users</span>
         </nav>
 
         <section className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <span className="eyebrow">Administration</span>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900">Users</h1>
-            <p className="mt-1 text-slate-600">
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900 dark:text-white">Users</h1>
+            <p className="mt-1 text-slate-600 dark:text-slate-300">
               Manage Hubly accounts, roles, and access for the Eljin Corp directory.
             </p>
           </div>
@@ -230,29 +230,29 @@ export default function Users() {
         </section>
 
         {banner && (
-          <div className="flex items-start gap-2 rounded-md bg-accent-50 ring-1 ring-accent-200 px-3 py-2 text-sm text-accent-800">
+          <div className="flex items-start gap-2 rounded-md bg-accent-50 ring-1 ring-accent-200 px-3 py-2 text-sm text-accent-800 dark:bg-accent-500/10 dark:ring-accent-500/30 dark:text-accent-200">
             <svg className="h-4 w-4 mt-0.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="9" />
               <path d="M8 12l3 3 5-6" />
             </svg>
             <span className="flex-1">{banner.text}</span>
-            <button onClick={() => setBanner(null)} className="text-accent-700 hover:text-accent-900 font-semibold text-xs">Dismiss</button>
+            <button onClick={() => setBanner(null)} className="text-accent-700 hover:text-accent-900 font-semibold text-xs dark:text-accent-300 dark:hover:text-accent-100">Dismiss</button>
           </div>
         )}
 
         {error && (
-          <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>
+          <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:ring-rose-500/30 dark:text-rose-300 dark:bg-rose-500/10 dark:ring-rose-500/30 dark:text-rose-300">{error}</div>
         )}
 
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Total users" value={counts.total} tone="brand" />
-          <Stat label="Active" value={counts.active} tone="accent" />
-          <Stat label="Admins" value={counts.admins} tone="amber" />
-          <Stat label="Agents" value={counts.agents} tone="slate" />
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Stat label="Total users" value={counts.total} tone="brand" icon="users" />
+          <Stat label="Active" value={counts.active} tone="accent" icon="active" />
+          <Stat label="Admins" value={counts.admins} tone="amber" icon="admins" />
+          <Stat label="Agents" value={counts.agents} tone="sky" icon="agents" />
         </section>
 
-        <section className="rounded-lg border border-slate-200 bg-white shadow-card overflow-hidden">
-          <div className="flex flex-col gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex flex-col gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center dark:border-slate-800">
             <div className="relative flex-1">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="11" cy="11" r="7" />
@@ -263,15 +263,15 @@ export default function Users() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search by name, email, or department…"
-                className="block w-full rounded-md border border-slate-300 pl-9 pr-3 py-2 text-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
+                className="block w-full rounded-md border border-slate-300 pl-9 pr-3 py-2 text-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
               />
             </div>
             <div className="flex flex-wrap gap-2">
-              <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500">
+              <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
                 <option value="all">All roles</option>
                 {ROLES.map((r) => <option key={r} value={r} className="capitalize">{r[0].toUpperCase() + r.slice(1)}</option>)}
               </select>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500">
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
                 <option value="all">Active &amp; inactive</option>
                 <option value="active">Active only</option>
                 <option value="inactive">Inactive only</option>
@@ -281,8 +281,8 @@ export default function Users() {
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50/80">
-                <tr className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              <thead className="bg-slate-50/80 dark:bg-slate-800/60">
+                <tr className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   <Th>User</Th>
                   <Th className="w-28">Role</Th>
                   <Th className="w-40">Department</Th>
@@ -291,32 +291,32 @@ export default function Users() {
                   <Th className="w-44 text-right pr-5">Actions</Th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {loading ? (
-                  <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500">Loading users…</td></tr>
+                  <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500 dark:text-slate-400">Loading users…</td></tr>
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500">No users match your filters.</td></tr>
+                  <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500 dark:text-slate-400">No users match your filters.</td></tr>
                 ) : (
                   filtered.map((u) => (
-                    <tr key={u.id} className="hover:bg-slate-50/60">
+                    <tr key={u.id} className="transition-colors hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-3">
                           <Avatar name={u.name} src={u.avatar_url} size="h-9 w-9" textClass="text-xs" />
                           <div className="min-w-0">
-                            <div className="font-medium text-slate-900 truncate">
+                            <div className="font-medium text-slate-900 truncate dark:text-white">
                               {u.name}
-                              {u.id === me?.id && <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-accent-700">You</span>}
+                              {u.id === me?.id && <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-accent-700 dark:text-accent-300">You</span>}
                             </div>
-                            <div className="text-xs text-slate-500 truncate">
+                            <div className="text-xs text-slate-500 truncate dark:text-slate-400">
                               {u.job_title ? <>{u.job_title} · {u.email}</> : u.email}
                             </div>
                           </div>
                         </div>
                       </td>
                       <td className="px-5 py-3"><RolePill role={u.role} /></td>
-                      <td className="px-5 py-3 text-slate-700">{u.department || <span className="italic text-slate-400">—</span>}</td>
+                      <td className="px-5 py-3 text-slate-700 dark:text-slate-300">{u.department || <span className="italic text-slate-400 dark:text-slate-500">—</span>}</td>
                       <td className="px-5 py-3"><StatusPill active={!!u.is_active} /></td>
-                      <td className="px-5 py-3 text-xs text-slate-500">{u.last_login_at ? relativeTime(u.last_login_at) : 'never'}</td>
+                      <td className="px-5 py-3 text-xs text-slate-500 dark:text-slate-400">{u.last_login_at ? relativeTime(u.last_login_at) : 'never'}</td>
                       <td className="px-5 py-3">
                         <div className="flex justify-end gap-1">
                           <IconBtn label="Edit" onClick={() => setEditTarget(u)}>
@@ -497,7 +497,7 @@ function UserFormModal({ target, onClose, onSave, onUserUpdate, isSelf }) {
     <Modal open onClose={onClose} title={isNew ? 'Add user' : `Edit ${target.name}`}>
       <form onSubmit={submit} className="space-y-4">
         {!isNew && (
-          <div className="flex items-center gap-4 rounded-md border border-slate-200 bg-slate-50/50 px-3 py-3">
+          <div className="flex items-center gap-4 rounded-md border border-slate-200 bg-slate-50/50 px-3 py-3 dark:border-slate-700 dark:bg-slate-800/40">
             <Avatar name={name} src={avatarUrl} size="h-14 w-14" textClass="text-base" />
             <div className="space-y-1.5">
               <div className="flex flex-wrap gap-2">
@@ -517,7 +517,7 @@ function UserFormModal({ target, onClose, onSave, onUserUpdate, isSelf }) {
                   </button>
                 )}
               </div>
-              <p className="text-[11px] text-slate-500">PNG, JPEG, GIF, WebP, or HEIC · up to 5 MB.</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">PNG, JPEG, GIF, WebP, or HEIC · up to 5 MB.</p>
             </div>
           </div>
         )}
@@ -539,7 +539,7 @@ function UserFormModal({ target, onClose, onSave, onUserUpdate, isSelf }) {
             readOnly={!isNew}
             className={inputCls()}
           />
-          {!isNew && <p className="text-[11px] text-slate-500 mt-1">Email cannot be changed after the account is created.</p>}
+          {!isNew && <p className="text-[11px] text-slate-500 mt-1 dark:text-slate-400">Email cannot be changed after the account is created.</p>}
         </FormField>
 
         {isNew && (
@@ -559,7 +559,7 @@ function UserFormModal({ target, onClose, onSave, onUserUpdate, isSelf }) {
             <select value={role} onChange={(e) => setRole(e.target.value)} className={inputCls()} disabled={isSelf}>
               {ROLES.map((r) => <option key={r} value={r}>{r[0].toUpperCase() + r.slice(1)}</option>)}
             </select>
-            {isSelf && <p className="text-[11px] text-slate-500 mt-1">You cannot change your own role.</p>}
+            {isSelf && <p className="text-[11px] text-slate-500 mt-1 dark:text-slate-400">You cannot change your own role.</p>}
           </FormField>
           <FormField label="Department">
             <select value={department} onChange={(e) => setDepartment(e.target.value)} className={inputCls()}>
@@ -574,16 +574,16 @@ function UserFormModal({ target, onClose, onSave, onUserUpdate, isSelf }) {
           </FormField>
         </div>
 
-        <label className="flex items-center gap-2 text-sm text-slate-700 select-none cursor-pointer">
+        <label className="flex items-center gap-2 text-sm text-slate-700 select-none cursor-pointer dark:text-slate-300">
           <input
             type="checkbox"
             checked={isActive}
             onChange={(e) => setIsActive(e.target.checked)}
             disabled={isSelf}
-            className="h-4 w-4 rounded border-slate-300 text-accent-600 focus:ring-accent-500"
+            className="h-4 w-4 rounded border-slate-300 text-accent-600 focus:ring-accent-500 dark:border-slate-600 dark:bg-slate-800"
           />
           Account active
-          {isSelf && <span className="text-[11px] text-slate-500">(you cannot deactivate yourself)</span>}
+          {isSelf && <span className="text-[11px] text-slate-500 dark:text-slate-400">(you cannot deactivate yourself)</span>}
         </label>
 
         <PermissionsPanel
@@ -594,7 +594,7 @@ function UserFormModal({ target, onClose, onSave, onUserUpdate, isSelf }) {
           disabled={isSelf}
         />
 
-        {error && <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>}
+        {error && <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:ring-rose-500/30 dark:text-rose-300">{error}</div>}
 
         <footer className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="btn-ghost !px-3.5 !py-2 text-xs">Cancel</button>
@@ -613,11 +613,11 @@ function PermissionsPanel({ role, permissions, onChange, onReset, disabled }) {
   const hasOverrides = Object.keys(overrides).length > 0;
 
   return (
-    <div className="rounded-md border border-slate-200 bg-slate-50/50">
-      <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-2">
+    <div className="rounded-md border border-slate-200 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-800/40">
+      <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-2 dark:border-slate-700">
         <div>
-          <div className="text-xs font-semibold text-slate-700">Module access</div>
-          <p className="mt-0.5 text-[11px] text-slate-500">
+          <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">Module access</div>
+          <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
             Defaults follow the user's role. Override individual modules below — leave a row on
             <span className="font-semibold"> Inherit</span> to keep the role default.
           </p>
@@ -626,19 +626,19 @@ function PermissionsPanel({ role, permissions, onChange, onReset, disabled }) {
           <button
             type="button"
             onClick={onReset}
-            className="text-[11px] font-semibold text-accent-700 hover:text-accent-900"
+            className="text-[11px] font-semibold text-accent-700 hover:text-accent-900 dark:text-accent-300 dark:hover:text-accent-100"
           >
             Reset to role defaults
           </button>
         )}
       </header>
       {disabled ? (
-        <p className="px-3 py-2 text-[11px] text-slate-500">You cannot change your own permissions.</p>
+        <p className="px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400">You cannot change your own permissions.</p>
       ) : (
-        <div className="divide-y divide-slate-200">
+        <div className="divide-y divide-slate-200 dark:divide-slate-700">
           {PERMISSION_MODULES.map((mod) => (
             <div key={mod.key} className="px-3 py-2.5">
-              <div className="text-xs font-semibold text-slate-800 mb-1.5">{mod.label}</div>
+              <div className="text-xs font-semibold text-slate-800 mb-1.5 dark:text-slate-200">{mod.label}</div>
               <div className="space-y-1.5">
                 {mod.actions.map((action) => {
                   const override = overrides[mod.key]?.[action.key];
@@ -647,9 +647,9 @@ function PermissionsPanel({ role, permissions, onChange, onReset, disabled }) {
                   const inherited = !!defaults[mod.key]?.[action.key];
                   return (
                     <div key={action.key} className="flex items-center justify-between gap-3">
-                      <div className="text-sm text-slate-700">
+                      <div className="text-sm text-slate-700 dark:text-slate-300">
                         {action.label}
-                        <span className="ml-2 text-[10px] uppercase tracking-wide text-slate-400">
+                        <span className="ml-2 text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
                           role default: {inherited ? 'allow' : 'deny'}
                         </span>
                       </div>
@@ -660,7 +660,7 @@ function PermissionsPanel({ role, permissions, onChange, onReset, disabled }) {
                           if (v === 'inherit') onChange(mod.key, action.key, 'inherit');
                           else onChange(mod.key, action.key, v === 'allow');
                         }}
-                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
+                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                       >
                         <option value="inherit">Inherit ({inherited ? 'allow' : 'deny'})</option>
                         <option value="allow">Allow</option>
@@ -790,12 +790,12 @@ function ImportUsersModal({ onClose, onImported }) {
     <Modal open onClose={onClose} title="Import users" size="lg">
       {!results ? (
         <div className="space-y-4">
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
             Upload a <strong>.csv</strong> or <strong>.xlsx</strong> file with a header row. Columns:
-            {' '}<code className="text-xs bg-slate-100 rounded px-1">name</code>,
-            {' '}<code className="text-xs bg-slate-100 rounded px-1">email</code> (required),
-            {' '}<code className="text-xs bg-slate-100 rounded px-1">department</code>,
-            {' '}<code className="text-xs bg-slate-100 rounded px-1">role</code> (optional, defaults to user).
+            {' '}<code className="text-xs bg-slate-100 rounded px-1 dark:bg-slate-800 dark:text-slate-200">name</code>,
+            {' '}<code className="text-xs bg-slate-100 rounded px-1 dark:bg-slate-800 dark:text-slate-200">email</code> (required),
+            {' '}<code className="text-xs bg-slate-100 rounded px-1 dark:bg-slate-800 dark:text-slate-200">department</code>,
+            {' '}<code className="text-xs bg-slate-100 rounded px-1 dark:bg-slate-800 dark:text-slate-200">role</code> (optional, defaults to user).
             A random password is generated for each user.
           </p>
 
@@ -809,28 +809,28 @@ function ImportUsersModal({ onClose, onImported }) {
                 onChange={(e) => handleFile(e.target.files?.[0])}
               />
             </label>
-            <button onClick={downloadTemplate} type="button" className="text-xs font-semibold text-accent-700 hover:text-accent-800">
+            <button onClick={downloadTemplate} type="button" className="text-xs font-semibold text-accent-700 hover:text-accent-800 dark:text-accent-300 dark:hover:text-accent-200">
               Download template
             </button>
-            {fileName && <span className="text-xs text-slate-500 truncate">{fileName}</span>}
+            {fileName && <span className="text-xs text-slate-500 truncate dark:text-slate-400">{fileName}</span>}
           </div>
 
           {parseError && (
-            <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">{parseError}</div>
+            <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:ring-rose-500/30 dark:text-rose-300">{parseError}</div>
           )}
           {error && (
-            <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>
+            <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:ring-rose-500/30 dark:text-rose-300">{error}</div>
           )}
 
           {rows.length > 0 && (
             <>
-              <div className="text-xs text-slate-600">
-                {rows.length} row{rows.length === 1 ? '' : 's'} found · <span className="text-accent-700 font-semibold">{validRows.length} ready</span>
-                {rows.length - validRows.length > 0 && <span className="text-rose-600 font-semibold"> · {rows.length - validRows.length} with problems</span>}
+              <div className="text-xs text-slate-600 dark:text-slate-300">
+                {rows.length} row{rows.length === 1 ? '' : 's'} found · <span className="text-accent-700 font-semibold dark:text-accent-300">{validRows.length} ready</span>
+                {rows.length - validRows.length > 0 && <span className="text-rose-600 font-semibold dark:text-rose-400"> · {rows.length - validRows.length} with problems</span>}
               </div>
-              <div className="max-h-64 overflow-auto rounded-lg border border-slate-200">
+              <div className="max-h-64 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
                 <table className="min-w-full text-xs">
-                  <thead className="bg-slate-50 text-left font-semibold text-slate-500 sticky top-0">
+                  <thead className="bg-slate-50 text-left font-semibold text-slate-500 sticky top-0 dark:bg-slate-800 dark:text-slate-400">
                     <tr>
                       <th className="px-3 py-2">Name</th>
                       <th className="px-3 py-2">Email</th>
@@ -839,19 +839,19 @@ function ImportUsersModal({ onClose, onImported }) {
                       <th className="px-3 py-2">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {rows.map((r, i) => {
                       const problem = rowProblem(r);
                       return (
-                        <tr key={i} className={problem ? 'bg-rose-50/40' : ''}>
-                          <td className="px-3 py-1.5 text-slate-700">{r.name || <span className="text-slate-400">—</span>}</td>
-                          <td className="px-3 py-1.5 text-slate-700">{r.email || <span className="text-slate-400">—</span>}</td>
-                          <td className="px-3 py-1.5 text-slate-600">{r.department || <span className="text-slate-400">—</span>}</td>
-                          <td className="px-3 py-1.5 text-slate-600">{(r.role || 'user').toLowerCase()}</td>
+                        <tr key={i} className={problem ? 'bg-rose-50/40 dark:bg-rose-500/10' : ''}>
+                          <td className="px-3 py-1.5 text-slate-700 dark:text-slate-300">{r.name || <span className="text-slate-400 dark:text-slate-500">—</span>}</td>
+                          <td className="px-3 py-1.5 text-slate-700 dark:text-slate-300">{r.email || <span className="text-slate-400 dark:text-slate-500">—</span>}</td>
+                          <td className="px-3 py-1.5 text-slate-600 dark:text-slate-400">{r.department || <span className="text-slate-400 dark:text-slate-500">—</span>}</td>
+                          <td className="px-3 py-1.5 text-slate-600 dark:text-slate-400">{(r.role || 'user').toLowerCase()}</td>
                           <td className="px-3 py-1.5">
                             {problem
-                              ? <span className="text-rose-600">{problem}</span>
-                              : <span className="text-accent-700">Ready</span>}
+                              ? <span className="text-rose-600 dark:text-rose-400">{problem}</span>
+                              : <span className="text-accent-700 dark:text-accent-300">Ready</span>}
                           </td>
                         </tr>
                       );
@@ -876,37 +876,37 @@ function ImportUsersModal({ onClose, onImported }) {
       ) : (
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2 text-sm">
-            <span className="rounded-full bg-accent-50 text-accent-800 ring-1 ring-accent-200 px-3 py-1 font-medium">{results.created} created</span>
-            <span className="rounded-full bg-slate-100 text-slate-600 ring-1 ring-slate-200 px-3 py-1 font-medium">{results.skipped} skipped</span>
-            <span className="rounded-full bg-rose-50 text-rose-700 ring-1 ring-rose-200 px-3 py-1 font-medium">{results.failed} failed</span>
+            <span className="rounded-full bg-accent-50 text-accent-800 ring-1 ring-accent-200 px-3 py-1 font-medium dark:bg-accent-500/15 dark:text-accent-200 dark:ring-accent-500/30">{results.created} created</span>
+            <span className="rounded-full bg-slate-100 text-slate-600 ring-1 ring-slate-200 px-3 py-1 font-medium dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700">{results.skipped} skipped</span>
+            <span className="rounded-full bg-rose-50 text-rose-700 ring-1 ring-rose-200 px-3 py-1 font-medium dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/30">{results.failed} failed</span>
           </div>
 
           {results.created > 0 && (
-            <div className="rounded-md bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-xs text-amber-800">
+            <div className="rounded-md bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:ring-amber-500/30 dark:text-amber-200">
               Generated passwords are shown only now. Download them and share securely — they can't be retrieved later.
               <button onClick={downloadCredentials} className="ml-2 font-semibold underline">Download credentials CSV</button>
             </div>
           )}
 
-          <div className="max-h-72 overflow-auto rounded-lg border border-slate-200">
+          <div className="max-h-72 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
             <table className="min-w-full text-xs">
-              <thead className="bg-slate-50 text-left font-semibold text-slate-500 sticky top-0">
+              <thead className="bg-slate-50 text-left font-semibold text-slate-500 sticky top-0 dark:bg-slate-800 dark:text-slate-400">
                 <tr>
                   <th className="px-3 py-2">Email</th>
                   <th className="px-3 py-2">Status</th>
                   <th className="px-3 py-2">Password / note</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {results.results.map((r, i) => (
                   <tr key={i}>
-                    <td className="px-3 py-1.5 text-slate-700">{r.email || `Row ${r.row}`}</td>
+                    <td className="px-3 py-1.5 text-slate-700 dark:text-slate-300">{r.email || `Row ${r.row}`}</td>
                     <td className="px-3 py-1.5">
-                      {r.status === 'created' && <span className="text-accent-700 font-medium">Created</span>}
-                      {r.status === 'skipped' && <span className="text-slate-500 font-medium">Skipped</span>}
-                      {r.status === 'error' && <span className="text-rose-600 font-medium">Error</span>}
+                      {r.status === 'created' && <span className="text-accent-700 font-medium dark:text-accent-300">Created</span>}
+                      {r.status === 'skipped' && <span className="text-slate-500 font-medium dark:text-slate-400">Skipped</span>}
+                      {r.status === 'error' && <span className="text-rose-600 font-medium dark:text-rose-400">Error</span>}
                     </td>
-                    <td className="px-3 py-1.5 font-mono text-slate-600">{r.status === 'created' ? r.password : <span className="font-sans text-slate-400">{r.error}</span>}</td>
+                    <td className="px-3 py-1.5 font-mono text-slate-600 dark:text-slate-300">{r.status === 'created' ? r.password : <span className="font-sans text-slate-400 dark:text-slate-500">{r.error}</span>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -947,8 +947,8 @@ function ResetPasswordModal({ user, onClose, onSubmit }) {
   return (
     <Modal open onClose={onClose} title={`Reset password — ${user.name}`} size="sm">
       <form onSubmit={submit} className="space-y-4">
-        <p className="text-sm text-slate-600">
-          Set a new password for <span className="font-mono text-slate-800">{user.email}</span>. Share it
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Set a new password for <span className="font-mono text-slate-800 dark:text-slate-100">{user.email}</span>. Share it
           with the user through a secure channel.
         </p>
         <FormField label="New password" required hint="Minimum 8 characters.">
@@ -961,7 +961,7 @@ function ResetPasswordModal({ user, onClose, onSubmit }) {
             placeholder="Welcome2026!"
           />
         </FormField>
-        {error && <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>}
+        {error && <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:ring-rose-500/30 dark:text-rose-300">{error}</div>}
         <footer className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="btn-ghost !px-3.5 !py-2 text-xs">Cancel</button>
           <button type="submit" disabled={submitting} className="btn-primary !px-3.5 !py-2 text-xs disabled:opacity-60">
@@ -982,8 +982,8 @@ function ConfirmModal({ message, label, tone = 'rose', action, onCancel }) {
   };
   return (
     <Modal open onClose={onCancel} title="Confirm" size="sm">
-      <p className="text-sm text-slate-700">{message}</p>
-      {error && <div className="mt-3 rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>}
+      <p className="text-sm text-slate-700 dark:text-slate-300">{message}</p>
+      {error && <div className="mt-3 rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:ring-rose-500/30 dark:text-rose-300">{error}</div>}
       <footer className="flex justify-end gap-2 pt-4">
         <button type="button" onClick={onCancel} className="btn-ghost !px-3.5 !py-2 text-xs">Cancel</button>
         <button
@@ -1006,48 +1006,60 @@ function ConfirmModal({ message, label, tone = 'rose', action, onCancel }) {
 function FormField({ label, hint, required, children }) {
   return (
     <div>
-      <label className="block text-xs font-semibold text-slate-700 mb-1">
+      <label className="block text-xs font-semibold text-slate-700 mb-1 dark:text-slate-300">
         {label}{required && <span className="text-rose-500 ml-0.5">*</span>}
       </label>
       {children}
-      {hint && <p className="mt-1 text-[11px] text-slate-500">{hint}</p>}
+      {hint && <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{hint}</p>}
     </div>
   );
 }
 
 function inputCls() {
-  return 'block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:bg-slate-50 disabled:text-slate-400 read-only:bg-slate-50';
+  return 'block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:bg-slate-50 disabled:text-slate-400 read-only:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500 dark:disabled:bg-slate-900 dark:disabled:text-slate-500 dark:read-only:bg-slate-900/60';
 }
 
 function Th({ children, className = '' }) {
   return <th className={`px-5 py-3 text-left ${className}`}>{children}</th>;
 }
 
-function Stat({ label, value, tone }) {
-  const tones = {
-    brand: 'text-brand-800 ring-brand-200 bg-brand-50',
-    accent: 'text-accent-700 ring-accent-200 bg-accent-50',
-    amber: 'text-amber-700 ring-amber-200 bg-amber-50',
-    slate: 'text-slate-700 ring-slate-200 bg-slate-100'
-  };
+// Tinted icon chip + subtle card gradient, matching the Spaces / KB stat cards.
+const STAT_TONES = {
+  brand:  { chip: 'bg-brand-50 text-brand-700 ring-brand-200 dark:bg-brand-500/15 dark:text-brand-200 dark:ring-brand-500/30',    glow: 'from-brand-50/70' },
+  accent: { chip: 'bg-accent-50 text-accent-700 ring-accent-200 dark:bg-accent-500/15 dark:text-accent-200 dark:ring-accent-500/30', glow: 'from-accent-50/70' },
+  amber:  { chip: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:ring-amber-500/30',    glow: 'from-amber-50/70' },
+  sky:    { chip: 'bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:ring-sky-500/30',          glow: 'from-sky-50/70' }
+};
+
+const STAT_ICONS = {
+  users:  'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75',
+  active: 'M22 11.08V12a10 10 0 1 1-5.93-9.14 M22 4L12 14.01l-3-3',
+  admins: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
+  agents: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M19 8v6 M22 11h-6'
+};
+
+function Stat({ label, value, tone, icon }) {
+  const t = STAT_TONES[tone] || STAT_TONES.brand;
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-card">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</span>
-        <span className={`inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[10px] font-bold ring-1 ring-inset ${tones[tone]}`}>
-          {value}
-        </span>
+    <div className={`flex items-center gap-3 rounded-xl border border-slate-200 bg-gradient-to-br ${t.glow} to-white p-4 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:to-slate-900`}>
+      <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${t.chip}`}>
+        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          {STAT_ICONS[icon].trim().split(' M').map((d, i) => <path key={i} d={(i === 0 ? d : 'M' + d)} />)}
+        </svg>
+      </span>
+      <div className="min-w-0">
+        <p className="truncate text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
+        <p className="text-2xl font-bold tracking-tight text-brand-900 tabular-nums dark:text-white">{value}</p>
       </div>
-      <div className="mt-2 text-2xl font-bold text-brand-900 tabular-nums">{value}</div>
     </div>
   );
 }
 
 function RolePill({ role }) {
   const map = {
-    admin: 'bg-amber-50 text-amber-700 ring-amber-200',
-    agent: 'bg-brand-50 text-brand-800 ring-brand-200',
-    user: 'bg-slate-100 text-slate-700 ring-slate-200'
+    admin: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/30',
+    agent: 'bg-brand-50 text-brand-800 ring-brand-200 dark:bg-brand-500/15 dark:text-brand-200 dark:ring-brand-500/30',
+    user: 'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700'
   };
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset capitalize ${map[role] || map.user}`}>
@@ -1058,11 +1070,11 @@ function RolePill({ role }) {
 
 function StatusPill({ active }) {
   return active ? (
-    <span className="inline-flex items-center gap-1 rounded-full bg-accent-50 text-accent-700 ring-1 ring-inset ring-accent-200 px-2 py-0.5 text-[10px] font-semibold">
+    <span className="inline-flex items-center gap-1 rounded-full bg-accent-50 text-accent-700 ring-1 ring-inset ring-accent-200 px-2 py-0.5 text-[10px] font-semibold dark:bg-accent-500/15 dark:text-accent-300 dark:ring-accent-500/30">
       <span className="h-1.5 w-1.5 rounded-full bg-accent-500" /> Active
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200 px-2 py-0.5 text-[10px] font-semibold">
+    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200 px-2 py-0.5 text-[10px] font-semibold dark:bg-slate-800 dark:text-slate-400 dark:ring-slate-700">
       <span className="h-1.5 w-1.5 rounded-full bg-slate-400" /> Inactive
     </span>
   );
@@ -1070,9 +1082,9 @@ function StatusPill({ active }) {
 
 function IconBtn({ children, label, onClick, disabled, tone = 'slate' }) {
   const tones = {
-    slate: 'text-slate-500 hover:text-brand-900 hover:bg-slate-100',
-    rose: 'text-slate-500 hover:text-rose-700 hover:bg-rose-50',
-    accent: 'text-slate-500 hover:text-accent-700 hover:bg-accent-50'
+    slate: 'text-slate-500 hover:text-brand-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800',
+    rose: 'text-slate-500 hover:text-rose-700 hover:bg-rose-50 dark:text-slate-400 dark:hover:text-rose-300 dark:hover:bg-rose-500/15',
+    accent: 'text-slate-500 hover:text-accent-700 hover:bg-accent-50 dark:text-slate-400 dark:hover:text-accent-300 dark:hover:bg-accent-500/15'
   };
   return (
     <button

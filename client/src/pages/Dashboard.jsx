@@ -225,6 +225,8 @@ function StaffDashboard({ user }) {
           </div>
         </section>
 
+        <MyWorkItems />
+
         <section className="rounded-lg border border-slate-200 bg-white shadow-card dark:bg-slate-900 dark:border-slate-800">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
             <div>
@@ -287,6 +289,88 @@ function SpaceMiniCard({ space: s }) {
         </span>
       </div>
     </Link>
+  );
+}
+
+// Due-date status for a 'YYYY-MM-DD' string, measured from today's local date.
+function dueMeta(due) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = new Date(`${due}T00:00:00`);
+  const days = Math.round((d.getTime() - today.getTime()) / 86400000);
+  if (days < 0) return { days, label: `${-days}d overdue`, tone: 'rose' };
+  if (days === 0) return { days, label: 'Due today', tone: 'rose' };
+  if (days === 1) return { days, label: 'Due tomorrow', tone: 'amber' };
+  return { days, label: `Due in ${days}d`, tone: days <= 3 ? 'amber' : 'slate' };
+}
+
+const DUE_TONES = {
+  rose: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30',
+  amber: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30',
+  slate: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700'
+};
+
+const PRIORITY_DOT = { low: 'bg-slate-300', normal: 'bg-slate-400', high: 'bg-amber-500', urgent: 'bg-rose-500' };
+
+// "Your work items" — space items assigned to me that are overdue or due soon.
+// Self-fetching so it drops into either dashboard. Hidden entirely when the user
+// has nothing assigned (keeps the Overview clean for non-Spaces users).
+function MyWorkItems() {
+  const [items, setItems] = useState(null); // null = loading
+
+  useEffect(() => {
+    api('/api/spaces/items/mine')
+      .then((r) => setItems(Array.isArray(r) ? r : []))
+      .catch(() => setItems([]));
+  }, []);
+
+  if (items === null || items.length === 0) return null;
+
+  const withDue = items.map((i) => ({ ...i, due: dueMeta(i.due_at) }));
+  const soon = withDue.filter((i) => i.due.days <= 7); // overdue + within a week (already due-sorted by the API)
+  const overdue = withDue.filter((i) => i.due.days < 0).length;
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white shadow-card dark:bg-slate-900 dark:border-slate-800">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
+        <div>
+          <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Your work items</h2>
+          <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">
+            Assigned to you across spaces{overdue > 0 ? ` · ${overdue} overdue` : ''}
+          </p>
+        </div>
+        <Link to="/spaces" className="text-xs font-semibold text-accent-700 hover:text-accent-800 dark:text-accent-400 dark:hover:text-accent-300">
+          View all →
+        </Link>
+      </div>
+      {soon.length === 0 ? (
+        <div className="px-5 py-8 text-center">
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Nothing due in the next 7 days</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{items.length} item{items.length === 1 ? '' : 's'} assigned to you overall.</p>
+        </div>
+      ) : (
+        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+          {soon.slice(0, 6).map((i) => (
+            <li key={i.id}>
+              <Link
+                to={`/spaces/${i.space_id}?item=${i.id}`}
+                className="flex items-center gap-3 px-5 py-3 text-sm hover:bg-slate-50/60 dark:hover:bg-slate-800/40"
+              >
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[i.priority] || 'bg-slate-400'}`} title={i.priority} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-slate-800 dark:text-slate-200">{i.title}</span>
+                  <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
+                    <span className="font-mono">{i.item_key}</span> · {i.space_name}
+                  </span>
+                </span>
+                <span className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${DUE_TONES[i.due.tone]}`}>
+                  {i.due.label}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -489,6 +573,8 @@ function UserDashboard({ user }) {
             )}
           </div>
         </section>
+
+        <MyWorkItems />
 
         {canViewAssets && (
         <section className="rounded-lg border border-slate-200 bg-white shadow-card dark:bg-slate-900 dark:border-slate-800">

@@ -6,6 +6,8 @@ import morgan from 'morgan';
 
 import { pingDb, ensureSchema } from './config/db.js';
 import { startMaintenanceScheduler } from './lib/maintenance-scheduler.js';
+import { startSpaceDueReminders } from './lib/space-notify.js';
+import { startSlaBreachReminders } from './lib/sla-reminders.js';
 import { securityHeaders } from './middleware/securityHeaders.js';
 import auth from './routes/auth.js';
 import users from './routes/users.js';
@@ -110,7 +112,7 @@ app.use((err, req, res, _next) => {
 });
 
 ensureSchema()
-  .then(() => startMaintenanceScheduler())
+  .then(() => { startMaintenanceScheduler(); startSpaceDueReminders(); startSlaBreachReminders(); })
   .catch((err) => console.error('schema bootstrap failed:', err));
 
 app.listen(PORT, () => {
