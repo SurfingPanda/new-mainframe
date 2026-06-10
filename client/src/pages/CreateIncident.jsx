@@ -18,6 +18,7 @@ const CATEGORIES = [
   'Email & Communication',
   'Security',
   'Printing & Peripherals',
+  'HR Concerns',
   'Other'
 ];
 
@@ -120,19 +121,16 @@ export default function CreateIncident() {
   const [requester, setRequester] = useState(user?.name || user?.email || '');
   const [assignee, setAssignee] = useState('');
   const [department, setDepartment] = useState('');
-  const [assetId, setAssetId] = useState('');
 
   // Attachments
   const [files, setFiles] = useState([]);
 
-  const [assets, setAssets] = useState([]);
   const [users, setUsers] = useState([]);
   const [deptList, setDeptList] = useState([]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    api('/api/assets').then(setAssets).catch(() => setAssets([]));
     api('/api/users/assignable').then(setUsers).catch(() => setUsers([]));
     api('/api/departments')
       .then((rows) => setDeptList((rows || []).filter((d) => d.is_active).map((d) => d.name)))
@@ -148,17 +146,6 @@ export default function CreateIncident() {
   const symptomsCount = symptoms.length;
   const titleTooLong = titleCount > TITLE_MAX;
   const symptomsTooLong = symptomsCount > TEXT_MAX;
-
-  // Regular users may only link assets assigned to them; staff see all assets.
-  const visibleAssets = useMemo(() => {
-    if (isStaff) return assets;
-    const mine = [user?.email, user?.name]
-      .filter(Boolean)
-      .map((v) => v.trim().toLowerCase());
-    return assets.filter(
-      (a) => a.assignee && mine.includes(a.assignee.trim().toLowerCase())
-    );
-  }, [assets, isStaff, user?.email, user?.name]);
 
   // Active departments from the admin list, unioned with any department a
   // user already belongs to. Picking one filters the assignee list to that
@@ -250,7 +237,6 @@ export default function CreateIncident() {
       if (department) fd.append('department', department);
       fd.append('requester', requester.trim());
       if (assignee.trim()) fd.append('assignee', assignee.trim());
-      if (assetId) fd.append('asset_id', assetId);
       for (const f of files) fd.append('attachments', f);
 
       const created = await api('/api/tickets', { method: 'POST', body: fd });
@@ -529,20 +515,6 @@ export default function CreateIncident() {
               <Field label="Assignee" hint={isStaff ? 'Search and pick a responder, or leave for triage.' : 'IT will assign someone.'}>
                 <AssigneePicker value={assignee} users={assigneeChoices} onChange={setAssignee} disabled={!isStaff} />
               </Field>
-            </Card>
-
-            <Card title="Linked asset" subtitle="Optional — attach if the incident involves a specific device.">
-              <select value={assetId} onChange={(e) => setAssetId(e.target.value)} className={inputCls(false)}>
-                <option value="">No asset linked</option>
-                {visibleAssets.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.asset_tag} — {a.type}{a.model ? ` · ${a.model}` : ''}{a.assignee ? ` · ${a.assignee}` : ''}
-                  </option>
-                ))}
-              </select>
-              {!isStaff && visibleAssets.length === 0 && (
-                <p className="mt-1 text-[11px] text-slate-500">No assets are assigned to your account.</p>
-              )}
             </Card>
 
             {error && (

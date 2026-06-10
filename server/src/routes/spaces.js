@@ -248,6 +248,10 @@ function shapeComment(row) {
     author_name: row.author_name,
     author_avatar: row.author_avatar ?? null,
     body: row.body,
+    attachment_url: row.attachment_url ?? null,
+    attachment_filename: row.attachment_filename ?? null,
+    attachment_mime: row.attachment_mime ?? null,
+    attachment_size: row.attachment_size ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at
   };
@@ -1068,24 +1072,30 @@ router.get('/:id/items/:itemId', async (req, res, next) => {
 /* ---- Comments ---- */
 
 // POST /api/spaces/:id/items/:itemId/comments — add a comment (any member).
-router.post('/:id/items/:itemId/comments', async (req, res, next) => {
+// Accepts JSON or multipart with an optional `file` attachment.
+router.post('/:id/items/:itemId/comments', docUploadMiddleware, async (req, res, next) => {
+  const cleanup = () => { if (req.file) fs.unlink(req.file.path, () => {}); };
   try {
     const id = intId(req.params.id);
     const itemId = intId(req.params.itemId);
-    if (!id || !itemId) return res.status(400).json({ error: 'invalid id' });
+    if (!id || !itemId) { cleanup(); return res.status(400).json({ error: 'invalid id' }); }
     const access = await loadAccess(id, req.user);
-    if (!access) return res.status(404).json({ error: 'Space not found' });
-    if (!access.membership && !canManageAll(req.user)) return res.status(403).json({ error: 'Only members can comment' });
+    if (!access) { cleanup(); return res.status(404).json({ error: 'Space not found' }); }
+    if (!access.membership && !canManageAll(req.user)) { cleanup(); return res.status(403).json({ error: 'Only members can comment' }); }
     const item = await loadItem(id, itemId);
-    if (!item) return res.status(404).json({ error: 'Item not found' });
+    if (!item) { cleanup(); return res.status(404).json({ error: 'Item not found' }); }
 
     const body = String(req.body?.body ?? '').trim().slice(0, DESC_MAX);
-    if (!body) return res.status(400).json({ error: 'Comment cannot be empty' });
+    const file = req.file;
+    if (!body && !file) return res.status(400).json({ error: 'Comment cannot be empty' });
 
+    const attachmentUrl = file ? `/uploads/spaces/${file.filename}` : null;
     const [result] = await pool.query(
-      `INSERT INTO space_item_comments (item_id, space_id, author_id, author_name, body)
-       VALUES (?, ?, ?, ?, ?)`,
-      [itemId, id, req.user.sub, req.user.name, body]
+      `INSERT INTO space_item_comments
+         (item_id, space_id, author_id, author_name, body, attachment_url, attachment_filename, attachment_mime, attachment_size)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [itemId, id, req.user.sub, req.user.name, body,
+       attachmentUrl, file ? file.originalname : null, file ? file.mimetype : null, file ? file.size : null]
     );
     const [[row]] = await pool.query(
       `SELECT c.*, u.avatar_url AS author_avatar FROM space_item_comments c
@@ -1111,7 +1121,7 @@ router.delete('/:id/items/:itemId/comments/:commentId', async (req, res, next) =
     if (!access) return res.status(404).json({ error: 'Space not found' });
 
     const [[comment]] = await pool.query(
-      'SELECT author_id FROM space_item_comments WHERE id = ? AND item_id = ? AND space_id = ? LIMIT 1',
+      'SELECT author_id, attachment_url FROM space_item_comments WHERE id = ? AND item_id = ? AND space_id = ? LIMIT 1',
       [commentId, itemId, id]
     );
     if (!comment) return res.status(404).json({ error: 'Comment not found' });
@@ -1120,6 +1130,14 @@ router.delete('/:id/items/:itemId/comments/:commentId', async (req, res, next) =
     }
 
     await pool.query('DELETE FROM space_item_comments WHERE id = ?', [commentId]);
+
+    // Remove the attachment from disk too. Resolve against DOC_UPLOAD_DIR so a
+    // tampered DB value can't escape it.
+    if (comment.attachment_url) {
+      const filePath = path.join(DOC_UPLOAD_DIR, path.basename(comment.attachment_url));
+      if (path.dirname(filePath) === DOC_UPLOAD_DIR) fs.unlink(filePath, () => {});
+    }
+
     res.json({ ok: true });
   } catch (err) {
     next(err);

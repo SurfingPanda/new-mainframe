@@ -25,6 +25,20 @@ const CATEGORIES = [
   'Email & Communication',
   'Security',
   'Printing & Peripherals',
+  'HR Concerns',
+  'Other'
+];
+
+// Picking "HR Concerns" swaps the free-text Description for this structured
+// leave-request form; its fields are serialized into the ticket description.
+const HR_CONCERNS = 'HR Concerns';
+const LEAVE_TYPES = [
+  'Vacation Leave',
+  'Sick Leave',
+  'Personal Leave',
+  'Bereavement Leave',
+  'Emergency Leave',
+  'Unpaid Leave',
   'Other'
 ];
 
@@ -44,6 +58,9 @@ export default function CreateTicket() {
   const requestTypeId = useId();
   const categoryId = useId();
   const descId = useId();
+  const leaveTypeId = useId();
+  const leaveStartId = useId();
+  const leaveEndId = useId();
   const requesterId = useId();
   const departmentId = useId();
   const assigneeId = useId();
@@ -56,10 +73,14 @@ export default function CreateTicket() {
   const [requester, setRequester] = useState(user?.email || '');
   const [assignee, setAssignee] = useState('');
   const [department, setDepartment] = useState('');
-  const [assetId, setAssetId] = useState('');
   const [files, setFiles] = useState([]);
 
-  const [assets, setAssets] = useState([]);
+  // Leave-request fields (used when category === 'HR Concerns').
+  const [leaveType, setLeaveType] = useState('');
+  const [leaveStart, setLeaveStart] = useState('');
+  const [leaveEnd, setLeaveEnd] = useState('');
+  const [leaveReason, setLeaveReason] = useState('');
+
   const [assignableUsers, setAssignableUsers] = useState([]);
   const [directoryUsers, setDirectoryUsers] = useState([]);
   const [deptList, setDeptList] = useState([]);
@@ -67,7 +88,6 @@ export default function CreateTicket() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    api('/api/assets').then(setAssets).catch(() => setAssets([]));
     api('/api/departments')
       .then((rows) => setDeptList((rows || []).filter((d) => d.is_active).map((d) => d.name)))
       .catch(() => setDeptList([]));
@@ -85,16 +105,9 @@ export default function CreateTicket() {
   const descTooLong = descCount > DESC_MAX;
   const titleTooShort = title.trim().length > 0 && title.trim().length < 4;
 
-  // Regular users may only link assets assigned to them; staff see all assets.
-  const visibleAssets = useMemo(() => {
-    if (isStaff) return assets;
-    const mine = [user?.email, user?.name]
-      .filter(Boolean)
-      .map((v) => v.trim().toLowerCase());
-    return assets.filter(
-      (a) => a.assignee && mine.includes(a.assignee.trim().toLowerCase())
-    );
-  }, [assets, isStaff, user?.email, user?.name]);
+  const isLeaveRequest = category === HR_CONCERNS;
+  const leaveDatesInvalid = !!(leaveStart && leaveEnd && leaveEnd < leaveStart);
+  const leaveIncomplete = !leaveType || !leaveStart || !leaveEnd || leaveDatesInvalid;
 
   // Departments that have at least one assignable user — picking one filters
   // the assignee list to that department's people.
@@ -119,8 +132,15 @@ export default function CreateTicket() {
   };
 
   const canSubmit = useMemo(
-    () => title.trim().length >= 4 && requester.trim() && department && !titleTooLong && !descTooLong && !submitting,
-    [title, requester, department, titleTooLong, descTooLong, submitting]
+    () =>
+      title.trim().length >= 4 &&
+      requester.trim() &&
+      department &&
+      !titleTooLong &&
+      !descTooLong &&
+      !(isLeaveRequest && leaveIncomplete) &&
+      !submitting,
+    [title, requester, department, titleTooLong, descTooLong, isLeaveRequest, leaveIncomplete, submitting]
   );
 
   const isDirty = useMemo(
@@ -130,12 +150,15 @@ export default function CreateTicket() {
       category !== '' ||
       department !== '' ||
       assignee.trim() !== '' ||
-      assetId !== '' ||
       requestType !== 'service_request' ||
       priority !== 'normal' ||
       files.length > 0 ||
+      leaveType !== '' ||
+      leaveStart !== '' ||
+      leaveEnd !== '' ||
+      leaveReason.trim() !== '' ||
       requester.trim() !== (user?.email || '').trim(),
-    [title, description, category, department, assignee, assetId, requestType, priority, files, requester, user?.email]
+    [title, description, category, department, assignee, requestType, priority, files, leaveType, leaveStart, leaveEnd, leaveReason, requester, user?.email]
   );
 
   // Warn before a full-page unload (refresh / close / external link) when the
@@ -152,6 +175,18 @@ export default function CreateTicket() {
     navigate('/tickets/all');
   };
 
+  // Flatten the leave-request form into the ticket description text.
+  const buildLeaveDescription = () => {
+    const lines = [
+      'Leave Request',
+      `Leave Type: ${leaveType}`,
+      `Start Date: ${leaveStart}`,
+      `End Date: ${leaveEnd}`
+    ];
+    if (leaveReason.trim()) lines.push('', `Reason / Details: ${leaveReason.trim()}`);
+    return lines.join('\n');
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     setError('');
@@ -160,6 +195,8 @@ export default function CreateTicket() {
       else if (title.trim().length < 4) setError('Title needs at least 4 characters.');
       else if (!requester.trim()) setError('Please confirm the requester before submitting.');
       else if (!department) setError('Please select a department before submitting.');
+      else if (isLeaveRequest && leaveDatesInvalid) setError('End date must be on or after the start date.');
+      else if (isLeaveRequest && leaveIncomplete) setError('Please fill in the leave type and dates before submitting.');
       else setError('Please fix the highlighted fields before submitting.');
       return;
     }
@@ -167,14 +204,14 @@ export default function CreateTicket() {
     try {
       const fd = new FormData();
       fd.append('title', title.trim());
-      if (description.trim()) fd.append('description', description.trim());
+      const finalDescription = isLeaveRequest ? buildLeaveDescription() : description.trim();
+      if (finalDescription) fd.append('description', finalDescription);
       fd.append('priority', priority);
       fd.append('request_type', requestType);
       if (category) fd.append('category', category);
       if (department) fd.append('department', department);
       fd.append('requester', requester.trim());
       if (assignee.trim()) fd.append('assignee', assignee.trim());
-      if (assetId) fd.append('asset_id', assetId);
       for (const f of files) fd.append('attachments', f);
 
       const created = await api('/api/tickets', { method: 'POST', body: fd });
@@ -277,45 +314,92 @@ export default function CreateTicket() {
                 </Field>
               </div>
 
-              <Field
-                label="Description"
-                htmlFor={descId}
-                hint="Steps to reproduce, error messages, screenshot links — anything that helps."
-                error={descTooLong ? `Description is over the ${DESC_MAX}-character limit.` : ''}
-                trailing={<CharCount value={descCount} max={DESC_MAX} />}
-              >
-                <textarea
-                  id={descId}
-                  rows={8}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder={descPlaceholder}
-                  className={`${inputCls(descTooLong)} resize-y leading-relaxed`}
-                  aria-invalid={descTooLong}
-                />
-              </Field>
+              {isLeaveRequest ? (
+                <div className="space-y-5">
+                  <div className="rounded-md bg-brand-50 ring-1 ring-brand-100 px-3 py-2 text-[11px] text-brand-800">
+                    Filing an HR leave request. Complete the details below — they'll be recorded on the work order.
+                  </div>
+                  <div className="grid gap-5 sm:grid-cols-3">
+                    <Field label="Leave Type" htmlFor={leaveTypeId} required>
+                      <select
+                        id={leaveTypeId}
+                        value={leaveType}
+                        onChange={(e) => setLeaveType(e.target.value)}
+                        className={inputCls(false)}
+                        aria-required="true"
+                      >
+                        <option value="">Select…</option>
+                        {LEAVE_TYPES.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Start Date" htmlFor={leaveStartId} required>
+                      <input
+                        id={leaveStartId}
+                        type="date"
+                        value={leaveStart}
+                        onChange={(e) => setLeaveStart(e.target.value)}
+                        className={inputCls(false)}
+                        aria-required="true"
+                      />
+                    </Field>
+                    <Field
+                      label="End Date"
+                      htmlFor={leaveEndId}
+                      required
+                      error={leaveDatesInvalid ? 'End date must be on or after the start date.' : ''}
+                    >
+                      <input
+                        id={leaveEndId}
+                        type="date"
+                        min={leaveStart || undefined}
+                        value={leaveEnd}
+                        onChange={(e) => setLeaveEnd(e.target.value)}
+                        className={inputCls(leaveDatesInvalid)}
+                        aria-required="true"
+                        aria-invalid={leaveDatesInvalid}
+                      />
+                    </Field>
+                  </div>
+                  <Field
+                    label="Reason / Details"
+                    htmlFor={descId}
+                    hint="Optional — add any context for HR (coverage, contact info, etc.)."
+                  >
+                    <textarea
+                      id={descId}
+                      rows={5}
+                      value={leaveReason}
+                      onChange={(e) => setLeaveReason(e.target.value)}
+                      placeholder="Reason for the leave, coverage arrangements, anything HR should know."
+                      className={`${inputCls(false)} resize-y leading-relaxed`}
+                    />
+                  </Field>
+                </div>
+              ) : (
+                <Field
+                  label="Description"
+                  htmlFor={descId}
+                  hint="Steps to reproduce, error messages, screenshot links — anything that helps."
+                  error={descTooLong ? `Description is over the ${DESC_MAX}-character limit.` : ''}
+                  trailing={<CharCount value={descCount} max={DESC_MAX} />}
+                >
+                  <textarea
+                    id={descId}
+                    rows={8}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder={descPlaceholder}
+                    className={`${inputCls(descTooLong)} resize-y leading-relaxed`}
+                    aria-invalid={descTooLong}
+                  />
+                </Field>
+              )}
             </Card>
 
             <Card title="Attachments" subtitle={`Up to ${MAX_FILES} files · 10 MB each · images, PDFs, Office docs, ZIP`}>
               <FileDropzone files={files} setFiles={setFiles} setError={setError} />
-            </Card>
-
-            <Card title="Linked asset" subtitle="Optional — attach if the work order is about a specific device.">
-              <select
-                value={assetId}
-                onChange={(e) => setAssetId(e.target.value)}
-                className={inputCls(false)}
-              >
-                <option value="">No asset linked</option>
-                {visibleAssets.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.asset_tag} — {a.type}{a.model ? ` · ${a.model}` : ''}{a.assignee ? ` · ${a.assignee}` : ''}
-                  </option>
-                ))}
-              </select>
-              {!isStaff && visibleAssets.length === 0 && (
-                <p className="mt-1 text-[11px] text-slate-500">No assets are assigned to your account.</p>
-              )}
             </Card>
           </div>
 

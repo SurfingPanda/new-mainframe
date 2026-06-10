@@ -334,6 +334,33 @@ function Summary({ items, onView }) {
     [items]
   );
 
+  // Open items per assignee (incl. an Unassigned bucket), busiest first.
+  const workload = useMemo(() => {
+    const counts = new Map();
+    for (const i of items) {
+      if (i.status === 'done') continue;
+      const name = i.assignee_name || 'Unassigned';
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+    const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+    return { labels: top.map((e) => e[0]), values: top.map((e) => e[1]) };
+  }, [items]);
+
+  // Due-date health of open work (due_at is a 'YYYY-MM-DD' string, so string
+  // comparison orders dates correctly).
+  const due = useMemo(() => {
+    const today = toYmd(new Date());
+    const in7 = toYmd(new Date(Date.now() + 7 * 24 * 3600 * 1000));
+    let overdue = 0, soon = 0, noDate = 0;
+    for (const i of items) {
+      if (i.status === 'done') continue;
+      if (!i.due_at) { noDate += 1; continue; }
+      if (i.due_at < today) overdue += 1;
+      else if (i.due_at <= in7) soon += 1;
+    }
+    return { overdue, soon, noDate, total: overdue + soon + noDate };
+  }, [items]);
+
   const cards = [
     { tone: 'accent', icon: 'check', value: stats.completed, label: 'Completed', sub: 'in the last 7 days' },
     { tone: 'sky', icon: 'refresh', value: stats.updated, label: 'Updated', sub: 'in the last 7 days' },
@@ -366,6 +393,22 @@ function Summary({ items, onView }) {
           {hasItems
             ? <ChartBar labels={TYPES.map((t) => t.label)} values={stats.byType} color="#7c3aed" horizontal emptyLabel="No items yet" />
             : <EmptyPanel message="There are no items with types to display." />}
+        </Panel>
+        <Panel title="Team workload" tone="teal" onView={hasItems ? () => onView('board') : null}>
+          {hasItems
+            ? <ChartBar labels={workload.labels} values={workload.values} color="#14b8a6" horizontal emptyLabel="No open items" />
+            : <EmptyPanel message="There are no items yet to display." />}
+        </Panel>
+        <Panel title="Due & overdue" tone="rose" onView={hasItems ? () => onView('calendar') : null}>
+          {hasItems ? (
+            <ul className="flex h-full flex-col justify-center gap-3 py-2">
+              <DueRow color="bg-rose-500" label="Overdue" value={due.overdue} total={due.total} />
+              <DueRow color="bg-amber-500" label="Due within 7 days" value={due.soon} total={due.total} />
+              <DueRow color="bg-slate-300 dark:bg-slate-600" label="No due date" value={due.noDate} total={due.total} />
+            </ul>
+          ) : (
+            <EmptyPanel message="There are no items yet to display." />
+          )}
         </Panel>
         <Panel title="Recent activity" tone="accent" onView={recent.length ? () => onView('list') : null}>
           {recent.length === 0 ? (
@@ -442,8 +485,29 @@ const PANEL_BAR = {
   sky: 'bg-sky-500',
   violet: 'bg-violet-500',
   amber: 'bg-amber-500',
-  accent: 'bg-accent-500'
+  accent: 'bg-accent-500',
+  teal: 'bg-teal-500',
+  rose: 'bg-rose-500'
 };
+
+// One due-state row (colored dot + count + proportion bar) for the Due panel.
+function DueRow({ color, label, value, total }) {
+  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+  return (
+    <li>
+      <div className="mb-1 flex items-center justify-between text-sm">
+        <span className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+          <span className={`h-2.5 w-2.5 rounded-full ${color}`} />
+          {label}
+        </span>
+        <span className="font-bold tabular-nums text-brand-900 dark:text-white">{value}</span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+    </li>
+  );
+}
 
 function Panel({ title, children, onView, tone = 'accent' }) {
   return (
@@ -727,6 +791,7 @@ function Members({ space, onChanged }) {
   const [error, setError] = useState('');
   const [requests, setRequests] = useState([]);
   const [busyReq, setBusyReq] = useState(null);
+  const [confirmReq, setConfirmReq] = useState(null); // { request, action }
 
   useEffect(() => { api('/api/users/directory').then(setDirectory).catch(() => setDirectory([])); }, []);
 
@@ -743,6 +808,7 @@ function Members({ space, onChanged }) {
       await api(`/api/spaces/${space.id}/join-requests/${reqId}/${action}`, { method: 'POST' });
       setRequests((prev) => prev.filter((r) => r.id !== reqId));
       if (action === 'approve') await onChanged(); // refresh members
+      setConfirmReq(null);
     } catch (e) {
       setError(e.message || 'Failed to update request');
     } finally {
@@ -798,8 +864,8 @@ function Members({ space, onChanged }) {
                   {r.message && <span className="mt-0.5 block truncate text-xs italic text-slate-500 dark:text-slate-400">“{r.message}”</span>}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <button type="button" disabled={busyReq === r.id} onClick={() => decideRequest(r.id, 'approve')} className="rounded-md bg-accent-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-700 disabled:opacity-60">Approve</button>
-                  <button type="button" disabled={busyReq === r.id} onClick={() => decideRequest(r.id, 'deny')} className="rounded-md px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white hover:text-rose-600 disabled:opacity-60 dark:text-slate-300 dark:hover:bg-slate-800">Deny</button>
+                  <button type="button" disabled={busyReq === r.id} onClick={() => setConfirmReq({ request: r, action: 'approve' })} className="rounded-md bg-accent-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-700 disabled:opacity-60">Approve</button>
+                  <button type="button" disabled={busyReq === r.id} onClick={() => setConfirmReq({ request: r, action: 'deny' })} className="rounded-md px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white hover:text-rose-600 disabled:opacity-60 dark:text-slate-300 dark:hover:bg-slate-800">Deny</button>
                 </div>
               </li>
             ))}
@@ -841,6 +907,44 @@ function Members({ space, onChanged }) {
           ))}
         </ul>
       </div>
+
+      {confirmReq && (
+        <Modal open onClose={() => busyReq == null && setConfirmReq(null)} title={confirmReq.action === 'approve' ? 'Approve join request' : 'Deny join request'} size="sm">
+          <div className="space-y-4">
+            <div className="flex items-start gap-3">
+              <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${confirmReq.action === 'approve' ? 'bg-accent-50 text-accent-600 dark:bg-accent-500/15 dark:text-accent-300' : 'bg-rose-50 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300'}`}>
+                {confirmReq.action === 'approve' ? (
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                ) : (
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                )}
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-brand-900 dark:text-white">
+                  {confirmReq.action === 'approve' ? 'Approve' : 'Deny'} {confirmReq.request.name}?
+                </p>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                  {confirmReq.action === 'approve'
+                    ? `${confirmReq.request.name} will be added as a member of this space.`
+                    : `${confirmReq.request.name}'s request to join this space will be declined.`}
+                </p>
+              </div>
+            </div>
+            {error && <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">{error}</div>}
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn-ghost !px-3.5 !py-2 text-xs" onClick={() => setConfirmReq(null)} disabled={busyReq != null}>Cancel</button>
+              <button
+                type="button"
+                onClick={() => decideRequest(confirmReq.request.id, confirmReq.action)}
+                disabled={busyReq != null}
+                className={`inline-flex items-center rounded-md px-3.5 py-2 text-xs font-semibold text-white disabled:opacity-60 ${confirmReq.action === 'approve' ? 'bg-accent-600 hover:bg-accent-700' : 'bg-rose-600 hover:bg-rose-700'}`}
+              >
+                {busyReq != null ? 'Working…' : confirmReq.action === 'approve' ? 'Approve' : 'Deny'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -1185,8 +1289,15 @@ function ItemDetailModal({ spaceId, members, allItems, itemId, onClose, onChange
     await api(`/api/spaces/${spaceId}/items/${activeId}/links/${linkedId}`, { method: 'DELETE' });
     await load();
   };
-  const addComment = async (body) => {
-    await api(`/api/spaces/${spaceId}/items/${activeId}/comments`, { method: 'POST', body: JSON.stringify({ body }) });
+  const addComment = async (body, file) => {
+    if (file) {
+      const fd = new FormData();
+      fd.append('body', body);
+      fd.append('file', file);
+      await api(`/api/spaces/${spaceId}/items/${activeId}/comments`, { method: 'POST', body: fd });
+    } else {
+      await api(`/api/spaces/${spaceId}/items/${activeId}/comments`, { method: 'POST', body: JSON.stringify({ body }) });
+    }
     await load();
   };
   const deleteComment = async (commentId) => {
@@ -1518,16 +1629,37 @@ const HISTORY_FIELD = {
   assignee: 'Assignee', sla: 'SLA', start_date: 'Start date', labels: 'Labels', team: 'Team', parent: 'Parent'
 };
 
+const COMMENT_ACCEPT = 'image/*,application/pdf,.txt,.md,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip';
+const COMMENT_MAX_BYTES = 25 * 1024 * 1024;
+
 function ActivitySection({ comments, history, me, onAdd, onDelete }) {
   const [tab, setTab] = useState('comments');
   const [body, setBody] = useState('');
+  const [file, setFile] = useState(null);
+  const [fileError, setFileError] = useState('');
   const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const onPickFile = (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (f.size > COMMENT_MAX_BYTES) { setFileError('File is larger than 25 MB.'); return; }
+    setFileError('');
+    setFile(f);
+  };
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!body.trim()) return;
+    if (!body.trim() && !file) return;
     setSaving(true);
-    try { await onAdd(body.trim()); setBody(''); } finally { setSaving(false); }
+    try {
+      await onAdd(body.trim(), file);
+      setBody('');
+      setFile(null);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -1552,8 +1684,28 @@ function ActivitySection({ comments, history, me, onAdd, onDelete }) {
             <Avatar name={me?.name} src={me?.avatar_url} size="h-8 w-8" />
             <div className="flex-1">
               <textarea className={`${INPUT} min-h-[60px]`} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Add a comment…" />
-              <div className="mt-1.5 flex justify-end">
-                <button type="submit" className="btn-primary !py-1.5 text-xs" disabled={saving || !body.trim()}>{saving ? 'Posting…' : 'Comment'}</button>
+              {fileError && <p className="mt-1 text-[11px] text-rose-600 dark:text-rose-400">{fileError}</p>}
+              {file && (
+                <div className="mt-1.5 flex items-center gap-2 rounded-md bg-slate-100 px-2.5 py-1.5 text-xs dark:bg-slate-800">
+                  <svg className="h-3.5 w-3.5 shrink-0 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+                  <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200">{file.name}</span>
+                  <button type="button" onClick={() => setFile(null)} aria-label="Remove attachment" className="shrink-0 text-slate-400 hover:text-rose-600">
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                  </button>
+                </div>
+              )}
+              <div className="mt-1.5 flex items-center justify-between">
+                <input ref={fileInputRef} type="file" accept={COMMENT_ACCEPT} onChange={onPickFile} className="hidden" />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                  title="Attach a file"
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+                  Attach
+                </button>
+                <button type="submit" className="btn-primary !py-1.5 text-xs" disabled={saving || (!body.trim() && !file)}>{saving ? 'Posting…' : 'Comment'}</button>
               </div>
             </div>
           </form>
@@ -1570,7 +1722,19 @@ function ActivitySection({ comments, history, me, onAdd, onDelete }) {
                       <button type="button" onClick={() => onDelete(c.id)} className="text-[11px] text-slate-400 hover:text-rose-500">Delete</button>
                     )}
                   </div>
-                  <p className="whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-200">{c.body}</p>
+                  {c.body && <p className="whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-200">{c.body}</p>}
+                  {c.attachment_url && (
+                    <a
+                      href={c.attachment_url}
+                      download={c.attachment_filename || ''}
+                      className="mt-1 inline-flex max-w-full items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                    >
+                      <svg className="h-4 w-4 shrink-0 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+                      <span className="max-w-[180px] truncate">{c.attachment_filename || 'Attachment'}</span>
+                      {c.attachment_size != null && <span className="shrink-0 text-[10px] text-slate-400">{formatBytes(c.attachment_size)}</span>}
+                      <svg className="h-3.5 w-3.5 shrink-0 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+                    </a>
+                  )}
                 </div>
               </li>
             ))}

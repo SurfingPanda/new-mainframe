@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { userWriteLimit } from '../middleware/rateLimit.js';
 
 const router = Router();
 const MAX_BODY = 2000;
@@ -22,6 +23,10 @@ const ALLOWED_MIME = new Set([
   'image/gif',
   'image/webp',
   'image/heic',
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+  'video/ogg',
   'application/pdf',
   'text/plain',
   'application/msword',
@@ -48,6 +53,11 @@ const upload = multer({
     cb(null, true);
   }
 });
+
+// Throttle message sends per user (spam + attachment disk-fill). Generous enough
+// for a fast back-and-forth; placed before the upload so a throttled send never
+// writes a file.
+const sendLimiter = userWriteLimit({ max: 40 });
 
 // Wrap upload.single so multer's errors come back as JSON instead of the
 // generic 500 handler. File-size / mime errors should tell the user what's up.
@@ -551,7 +561,7 @@ router.get('/messages', requireAuth, async (req, res, next) => {
   }
 });
 
-router.post('/messages', requireAuth, attachmentMiddleware, async (req, res, next) => {
+router.post('/messages', requireAuth, sendLimiter, attachmentMiddleware, async (req, res, next) => {
   try {
     const body = String(req.body?.body || '').trim();
     const room = String(req.body?.room || GENERAL_ROOM);

@@ -5,11 +5,16 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
 import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
+import { userWriteLimit } from '../middleware/rateLimit.js';
 import { notifyTicketCreated, notifyTicketChanges, notifyTicketNote } from '../lib/ticket-emails.js';
 import { slaStanding } from '../lib/sla.js';
 import { maybeSendResolutionSurvey } from '../lib/resolution-survey.js';
 
 const router = Router();
+
+// Shared per-user throttle for the attachment-bearing write endpoints (ticket
+// creation + activity notes) — blunts spam and upload disk-fill.
+const writeLimiter = userWriteLimit({ max: 30 });
 
 const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'tickets');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -60,6 +65,7 @@ const ALLOWED_CATEGORIES = [
   'Email & Communication',
   'Security',
   'Printing & Peripherals',
+  'HR Concerns',
   'Other'
 ];
 
@@ -503,6 +509,7 @@ router.post(
   '/:id/activity',
   requireAuth,
   requirePermission('tickets', 'create'),
+  writeLimiter,
   (req, res, next) => {
     upload.single('attachment')(req, res, (err) => {
       if (err) return res.status(400).json({ error: err.message });
@@ -774,6 +781,7 @@ router.post(
   '/',
   requireAuth,
   requirePermission('tickets', 'create'),
+  writeLimiter,
   (req, res, next) => {
     upload.array('attachments', 5)(req, res, (err) => {
       if (err) return res.status(400).json({ error: err.message });

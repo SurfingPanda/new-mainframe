@@ -625,4 +625,18 @@ export async function ensureSchema() {
       FOREIGN KEY (space_id) REFERENCES spaces(id) ON DELETE CASCADE
     )
   `);
+
+  // space_item_comments attachment columns — comments can now carry a single file.
+  for (const stmt of [
+    `ALTER TABLE space_item_comments ADD COLUMN attachment_url      VARCHAR(255) NULL`,
+    `ALTER TABLE space_item_comments ADD COLUMN attachment_filename VARCHAR(255) NULL`,
+    `ALTER TABLE space_item_comments ADD COLUMN attachment_mime     VARCHAR(120) NULL`,
+    `ALTER TABLE space_item_comments ADD COLUMN attachment_size     INT UNSIGNED NULL`
+  ]) {
+    try {
+      await pool.query(stmt);
+    } catch (err) {
+      if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+    }
+  }
 }

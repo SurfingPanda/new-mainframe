@@ -28,7 +28,7 @@ export default function SignIn() {
         method: 'POST',
         body: JSON.stringify({ email, password })
       });
-      setSession(data.token, data.user);
+      setSession(data.user);
       navigate('/dashboard');
     } catch (err) {
       setError(err.message || 'Unable to sign in. Please try again.');

@@ -24,6 +24,7 @@ const CATEGORIES = [
   'Email & Communication',
   'Security',
   'Printing & Peripherals',
+  'HR Concerns',
   'Other'
 ];
 
@@ -43,7 +44,6 @@ export default function MaintenanceScheduleEditor() {
   const navigate = useNavigate();
 
   const [departments, setDepartments] = useState([]);
-  const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -55,7 +55,6 @@ export default function MaintenanceScheduleEditor() {
   const [category, setCategory] = useState('');
   const [department, setDepartment] = useState('');
   const [assignee, setAssignee] = useState('');
-  const [assetId, setAssetId] = useState('');
   const [cadence, setCadence] = useState('monthly');
   const [intervalCount, setIntervalCount] = useState(1);
   const [startDate, setStartDate] = useState(todayYmd());
@@ -63,7 +62,6 @@ export default function MaintenanceScheduleEditor() {
 
   useEffect(() => {
     api('/api/departments').then((d) => setDepartments(Array.isArray(d) ? d : [])).catch(() => {});
-    api('/api/assets').then((a) => setAssets(Array.isArray(a) ? a : [])).catch(() => {});
     if (!isNew) {
       setLoading(true);
       api(`/api/maintenance/${editId}`)
@@ -75,7 +73,6 @@ export default function MaintenanceScheduleEditor() {
           setCategory(d.category || '');
           setDepartment(d.department || '');
           setAssignee(d.assignee || '');
-          setAssetId(d.asset_id ? String(d.asset_id) : '');
           setCadence(d.cadence || 'monthly');
           setIntervalCount(d.interval_count || 1);
           setStartDate(d.start_date ? String(d.start_date).slice(0, 10) : todayYmd());
@@ -102,7 +99,6 @@ export default function MaintenanceScheduleEditor() {
         category: category || null,
         department: department || null,
         assignee: assignee.trim() || null,
-        asset_id: assetId ? Number(assetId) : null,
         cadence,
         interval_count: Math.max(1, Number(intervalCount) || 1),
         start_date: startDate,
@@ -233,17 +229,6 @@ export default function MaintenanceScheduleEditor() {
                       className={inp}
                     />
                     <p className="mt-1 text-[11px] text-slate-400">Generated work orders are assigned here. Leave blank to triage later.</p>
-                  </div>
-                  <div>
-                    <label className={lbl}>Linked asset</label>
-                    <select value={assetId} onChange={(e) => setAssetId(e.target.value)} className={inp}>
-                      <option value="">— None —</option>
-                      {assets.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.asset_tag} — {a.type}{a.model ? ` · ${a.model}` : ''}
-                        </option>
-                      ))}
-                    </select>
                   </div>
                 </div>
               </div>

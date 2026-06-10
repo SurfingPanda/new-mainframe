@@ -34,6 +34,7 @@ const CATEGORIES = [
   'Email & Communication',
   'Security',
   'Printing & Peripherals',
+  'HR Concerns',
   'Other'
 ];
 
@@ -493,24 +494,6 @@ export default function TicketDetail() {
                     <p className="text-sm italic text-slate-400">No attachments. Use the activity panel to attach files.</p>
                   )}
                 </Card>
-
-                {ticket.asset && (
-                  <Card title="Linked asset">
-                    <p className="font-mono text-xs text-slate-500">{ticket.asset.asset_tag}</p>
-                    <p className="text-sm font-medium text-slate-800 mt-0.5">
-                      {ticket.asset.type}
-                      {ticket.asset.model ? ` · ${ticket.asset.model}` : ''}
-                    </p>
-                    {ticket.asset.assignee && (
-                      <p className="text-xs text-slate-500 mt-1">
-                        Assigned to <span className="text-slate-700">{ticket.asset.assignee}</span>
-                      </p>
-                    )}
-                    {ticket.asset.location && (
-                      <p className="text-xs text-slate-500">Location: {ticket.asset.location}</p>
-                    )}
-                  </Card>
-                )}
               </div>
 
               {/* RIGHT */}
@@ -554,12 +537,13 @@ function PrintableTicket({ ticket }) {
   const pretty = (v) => (v ? String(v).replace(/_/g, ' ') : '—');
   return (
     <article className="printable-ticket">
+      <div className="pt-accent" />
       <header className="pt-header">
         <div className="pt-brand">
           <img src="/images/logo.png" alt="Eljin Corp" className="pt-logo" />
           <div className="pt-brand-text">
             <div className="pt-brand-name">Eljin Corp</div>
-            <div className="pt-brand-sub">IT Service Work Order</div>
+            <div className="pt-brand-sub">Service Work Order</div>
           </div>
         </div>
         <div className="pt-ticket-id">
@@ -569,10 +553,13 @@ function PrintableTicket({ ticket }) {
       </header>
 
       <div className="pt-titlebar">
-        <h1 className="pt-title">{ticket.title}</h1>
+        <div className="pt-title-wrap">
+          <div className="pt-title-label">Subject</div>
+          <h1 className="pt-title">{ticket.title}</h1>
+        </div>
         <div className="pt-pills">
-          <span className="pt-pill"><b>Status:</b> {pretty(ticket.status)}</span>
-          <span className="pt-pill"><b>Priority:</b> {pretty(ticket.priority)}</span>
+          <span className="pt-pill"><b>Status</b><i>{pretty(ticket.status)}</i></span>
+          <span className="pt-pill"><b>Priority</b><i>{pretty(ticket.priority)}</i></span>
         </div>
       </div>
 
@@ -580,29 +567,18 @@ function PrintableTicket({ ticket }) {
         <div><b>Type</b><span>{pretty(ticket.request_type)}</span></div>
         <div><b>Category</b><span>{ticket.category || '—'}</span></div>
         <div><b>Department</b><span>{ticket.department || '—'}</span></div>
-        <div><b>Requester</b><span>{ticket.requester || '—'}</span></div>
-        <div><b>Assignee</b><span>{ticket.assignee || '—'}</span></div>
-        <div><b>Opened</b><span>{formatDateTime(ticket.created_at)}</span></div>
-        <div><b>Last update</b><span>{formatDateTime(ticket.updated_at)}</span></div>
+        <div><b>Requested by</b><span>{ticket.requester || '—'}</span></div>
+        <div><b>Assigned to</b><span>{ticket.assignee || '—'}</span></div>
+        <div><b>Date opened</b><span>{formatDateTime(ticket.created_at)}</span></div>
       </div>
 
       {ticket.description && (
         <section className="pt-section">
-          <div className="pt-label">Description</div>
+          <div className="pt-label">Description of work</div>
           <div className="pt-body">{ticket.description}</div>
         </section>
       )}
 
-      {ticket.asset && (
-        <section className="pt-section">
-          <div className="pt-label">Linked asset</div>
-          <div className="pt-body">
-            <strong>{ticket.asset.asset_tag}</strong> — {ticket.asset.type}
-            {ticket.asset.model ? ` · ${ticket.asset.model}` : ''}
-            {ticket.asset.location ? ` · ${ticket.asset.location}` : ''}
-          </div>
-        </section>
-      )}
 
       <section className="pt-certify">
         <div className="pt-label">Acknowledgement &amp; Conformity</div>
@@ -629,14 +605,14 @@ function PrintableTicket({ ticket }) {
         <div className="pt-sig pt-sig--approver">
           <div className="pt-sig-line" />
           <div className="pt-sig-name">&nbsp;</div>
-          <div className="pt-sig-role">Approved by · IT Supervisor</div>
+          <div className="pt-sig-role">Approved by · Manager</div>
           <div className="pt-sig-date">Date:&nbsp;_________________</div>
         </div>
       </div>
 
       <div className="pt-footer">
-        <span>Form ITSD-WO · Eljin Corp IT Service Portal</span>
-        <span>{formatTicketId(ticket.id)} · printed {formatDateTime(new Date())}</span>
+        <span>Eljin Corp · Service Work Order Form</span>
+        <span>{formatTicketId(ticket.id)} · Printed {formatDateTime(new Date())}</span>
       </div>
     </article>
   );

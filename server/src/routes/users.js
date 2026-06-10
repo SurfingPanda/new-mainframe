@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { pool } from '../config/db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
-import { rateLimit } from '../middleware/rateLimit.js';
+import { rateLimit, userWriteLimit } from '../middleware/rateLimit.js';
 import { effectivePermissions, sanitizePermissions } from '../lib/permissions.js';
 import { avatarUpload, saveAvatar, removeAvatarFile, InvalidImageError } from '../lib/avatar-upload.js';
 
@@ -130,7 +130,11 @@ router.post('/', async (req, res, next) => {
 // password is generated per user and returned once so the admin can distribute
 // it — passwords are never stored in plaintext. Each row reports its own
 // outcome so a few bad rows don't fail the whole batch.
-router.post('/import', async (req, res, next) => {
+// Bulk import is a heavy op (up to 500 inserts + bcrypt hashing per call) — cap
+// it tighter than the general write limiter.
+const importLimiter = userWriteLimit({ windowMs: 15 * 60 * 1000, max: 10, message: 'Too many imports. Please wait a few minutes and try again.' });
+
+router.post('/import', importLimiter, async (req, res, next) => {
   try {
     const list = Array.isArray(req.body?.users) ? req.body.users : null;
     if (!list || !list.length) {

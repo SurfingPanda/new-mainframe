@@ -19,14 +19,37 @@ function bumpPresence(userId) {
     .catch(() => { /* presence is best-effort */ });
 }
 
+// Minimal single-cookie reader so we don't pull in cookie-parser. The auth
+// token now rides in an httpOnly cookie (out of reach of XSS / localStorage).
+export const AUTH_COOKIE = 'mf_token';
+function readCookie(req, name) {
+  const raw = req.headers.cookie;
+  if (!raw) return null;
+  for (const part of raw.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === name) {
+      return decodeURIComponent(part.slice(eq + 1).trim());
+    }
+  }
+  return null;
+}
+
+// Token from the auth cookie (preferred) or a Bearer header (non-browser clients).
+function tokenFromRequest(req) {
+  const header = req.headers.authorization || '';
+  return readCookie(req, AUTH_COOKIE) || (header.startsWith('Bearer ') ? header.slice(7) : null);
+}
+
 // Verifies the JWT, then re-loads the user from the database so role,
 // permissions, and active status reflect the current state — not whatever was
 // true when the token was issued. A deactivated account or a changed
 // permission therefore takes effect immediately, without waiting for the
 // token to expire.
 export async function requireAuth(req, res, next) {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  // Prefer the httpOnly cookie; fall back to a Bearer header for non-browser
+  // API clients (the browser app no longer stores or sends a token directly).
+  const token = tokenFromRequest(req);
 
   if (!token) {
     return res.status(401).json({ error: 'Authentication required' });

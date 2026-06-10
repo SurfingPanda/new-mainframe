@@ -65,7 +65,11 @@
       "Bash(/c/xampp/mysql/bin/mysql.exe *)",
       "Bash(grep *)",
       "Bash(awk NR>=2074 && NR<=2080 {printf \"%d: %s\\\\n\", NR, $0} *)",
-      "Bash(awk 'NR>=1852 && NR<=1858 {printf \"%d: %s\\\\n\", NR, $0}' ../client/src/pages/SpaceDetail.jsx)"
+      "Bash(awk 'NR>=1852 && NR<=1858 {printf \"%d: %s\\\\n\", NR, $0}' ../client/src/pages/SpaceDetail.jsx)",
+      "Read(//c/c/xampp/htdocs/new-mainframe/client/src/pages/**)",
+      "Read(//c/c/xampp/htdocs/new-mainframe/client/src/**)",
+      "Bash(sed -n \"/function canViewTicket/,/^}/p\" routes/tickets.js)",
+      "Bash(sed -n \"/userCanAccessRoom/,/^}/p\" routes/chat.js)"
     ]
   }
 }

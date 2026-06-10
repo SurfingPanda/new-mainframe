@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool } from '../config/db.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, AUTH_COOKIE } from '../middleware/auth.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { effectivePermissions } from '../lib/permissions.js';
 import { sendMailSafe, appUrl } from '../lib/mailer.js';
@@ -13,11 +13,52 @@ import { slaStanding } from '../lib/sla.js';
 
 const router = Router();
 
+// Auth token lives in an httpOnly cookie so client-side script (and any XSS)
+// can't read it. SameSite=Lax keeps it off cross-site mutation requests (CSRF
+// defense); `secure` is on in production so it's only sent over HTTPS.
+const AUTH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7d, matches default JWT TTL
+function authCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/'
+  };
+}
+function setAuthCookie(res, token) {
+  res.cookie(AUTH_COOKIE, token, { ...authCookieOptions(), maxAge: AUTH_COOKIE_MAX_AGE_MS });
+}
+function clearAuthCookie(res) {
+  res.clearCookie(AUTH_COOKIE, authCookieOptions());
+}
+
 // Throttle login attempts per client IP to blunt password brute-forcing.
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   message: 'Too many login attempts. Please wait a few minutes and try again.'
+});
+
+// Second login limiter keyed on the target email, not the IP. The per-IP limiter
+// above can't stop an attacker rotating IPs against one account; this caps attempts
+// per account regardless of source. Keyed independently, so the two compose.
+const loginEmailLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: 'Too many login attempts for this account. Please wait a few minutes and try again.',
+  keyGenerator: (req) => {
+    const email = String(req.body?.email || '').toLowerCase().trim();
+    return email ? `login:${email}` : null; // no email → let the handler 400
+  }
+});
+
+// Throttle authenticated change-password by user id: current_password is checked
+// with bcrypt, so without a cap a hijacked session could brute-force it.
+const changePasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: 'Too many password change attempts. Please wait a few minutes and try again.',
+  keyGenerator: (req) => (req.user?.sub ? `pw:${req.user.sub}` : req.ip || 'unknown')
 });
 
 // Throttle password-reset requests to discourage enumeration / spam.
@@ -34,7 +75,7 @@ const avatarLimiter = rateLimit({
   message: 'Too many photo uploads. Please wait a few minutes and try again.'
 });
 
-router.post('/login', loginLimiter, async (req, res, next) => {
+router.post('/login', loginLimiter, loginEmailLimiter, async (req, res, next) => {
   try {
     const { email, password } = req.body || {};
     if (!email || !password) {
@@ -65,8 +106,8 @@ router.post('/login', loginLimiter, async (req, res, next) => {
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
 
+    setAuthCookie(res, token);
     res.json({
-      token,
       user: {
         id: user.id,
         email: user.email,
@@ -328,7 +369,7 @@ router.delete('/me/avatar', requireAuth, async (req, res, next) => {
   }
 });
 
-router.post('/change-password', requireAuth, async (req, res, next) => {
+router.post('/change-password', requireAuth, changePasswordLimiter, async (req, res, next) => {
   try {
     const { current_password, new_password } = req.body || {};
     if (!current_password || !new_password) {
@@ -371,10 +412,20 @@ router.post('/change-password', requireAuth, async (req, res, next) => {
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
 
-    res.json({ ok: true, token });
+    // Re-set the cookie so THIS device keeps a valid token (the version bump
+    // above invalidated the old one everywhere, including here).
+    setAuthCookie(res, token);
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }
+});
+
+// Clear the auth cookie. Public + idempotent so even an already-expired
+// session can tidy up after itself.
+router.post('/logout', (req, res) => {
+  clearAuthCookie(res);
+  res.json({ ok: true });
 });
 
 export default router;

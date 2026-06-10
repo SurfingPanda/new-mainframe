@@ -1,4 +1,6 @@
-const TOKEN_KEY = 'mf_token';
+// The auth token now lives in an httpOnly cookie set by the server — it is
+// deliberately NOT readable from JS (XSS can't exfiltrate it). Only the
+// non-sensitive user profile is cached here to drive UI gating.
 const USER_KEY = 'mf_user';
 
 // Mirrors server/src/lib/permissions.js. Used as a fallback when the stored
@@ -30,29 +32,27 @@ const ROLE_DEFAULTS = {
   }
 };
 
-export function getToken() {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
 export function getUser() {
   const raw = localStorage.getItem(USER_KEY);
   return raw ? JSON.parse(raw) : null;
 }
 
-export function setSession(token, user) {
-  localStorage.setItem(TOKEN_KEY, token);
+export function setSession(user) {
   localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
-// Replace just the stored auth token, keeping the cached user. Used after a
-// password change, which re-issues a token (the old one is invalidated server-side).
-export function setToken(token) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
+export function clearSession() {
+  localStorage.removeItem(USER_KEY);
 }
 
-export function clearSession() {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
+// Sign out: ask the server to clear the auth cookie, then drop the cached user.
+export async function logout() {
+  try {
+    await api('/api/auth/logout', { method: 'POST' });
+  } catch {
+    /* clearing the cookie is best-effort; always clear locally */
+  }
+  clearSession();
 }
 
 // Merge a partial update into the stored user (e.g. after a self-service
@@ -65,8 +65,11 @@ export function updateStoredUser(partial) {
   return next;
 }
 
+// We can't read the httpOnly cookie, so presence of a cached user stands in for
+// "logged in". This is UX gating only — the server re-checks the cookie on every
+// request and returns 401 (which clears the session) if it's missing/invalid.
 export function isAuthenticated() {
-  return Boolean(getToken());
+  return Boolean(getUser());
 }
 
 export function hasPermission(module, action, user = getUser()) {
@@ -78,13 +81,13 @@ export function hasPermission(module, action, user = getUser()) {
 }
 
 export async function api(path, options = {}) {
-  const token = getToken();
   const isFormData = options.body instanceof FormData;
   const res = await fetch(path, {
     ...options,
+    // Send the httpOnly auth cookie with every request (and accept Set-Cookie).
+    credentials: 'include',
     headers: {
       ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {})
     }
   });

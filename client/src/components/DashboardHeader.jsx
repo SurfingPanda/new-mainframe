@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { clearSession, getUser, hasPermission } from '../lib/auth.js';
+import { logout, getUser, hasPermission } from '../lib/auth.js';
 import NavDropdown from './NavDropdown.jsx';
 import NotificationBell from './NotificationBell.jsx';
 import Avatar from './Avatar.jsx';
+import FloatingChat from './FloatingChat.jsx';
+import GlobalSearch from './GlobalSearch.jsx';
 import { usePendingResetCount } from '../lib/usePendingResetCount.js';
 import { useWorkOrderNotifications } from '../lib/useWorkOrderNotifications.js';
 import { useChatUnread } from '../lib/useChatUnread.js';
@@ -88,9 +90,9 @@ export default function DashboardHeader() {
 
   const requestLogout = () => setConfirmOpen(true);
 
-  const confirmLogout = () => {
+  const confirmLogout = async () => {
     setConfirmOpen(false);
-    clearSession();
+    await logout();
     navigate('/signin');
   };
 
@@ -184,6 +186,7 @@ export default function DashboardHeader() {
               )}
             </svg>
           </button>
+          <GlobalSearch />
           <MailboxButton unread={mailUnread} />
           <NotificationBell />
           <ProfileMenu user={user} onSignOut={requestLogout} />
@@ -224,6 +227,10 @@ export default function DashboardHeader() {
         </button>
       </div>
     </Modal>
+
+    {/* Hovering chat launcher — on every authenticated page except the full
+        Chat Room view, which is itself the chat. */}
+    {user && location.pathname !== '/chat' && <FloatingChat />}
     </>
   );
 }

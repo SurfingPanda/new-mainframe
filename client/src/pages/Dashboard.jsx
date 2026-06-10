@@ -159,7 +159,7 @@ function StaffDashboard({ user }) {
               />
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {tickets.slice(0, 6).map((t) => (
+                {tickets.slice(0, 4).map((t) => (
                   <li key={t.id}>
                     <Link
                       to={`/tickets/${t.id}`}
@@ -172,16 +172,25 @@ function StaffDashboard({ user }) {
                             <StatusPill status={t.status} />
                           </span>
                         </div>
-                        <span className="min-w-0 sm:col-span-4">
+                        <span className="min-w-0 sm:col-span-3">
                           <span className="block truncate text-slate-800 dark:text-slate-200">{t.title}</span>
                           <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
                             {t.assignee ? `Technician: ${t.assignee}` : 'Unassigned'}
                           </span>
                         </span>
+                        <span className="hidden min-w-0 sm:block sm:col-span-2">
+                          {t.category ? (
+                            <span className="inline-block max-w-full truncate rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300" title={t.category}>
+                              {t.category}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
+                        </span>
                         <span className="sm:col-span-2">
                           <SlaPill ticket={t} />
                         </span>
-                        <span className="sm:col-span-2">
+                        <span className="sm:col-span-1">
                           <PriorityPill priority={t.priority} />
                         </span>
                         <span className="hidden sm:block sm:col-span-2 sm:text-right">
@@ -211,7 +220,7 @@ function StaffDashboard({ user }) {
               <EmptyState title="No articles yet" desc="Publish your first guide to help the team self-serve." />
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {kb.slice(0, 5).map((a) => (
+                {kb.slice(0, 4).map((a) => (
                   <li key={a.id} className="px-5 py-3 text-sm hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-slate-800 truncate dark:text-slate-200">{a.title}</span>
@@ -519,16 +528,25 @@ function UserDashboard({ user }) {
                             <StatusPill status={t.status} />
                           </span>
                         </div>
-                        <span className="min-w-0 sm:col-span-4">
+                        <span className="min-w-0 sm:col-span-3">
                           <span className="block truncate text-slate-800 dark:text-slate-200">{t.title}</span>
                           <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
                             {t.assignee ? `Technician: ${t.assignee}` : 'Unassigned'}
                           </span>
                         </span>
+                        <span className="hidden min-w-0 sm:block sm:col-span-2">
+                          {t.category ? (
+                            <span className="inline-block max-w-full truncate rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300" title={t.category}>
+                              {t.category}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
+                        </span>
                         <span className="sm:col-span-2">
                           <SlaPill ticket={t} />
                         </span>
-                        <span className="sm:col-span-2">
+                        <span className="sm:col-span-1">
                           <PriorityPill priority={t.priority} />
                         </span>
                         <span className="hidden sm:block sm:col-span-2 sm:text-right">
@@ -558,7 +576,7 @@ function UserDashboard({ user }) {
               <EmptyState title="No articles yet" desc="Check back later — IT publishes guides here." />
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {kb.slice(0, 5).map((a) => (
+                {kb.slice(0, 4).map((a) => (
                   <li key={a.id} className="px-5 py-3 text-sm hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                     <Link to={`/kb/${a.slug}`} className="block">
                       <div className="flex items-center gap-2">

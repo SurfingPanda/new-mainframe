@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import * as XLSX from 'xlsx';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import Modal from '../components/Modal.jsx';
 import Avatar from '../components/Avatar.jsx';
@@ -733,6 +732,9 @@ function ImportUsersModal({ onClose, onImported }) {
     setParseError(''); setError(''); setResults(null); setRows([]); setFileName('');
     if (!file) return;
     try {
+      // Lazy-load SheetJS (xlsx) only when a file is actually imported — it's a
+      // heavy dependency, so keeping it out of the main bundle speeds first load.
+      const XLSX = await import('xlsx');
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array' });
       const sheet = wb.Sheets[wb.SheetNames[0]];

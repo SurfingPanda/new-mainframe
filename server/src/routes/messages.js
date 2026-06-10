@@ -5,11 +5,16 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { userWriteLimit } from '../middleware/rateLimit.js';
 
 const router = Router();
 
 const SUBJECT_MAX = 200;
 const BODY_MAX = 5000;
+
+// Throttle outbound internal mail per user to blunt spam (placed before the
+// upload so a throttled send never writes an attachment).
+const sendLimiter = userWriteLimit({ max: 20 });
 
 // --- Message attachments -----------------------------------------------------
 const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'messages');
@@ -127,7 +132,7 @@ router.get('/unread-count', requireAuth, async (req, res, next) => {
 
 // POST /api/messages — send a message to another user. Accepts JSON or a
 // multipart form with an optional `file` attachment.
-router.post('/', requireAuth, attachmentMiddleware, async (req, res, next) => {
+router.post('/', requireAuth, sendLimiter, attachmentMiddleware, async (req, res, next) => {
   const cleanup = () => { if (req.file) fs.unlink(req.file.path, () => {}); };
   try {
     const recipientId = Number(req.body?.recipient_id);

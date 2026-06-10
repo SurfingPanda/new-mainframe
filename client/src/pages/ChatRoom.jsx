@@ -802,7 +802,7 @@ export default function ChatRoom() {
                     ref={fileInputRef}
                     type="file"
                     onChange={(e) => pickFile(e.target.files?.[0])}
-                    accept="image/*,application/pdf,.txt,.doc,.docx,.xls,.xlsx,.zip"
+                    accept="image/*,video/*,application/pdf,.txt,.doc,.docx,.xls,.xlsx,.zip"
                     className="hidden"
                   />
                   <button
@@ -1645,6 +1645,7 @@ function AttachmentPreview({ file, previewUrl, onRemove }) {
 
 function AttachmentBubble({ message, isMe }) {
   const isImage = message.attachment_mime?.startsWith('image/');
+  const isVideo = message.attachment_mime?.startsWith('video/');
   if (isImage) {
     return (
       <a
@@ -1659,6 +1660,15 @@ function AttachmentBubble({ message, isMe }) {
           className="block max-h-72 max-w-[260px] sm:max-w-[320px] object-cover"
         />
       </a>
+    );
+  }
+  if (isVideo) {
+    return (
+      <video
+        src={message.attachment_url}
+        controls
+        className={`block max-h-72 max-w-[260px] sm:max-w-[320px] overflow-hidden rounded-2xl ${isMe ? 'rounded-tr-sm' : 'rounded-tl-sm'}`}
+      />
     );
   }
   return (

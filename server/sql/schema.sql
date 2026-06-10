@@ -382,14 +382,18 @@ CREATE TABLE IF NOT EXISTS space_items (
 );
 
 CREATE TABLE IF NOT EXISTS space_item_comments (
-  id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  item_id      INT UNSIGNED NOT NULL,
-  space_id     INT UNSIGNED NOT NULL,
-  author_id    INT UNSIGNED NOT NULL,
-  author_name  VARCHAR(120) NOT NULL,
-  body         TEXT NOT NULL,
-  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  id                  INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  item_id             INT UNSIGNED NOT NULL,
+  space_id            INT UNSIGNED NOT NULL,
+  author_id           INT UNSIGNED NOT NULL,
+  author_name         VARCHAR(120) NOT NULL,
+  body                TEXT NOT NULL,
+  attachment_url      VARCHAR(255) NULL,
+  attachment_filename VARCHAR(255) NULL,
+  attachment_mime     VARCHAR(120) NULL,
+  attachment_size     INT UNSIGNED NULL,
+  created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_sic_item (item_id),
   FOREIGN KEY (item_id) REFERENCES space_items(id) ON DELETE CASCADE
 );
