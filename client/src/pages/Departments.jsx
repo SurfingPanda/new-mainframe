@@ -6,6 +6,7 @@ import { api } from '../lib/auth.js';
 
 export default function Departments() {
   const [departments, setDepartments] = useState([]);
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [banner, setBanner] = useState(null);
@@ -30,6 +31,13 @@ export default function Departments() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Active users feed the manager dropdown (filtered to the department in-form).
+  useEffect(() => {
+    api('/api/users/directory')
+      .then((list) => setUsers(Array.isArray(list) ? list : []))
+      .catch(() => setUsers([]));
+  }, []);
 
   useEffect(() => {
     if (!banner) return;
@@ -193,6 +201,7 @@ export default function Departments() {
                 <tr className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   <Th>Department</Th>
                   <Th>Description</Th>
+                  <Th className="w-48">Manager</Th>
                   <Th className="w-28">Status</Th>
                   <Th className="w-36">Created</Th>
                   <Th className="w-44 text-right pr-5">Actions</Th>
@@ -200,9 +209,9 @@ export default function Departments() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
-                  <tr><td colSpan={5} className="px-5 py-12 text-center text-sm text-slate-500">Loading departments…</td></tr>
+                  <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500">Loading departments…</td></tr>
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan={5} className="px-5 py-12 text-center text-sm text-slate-500">
+                  <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500">
                     {departments.length === 0
                       ? 'No departments yet. Click "Add department" to create one.'
                       : 'No departments match your filters.'}
@@ -217,11 +226,28 @@ export default function Departments() {
                               <path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01" />
                             </svg>
                           </span>
-                          <div className="font-medium text-slate-900">{d.name}</div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-slate-900">{d.name}</span>
+                            {!!d.is_hr && (
+                              <span className="inline-flex items-center rounded-full bg-accent-50 text-accent-700 ring-1 ring-inset ring-accent-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                                HR
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="px-5 py-3 text-slate-700">
                         {d.description || <span className="italic text-slate-400">—</span>}
+                      </td>
+                      <td className="px-5 py-3">
+                        {d.manager_name ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 text-brand-800 ring-1 ring-inset ring-brand-200 px-2 py-0.5 text-[11px] font-semibold">
+                            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" /></svg>
+                            {d.manager_name}
+                          </span>
+                        ) : (
+                          <span className="italic text-slate-400">Unassigned</span>
+                        )}
                       </td>
                       <td className="px-5 py-3"><StatusPill active={!!d.is_active} /></td>
                       <td className="px-5 py-3 text-xs text-slate-500">
@@ -273,6 +299,7 @@ export default function Departments() {
       {editTarget && (
         <DepartmentFormModal
           target={editTarget}
+          users={users}
           onClose={() => setEditTarget(null)}
           onSave={handleSave}
         />
@@ -288,13 +315,30 @@ export default function Departments() {
   );
 }
 
-function DepartmentFormModal({ target, onClose, onSave }) {
+function DepartmentFormModal({ target, users = [], onClose, onSave }) {
   const isNew = target === 'new';
   const [name, setName] = useState(isNew ? '' : target.name || '');
   const [description, setDescription] = useState(isNew ? '' : target.description || '');
   const [isActive, setIsActive] = useState(isNew ? true : !!target.is_active);
+  const [isHr, setIsHr] = useState(isNew ? false : !!target.is_hr);
+  const [managerId, setManagerId] = useState(isNew ? '' : (target.manager_id ? String(target.manager_id) : ''));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  // A manager must belong to this department, so only offer users whose label
+  // matches the name currently in the form (case-insensitive).
+  const eligibleManagers = useMemo(() => {
+    const n = name.trim().toLowerCase();
+    if (!n) return [];
+    return users.filter((u) => (u.department || '').trim().toLowerCase() === n);
+  }, [users, name]);
+
+  // If the chosen manager is no longer eligible (e.g. the name changed), clear it.
+  useEffect(() => {
+    if (managerId && !eligibleManagers.some((u) => String(u.id) === managerId)) {
+      setManagerId('');
+    }
+  }, [eligibleManagers, managerId]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -309,7 +353,9 @@ function DepartmentFormModal({ target, onClose, onSave }) {
         {
           name: name.trim(),
           description: description.trim() || null,
-          is_active: isActive
+          is_active: isActive,
+          is_hr: isHr,
+          manager_id: managerId === '' ? null : Number(managerId)
         },
         isNew
       );
@@ -336,6 +382,32 @@ function DepartmentFormModal({ target, onClose, onSave }) {
           />
         </FormField>
 
+        <FormField
+          label="Manager"
+          hint={
+            name.trim()
+              ? 'The department head. Only users already assigned to this department can be chosen.'
+              : 'Enter a name first, then pick from users in that department.'
+          }
+        >
+          <select
+            value={managerId}
+            onChange={(e) => setManagerId(e.target.value)}
+            disabled={eligibleManagers.length === 0}
+            className={inputCls()}
+          >
+            <option value="">No manager</option>
+            {eligibleManagers.map((u) => (
+              <option key={u.id} value={u.id}>{u.name}</option>
+            ))}
+          </select>
+          {name.trim() && eligibleManagers.length === 0 && (
+            <p className="mt-1 text-[11px] text-amber-600">
+              No users are assigned to this department yet — add staff on the Users page first.
+            </p>
+          )}
+        </FormField>
+
         <label className="flex items-center gap-2 text-sm text-slate-700 select-none cursor-pointer">
           <input
             type="checkbox"
@@ -345,6 +417,21 @@ function DepartmentFormModal({ target, onClose, onSave }) {
           />
           Department active
         </label>
+
+        <div>
+          <label className="flex items-center gap-2 text-sm text-slate-700 select-none cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isHr}
+              onChange={(e) => setIsHr(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-accent-600 focus:ring-accent-500"
+            />
+            HR / approvals department
+          </label>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Approved “HR Concerns” requests route here. Only one department can hold this — setting it here clears it elsewhere.
+          </p>
+        </div>
 
         {error && <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>}
 

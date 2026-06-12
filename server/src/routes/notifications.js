@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../config/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { managedDepartments } from '../lib/department-managers.js';
 
 const router = Router();
 
@@ -37,6 +38,12 @@ function describe(row, identitySet, dept) {
     message = `${actor} set status to ${STATUS_LABELS[row.new_value] || row.new_value || '—'}`;
   } else if (row.field === 'priority') {
     message = `${actor} set priority to ${row.new_value || '—'}`;
+  } else if (row.field === 'approval_requested') {
+    message = `${actor} needs your approval`;
+  } else if (row.field === 'approved') {
+    message = `${actor} approved this request`;
+  } else if (row.field === 'denied') {
+    message = `${actor} declined this request`;
   } else if (row.field === 'attachment_removed') {
     message = `${actor} removed an attachment`;
   } else if (row.field === 'kb_link') {
@@ -75,19 +82,27 @@ router.get('/', requireAuth, async (req, res, next) => {
     const seenMs = seenAt ? new Date(seenAt).getTime() : 0;
 
     // Relevant activity: work orders assigned to the user, the moment one was
-    // assigned to them, OR any work order routed to their department.
+    // assigned to them, OR any work order routed to their department. A pending
+    // HR request is deliberately unrouted (department NULL) so coworkers don't
+    // get notified — its manager is surfaced via the approval clause instead.
+    const managedDepts = await managedDepartments(req.user.sub);
     const deptClause = dept ? ' OR t.department = ?' : '';
+    const approvalClause = managedDepts.length
+      ? " OR (t.approval_status = 'pending' AND t.approval_dept IN (?))"
+      : '';
     const params = [identities, identities];
     if (dept) params.push(dept);
+    if (managedDepts.length) params.push(managedDepts);
     params.push(identities);
 
     const [rows] = await pool.query(
       `SELECT a.id, a.ticket_id, a.type, a.actor, a.field, a.new_value, a.created_at,
-              t.title AS ticket_title, t.assignee AS ticket_assignee, t.department AS ticket_department
+              t.title AS ticket_title, t.assignee AS ticket_assignee, t.requester AS ticket_requester,
+              t.department AS ticket_department
          FROM ticket_activity a
          JOIN tickets t ON t.id = a.ticket_id
         WHERE ( t.assignee IN (?)
-                OR (a.field = 'assignee' AND a.new_value IN (?))${deptClause} )
+                OR (a.field = 'assignee' AND a.new_value IN (?))${deptClause}${approvalClause} )
           AND ( a.actor IS NULL OR a.actor NOT IN (?) )
           AND ( a.field IS NULL OR a.field <> 'survey_sent' )
         ORDER BY a.created_at DESC, a.id DESC
@@ -95,8 +110,19 @@ router.get('/', requireAuth, async (req, res, next) => {
       params
     );
 
+    // Split unread work-order notifications by the nav view that holds the
+    // ticket, so the Work Orders dropdown can badge each item: assigned to me →
+    // My Queue, else I filed it → Submitted, else (dept-routed / approvals) →
+    // All Work Orders. The three sum to the aggregate `workOrders` count.
+    const byView = { myQueue: 0, submitted: 0, all: 0 };
     const items = rows.map((r) => {
       const { kind, message } = describe(r, identitySet, dept);
+      const unread = new Date(r.created_at).getTime() > seenMs;
+      if (unread) {
+        if (r.ticket_assignee && identitySet.has(r.ticket_assignee)) byView.myQueue += 1;
+        else if (r.ticket_requester && identitySet.has(r.ticket_requester)) byView.submitted += 1;
+        else byView.all += 1;
+      }
       return {
         id: `t-${r.id}`,
         link: `/tickets/${r.ticket_id}`,
@@ -106,7 +132,7 @@ router.get('/', requireAuth, async (req, res, next) => {
         message,
         actor: r.actor || null,
         createdAt: r.created_at,
-        unread: new Date(r.created_at).getTime() > seenMs,
+        unread,
       };
     });
 
@@ -185,6 +211,8 @@ router.get('/', requireAuth, async (req, res, next) => {
       count: items.filter((i) => i.unread).length,
       // Unread work-order notifications only (drives the Work Orders nav badge).
       workOrders: items.filter((i) => i.unread && i.ticketId).length,
+      // Same total, split by destination view (My Queue / Submitted / All).
+      workOrdersByView: byView,
       items,
     });
   } catch (err) {

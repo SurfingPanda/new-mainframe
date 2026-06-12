@@ -9,6 +9,7 @@ import { effectivePermissions } from '../lib/permissions.js';
 import { sendMailSafe, appUrl } from '../lib/mailer.js';
 import { passwordResetLink } from '../lib/email-templates.js';
 import { avatarUpload, saveAvatar, removeAvatarFile, InvalidImageError } from '../lib/avatar-upload.js';
+import { signatureUpload, saveSignature, removeSignatureFile } from '../lib/signature-upload.js';
 import { slaStanding } from '../lib/sla.js';
 
 const router = Router();
@@ -83,7 +84,7 @@ router.post('/login', loginLimiter, loginEmailLimiter, async (req, res, next) =>
     }
 
     const [rows] = await pool.query(
-      'SELECT id, email, password_hash, name, role, department, job_title, avatar_url, is_active, permissions, token_version FROM users WHERE email = ? LIMIT 1',
+      'SELECT id, email, password_hash, name, role, department, job_title, avatar_url, signature_url, is_active, permissions, token_version FROM users WHERE email = ? LIMIT 1',
       [email.toLowerCase().trim()]
     );
 
@@ -116,6 +117,7 @@ router.post('/login', loginLimiter, loginEmailLimiter, async (req, res, next) =>
         department: user.department,
         job_title: user.job_title,
         avatar_url: user.avatar_url,
+        signature_url: user.signature_url,
         permissions
       }
     });
@@ -225,7 +227,7 @@ router.post('/reset-password', forgotLimiter, async (req, res, next) => {
 });
 
 const ME_COLUMNS =
-  'id, email, name, role, department, job_title, avatar_url, permissions, last_login_at, created_at';
+  'id, email, name, role, department, job_title, avatar_url, signature_url, permissions, last_login_at, created_at';
 
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
@@ -364,6 +366,38 @@ router.delete('/me/avatar', requireAuth, async (req, res, next) => {
     await pool.query('UPDATE users SET avatar_url = NULL WHERE id = ?', [req.user.sub]);
     removeAvatarFile(prev?.avatar_url);
     res.json({ avatar_url: null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Upload / replace own e-signature (a drawn or uploaded image). Returns the URL.
+router.post('/me/signature', requireAuth, avatarLimiter, signatureUpload, async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No image was uploaded.' });
+    let signatureUrl;
+    try {
+      signatureUrl = await saveSignature(req.file.buffer);
+    } catch (err) {
+      if (err instanceof InvalidImageError) return res.status(400).json({ error: err.message });
+      throw err;
+    }
+    const [[prev]] = await pool.query('SELECT signature_url FROM users WHERE id = ? LIMIT 1', [req.user.sub]);
+    await pool.query('UPDATE users SET signature_url = ? WHERE id = ?', [signatureUrl, req.user.sub]);
+    removeSignatureFile(prev?.signature_url);
+    res.json({ signature_url: signatureUrl });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Remove own e-signature.
+router.delete('/me/signature', requireAuth, async (req, res, next) => {
+  try {
+    const [[prev]] = await pool.query('SELECT signature_url FROM users WHERE id = ? LIMIT 1', [req.user.sub]);
+    await pool.query('UPDATE users SET signature_url = NULL WHERE id = ?', [req.user.sub]);
+    removeSignatureFile(prev?.signature_url);
+    res.json({ signature_url: null });
   } catch (err) {
     next(err);
   }

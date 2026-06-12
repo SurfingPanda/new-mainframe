@@ -4,11 +4,16 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
-import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { userWriteLimit } from '../middleware/rateLimit.js';
 import { notifyTicketCreated, notifyTicketChanges, notifyTicketNote } from '../lib/ticket-emails.js';
 import { slaStanding } from '../lib/sla.js';
 import { maybeSendResolutionSurvey } from '../lib/resolution-survey.js';
+import { managesDepartment, managedDepartments, hrDepartmentName, managerOfDepartment } from '../lib/department-managers.js';
+import { notifyApprovalRequested, notifyApprovalDecision } from '../lib/hr-approval.js';
+
+// Category that triggers the manager-approval workflow.
+const HR_CONCERNS = 'HR Concerns';
 
 const router = Router();
 
@@ -91,16 +96,60 @@ function sameDepartment(user, ticket) {
   return !!(user?.department && ticket?.department && user.department === ticket.department);
 }
 
-// Read policy: any signed-in user may VIEW any work order (so everyone can browse
-// and search the full queue from "All Work Orders"). Editing, claiming, and
-// posting notes stay restricted — see the write guards below, which still use
-// canViewTicket / isStaff / sameDepartment.
-function canReadTicket(user) {
-  return !!user;
+// Read policy: any signed-in user may VIEW any *ordinary* work order (so everyone
+// can browse and search the full queue from "All Work Orders"). 'HR Concerns' are
+// sensitive (leave / HR matters) and are need-to-know only: the requester/
+// assignee, the manager approving it, HR staff once it's routed to HR, and admin/
+// agent. Async because the manager / HR checks hit the departments table.
+async function canReadTicket(user, ticket) {
+  if (!user) return false;
+  if (ticket?.category !== HR_CONCERNS) return true; // ordinary work orders: open read
+  if (isStaff(user)) return true;
+  if (ownsTicket(ticket, userIdentities(user))) return true;
+  // The requester's department manager oversees the request for its whole life:
+  // while pending it's unrouted (department NULL, approval_dept = the requester's
+  // home department), and they keep visibility after approving/denying it.
+  if (await managesDepartment(user.sub, ticket.approval_dept)) return true;
+  // Once routed, whoever heads the department it now sits in, plus its members
+  // (i.e. HR staff see HR-routed concerns via same-department).
+  if (ticket.department) {
+    if (sameDepartment(user, ticket)) return true;
+    if (await managesDepartment(user.sub, ticket.department)) return true;
+  }
+  return false;
 }
 
 function canViewTicket(user, ticket) {
   return isStaff(user) || ownsTicket(ticket, userIdentities(user)) || sameDepartment(user, ticket);
+}
+
+// Sync need-to-know test for an 'HR Concerns' row in a LIST result (the async
+// per-record rules are precomputed into `ctx`: the caller's identities, home
+// department, and the Set of departments they manage). Non-HR rows always pass.
+function hrConcernVisibleToList(row, ctx) {
+  if (row.category !== HR_CONCERNS) return true;
+  if (ctx.identities.includes(row.requester) || ctx.identities.includes(row.assignee)) return true;
+  if (ctx.managedDepts.has(row.approval_dept)) return true;   // requester's dept manager
+  if (row.department) {
+    if (ctx.myDept && row.department === ctx.myDept) return true;   // HR staff (after routing)
+    if (ctx.managedDepts.has(row.department)) return true;          // manager of where it sits
+  }
+  return false;
+}
+
+// May this user act on a pending approval (approve/deny)? The manager of the
+// department it's routed to for approval, or staff (admin/agent override).
+async function canApprove(user, ticket) {
+  if (ticket?.approval_status !== 'pending') return false;
+  return isStaff(user) || (await managesDepartment(user?.sub, ticket?.approval_dept));
+}
+
+// Full-edit rights on a specific work order (status/priority/reassign, notes, KB,
+// attachments): staff work the whole queue; a department manager gets the same
+// powers for work orders routed to the department they head. Async because the
+// manager check hits the departments table.
+async function canManageTicket(user, ticket) {
+  return isStaff(user) || (await managesDepartment(user?.sub, ticket?.department));
 }
 
 router.get('/', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
@@ -111,10 +160,14 @@ router.get('/', requireAuth, requirePermission('tickets', 'view'), async (req, r
     // any signed-in user so they can browse/search every work order — read-only,
     // since editing/claiming/posting stay guarded on their own routes.
     const wantsAll = req.query.scope === 'all';
+    const staff = isStaff(req.user);
+    const identities = userIdentities(req.user);
+    // Departments this user heads — used both to surface their pending HR
+    // approvals and (below) to keep HR concerns need-to-know.
+    const managedDepts = staff ? [] : await managedDepartments(req.user.sub);
     const params = [];
     let scope = '';
-    if (!isStaff(req.user) && !wantsAll) {
-      const identities = userIdentities(req.user);
+    if (!staff && !wantsAll) {
       const clauses = [];
       if (identities.length) {
         clauses.push('requester IN (?)', 'assignee IN (?)');
@@ -126,19 +179,32 @@ router.get('/', requireAuth, requirePermission('tickets', 'view'), async (req, r
         clauses.push('department = ?');
         params.push(req.user.department);
       }
+      // A department manager also sees HR requests waiting for their approval
+      // (these are deliberately unrouted — department NULL — until approved).
+      if (managedDepts.length) {
+        clauses.push("(approval_status = 'pending' AND approval_dept IN (?))");
+        params.push(managedDepts);
+      }
       if (!clauses.length) return res.json([]);
       scope = `WHERE ${clauses.join(' OR ')}`;
     }
 
-    const [rows] = await pool.query(
-      `SELECT id, title, description, status, priority, request_type, category, department,
-              requester, assignee, asset_id, created_at, updated_at
+    const [rows0] = await pool.query(
+      `SELECT id, title, description, status, priority, request_type, category, subcategory, subcategory2, department,
+              requester, assignee, asset_id, approval_status, approval_dept, created_at, updated_at
          FROM tickets
         ${scope}
         ORDER BY created_at DESC
         LIMIT 500`,
       params
     );
+
+    // Need-to-know guard for 'HR Concerns': drop any the caller may not see. This
+    // backstops `?scope=all` (which fetches the whole queue) and never affects
+    // ordinary work orders or staff.
+    const rows = staff ? rows0 : rows0.filter((r) => hrConcernVisibleToList(r, {
+      identities, myDept: req.user?.department || null, managedDepts: new Set(managedDepts)
+    }));
 
     if (rows.length === 0) return res.json([]);
 
@@ -195,15 +261,17 @@ router.get('/:id', requireAuth, requirePermission('tickets', 'view'), async (req
     }
 
     const [rows] = await pool.query(
-      `SELECT id, title, description, status, priority, request_type, category, department,
-              requester, assignee, asset_id, created_at, updated_at
+      `SELECT id, title, description, status, priority, request_type, category, subcategory, subcategory2, department,
+              requester, assignee, asset_id, overtime_report,
+              approval_status, approval_dept, approver_name, approver_signature_url, approval_note, approval_decided_at,
+              created_at, updated_at
          FROM tickets WHERE id = ?`,
       [id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Ticket not found' });
 
     const ticket = rows[0];
-    if (!canReadTicket(req.user)) {
+    if (!(await canReadTicket(req.user, ticket))) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
 
@@ -235,6 +303,11 @@ router.get('/:id', requireAuth, requirePermission('tickets', 'view'), async (req
       ticket.asset = null;
     }
 
+    // Lets the client show staff-style edit controls to a department manager,
+    // and an Approve/Deny banner to the manager of a pending HR request.
+    ticket.can_edit = await canManageTicket(req.user, ticket);
+    ticket.can_approve = await canApprove(req.user, ticket);
+
     res.json(ticket);
   } catch (err) {
     next(err);
@@ -248,13 +321,15 @@ const EDITABLE_FIELDS = {
   priority: { enum: ALLOWED_PRIORITIES },
   request_type: { enum: ALLOWED_REQUEST_TYPES },
   category: { enum: ALLOWED_CATEGORIES, nullable: true },
+  subcategory: { max: 120, nullable: true },
+  subcategory2: { max: 120, nullable: true },
   department: { max: 80, nullable: true },
   requester: { max: 120 },
   assignee: { max: 120, nullable: true },
   asset_id: { numeric: true, nullable: true }
 };
 
-router.patch('/:id', requireAuth, requireRole('admin', 'agent'), async (req, res, next) => {
+router.patch('/:id', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
@@ -262,13 +337,19 @@ router.patch('/:id', requireAuth, requireRole('admin', 'agent'), async (req, res
     }
 
     const [existingRows] = await pool.query(
-      `SELECT id, title, description, status, priority, request_type, category, department,
+      `SELECT id, title, description, status, priority, request_type, category, subcategory, subcategory2, department,
               requester, assignee, asset_id
          FROM tickets WHERE id = ?`,
       [id]
     );
     if (!existingRows.length) return res.status(404).json({ error: 'Ticket not found' });
     const before = existingRows[0];
+    // Staff, or the manager of the department this work order is currently routed
+    // to. (Checked against the pre-edit department so a manager can't be locked
+    // out mid-edit by rerouting it.)
+    if (!(await canManageTicket(req.user, before))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
 
     const updates = [];
     const values = [];
@@ -335,8 +416,8 @@ router.patch('/:id', requireAuth, requireRole('admin', 'agent'), async (req, res
     }
 
     const [updatedRows] = await pool.query(
-      `SELECT id, title, description, status, priority, request_type, category, department,
-              requester, assignee, asset_id, created_at, updated_at
+      `SELECT id, title, description, status, priority, request_type, category, subcategory, subcategory2, department,
+              requester, assignee, asset_id, overtime_report, created_at, updated_at
          FROM tickets WHERE id = ?`,
       [id]
     );
@@ -364,14 +445,20 @@ async function setSelfAssignment(req, res, next, assign) {
       return res.status(400).json({ error: 'invalid ticket id' });
     }
     const [rows] = await pool.query(
-      `SELECT id, title, description, status, priority, request_type, category, department,
-              requester, assignee, asset_id, created_at, updated_at
+      `SELECT id, title, description, status, priority, request_type, category, subcategory, subcategory2, department,
+              requester, assignee, asset_id, overtime_report, approval_status, created_at, updated_at
          FROM tickets WHERE id = ?`,
       [id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Ticket not found' });
     const ticket = rows[0];
 
+    // An HR Concern isn't self-assignable until it's cleared approval and been
+    // routed to HR — before that it moves through the approval workflow. Once
+    // approved, HR staff pick it up like any other department work.
+    if (ticket.category === HR_CONCERNS && ticket.approval_status !== 'approved') {
+      return res.status(400).json({ error: 'HR requests are handled through approval, not self-assignment.' });
+    }
     // Hide existence from users with no access (mirrors the read endpoints).
     if (!canViewTicket(req.user, ticket)) {
       return res.status(404).json({ error: 'Ticket not found' });
@@ -403,8 +490,8 @@ async function setSelfAssignment(req, res, next, assign) {
     );
 
     const [updatedRows] = await pool.query(
-      `SELECT id, title, description, status, priority, request_type, category, department,
-              requester, assignee, asset_id, created_at, updated_at
+      `SELECT id, title, description, status, priority, request_type, category, subcategory, subcategory2, department,
+              requester, assignee, asset_id, overtime_report, created_at, updated_at
          FROM tickets WHERE id = ?`,
       [id]
     );
@@ -422,6 +509,92 @@ router.post('/:id/claim', requireAuth, requirePermission('tickets', 'view'), (re
 router.post('/:id/release', requireAuth, requirePermission('tickets', 'view'), (req, res, next) =>
   setSelfAssignment(req, res, next, false)
 );
+
+// Columns returned to the client after an approval decision (matches GET /:id).
+const APPROVAL_SELECT =
+  `SELECT id, title, description, status, priority, request_type, category, subcategory, subcategory2, department,
+          requester, assignee, asset_id, overtime_report,
+          approval_status, approval_dept, approver_name, approver_signature_url, approval_note, approval_decided_at,
+          created_at, updated_at
+     FROM tickets WHERE id = ?`;
+
+// Load a pending-approval ticket and authorize the caller as its approver.
+// Returns the ticket row, or null after sending the appropriate error response.
+async function loadForApproval(req, res) {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: 'invalid ticket id' }); return null; }
+  const [[ticket]] = await pool.query(
+    'SELECT id, title, requester, category, approval_status, approval_dept FROM tickets WHERE id = ? LIMIT 1',
+    [id]
+  );
+  if (!ticket) { res.status(404).json({ error: 'Ticket not found' }); return null; }
+  if (ticket.approval_status !== 'pending') { res.status(409).json({ error: 'This request is not awaiting approval' }); return null; }
+  if (!(await canApprove(req.user, ticket))) { res.status(403).json({ error: 'Only the department manager can decide this request' }); return null; }
+  return ticket;
+}
+
+// POST /api/tickets/:id/approve — the requester's department manager (or staff)
+// approves a pending HR request, forwarding it to the HR department.
+router.post('/:id/approve', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
+  try {
+    const ticket = await loadForApproval(req, res);
+    if (!ticket) return;
+    const id = ticket.id;
+    const actor = req.user?.name || req.user?.email || 'system';
+    const hrName = await hrDepartmentName();
+    // Snapshot the approver's e-signature onto the work order so the printed form
+    // shows it under "Approved by" regardless of who later views/prints it.
+    const [[approver]] = await pool.query('SELECT signature_url FROM users WHERE id = ? LIMIT 1', [req.user.sub]);
+
+    await pool.query(
+      `UPDATE tickets
+          SET approval_status = 'approved', department = ?, approver_name = ?, approver_signature_url = ?,
+              approval_decided_at = CURRENT_TIMESTAMP
+        WHERE id = ?`,
+      [hrName, String(actor).slice(0, 120), approver?.signature_url || null, id]
+    );
+    await pool.query(
+      `INSERT INTO ticket_activity (ticket_id, type, actor, field, new_value)
+       VALUES (?, 'change', ?, 'approved', ?)`,
+      [id, String(actor).slice(0, 120), String(hrName || 'HR').slice(0, 500)]
+    );
+    const [[updated]] = await pool.query(APPROVAL_SELECT, [id]);
+    notifyApprovalDecision({ ticket: updated, decision: 'approved', hrName });
+    res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/tickets/:id/deny — decline a pending HR request (reason required).
+// Closes the work order; it is never routed to HR. The requester is notified.
+router.post('/:id/deny', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
+  try {
+    const reason = String(req.body?.reason || '').trim();
+    if (!reason) return res.status(400).json({ error: 'A reason is required to decline a request' });
+    const ticket = await loadForApproval(req, res);
+    if (!ticket) return;
+    const id = ticket.id;
+    const actor = req.user?.name || req.user?.email || 'system';
+
+    await pool.query(
+      `UPDATE tickets
+          SET approval_status = 'denied', status = 'closed', approver_name = ?, approval_note = ?, approval_decided_at = CURRENT_TIMESTAMP
+        WHERE id = ?`,
+      [String(actor).slice(0, 120), reason.slice(0, 1000), id]
+    );
+    await pool.query(
+      `INSERT INTO ticket_activity (ticket_id, type, actor, field, new_value)
+       VALUES (?, 'change', ?, 'denied', ?)`,
+      [id, String(actor).slice(0, 120), reason.slice(0, 500)]
+    );
+    const [[updated]] = await pool.query(APPROVAL_SELECT, [id]);
+    notifyApprovalDecision({ ticket: updated, decision: 'denied', reason });
+    res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+});
 
 async function loadActivity(ticketId) {
   const [rows] = await pool.query(
@@ -466,11 +639,11 @@ router.get('/:id/activity', requireAuth, requirePermission('tickets', 'view'), a
     }
 
     const [ownerRows] = await pool.query(
-      'SELECT requester, assignee, department FROM tickets WHERE id = ? LIMIT 1',
+      'SELECT requester, assignee, department, category, approval_status, approval_dept FROM tickets WHERE id = ? LIMIT 1',
       [id]
     );
     if (!ownerRows.length) return res.status(404).json({ error: 'Ticket not found' });
-    if (!canReadTicket(req.user)) {
+    if (!(await canReadTicket(req.user, ownerRows[0]))) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
 
@@ -532,14 +705,20 @@ router.post(
       }
 
       const [exists] = await pool.query(
-        'SELECT id, title, requester, assignee FROM tickets WHERE id = ? LIMIT 1',
+        'SELECT id, title, requester, assignee, department, approval_dept FROM tickets WHERE id = ? LIMIT 1',
         [id]
       );
       if (!exists.length) {
         cleanupFile();
         return res.status(404).json({ error: 'Ticket not found' });
       }
-      if (!isStaff(req.user) && !ownsTicket(exists[0], userIdentities(req.user))) {
+      // The requester/assignee, staff, or the manager of the department it's
+      // routed to (or, while pending approval, its approval_dept) may post notes.
+      const canNote = isStaff(req.user)
+        || ownsTicket(exists[0], userIdentities(req.user))
+        || (await managesDepartment(req.user?.sub, exists[0].department))
+        || (await managesDepartment(req.user?.sub, exists[0].approval_dept));
+      if (!canNote) {
         cleanupFile();
         return res.status(404).json({ error: 'Ticket not found' });
       }
@@ -614,7 +793,7 @@ router.post(
 router.delete(
   '/:id/attachments/:attachmentId',
   requireAuth,
-  requireRole('admin', 'agent'),
+  requirePermission('tickets', 'view'),
   async (req, res, next) => {
     try {
       const id = Number(req.params.id);
@@ -623,6 +802,10 @@ router.delete(
           !Number.isInteger(attachmentId) || attachmentId <= 0) {
         return res.status(400).json({ error: 'invalid ids' });
       }
+
+      const [[ticket]] = await pool.query('SELECT id, department FROM tickets WHERE id = ? LIMIT 1', [id]);
+      if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+      if (!(await canManageTicket(req.user, ticket))) return res.status(403).json({ error: 'Forbidden' });
 
       const [rows] = await pool.query(
         `SELECT id, ticket_id, original_filename, stored_filename
@@ -667,11 +850,11 @@ router.get('/:id/kb', requireAuth, requirePermission('tickets', 'view'), async (
     }
 
     const [ownerRows] = await pool.query(
-      'SELECT requester, assignee, department FROM tickets WHERE id = ? LIMIT 1',
+      'SELECT requester, assignee, department, category, approval_status, approval_dept FROM tickets WHERE id = ? LIMIT 1',
       [id]
     );
     if (!ownerRows.length) return res.status(404).json({ error: 'Ticket not found' });
-    if (!canReadTicket(req.user)) {
+    if (!(await canReadTicket(req.user, ownerRows[0]))) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
 
@@ -690,7 +873,7 @@ router.get('/:id/kb', requireAuth, requirePermission('tickets', 'view'), async (
   }
 });
 
-router.post('/:id/kb', requireAuth, requireRole('admin', 'agent'), async (req, res, next) => {
+router.post('/:id/kb', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
@@ -701,8 +884,9 @@ router.post('/:id/kb', requireAuth, requireRole('admin', 'agent'), async (req, r
       return res.status(400).json({ error: 'article_id is required' });
     }
 
-    const [tExists] = await pool.query('SELECT id FROM tickets WHERE id = ? LIMIT 1', [id]);
+    const [tExists] = await pool.query('SELECT id, department FROM tickets WHERE id = ? LIMIT 1', [id]);
     if (!tExists.length) return res.status(404).json({ error: 'Ticket not found' });
+    if (!(await canManageTicket(req.user, tExists[0]))) return res.status(403).json({ error: 'Forbidden' });
 
     const [aRows] = await pool.query(
       'SELECT id, title, slug, category, published FROM kb_articles WHERE id = ? LIMIT 1',
@@ -744,13 +928,17 @@ router.post('/:id/kb', requireAuth, requireRole('admin', 'agent'), async (req, r
   }
 });
 
-router.delete('/:id/kb/:articleId', requireAuth, requireRole('admin', 'agent'), async (req, res, next) => {
+router.delete('/:id/kb/:articleId', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const articleId = Number(req.params.articleId);
     if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(articleId) || articleId <= 0) {
       return res.status(400).json({ error: 'invalid ids' });
     }
+
+    const [[ticket]] = await pool.query('SELECT id, department FROM tickets WHERE id = ? LIMIT 1', [id]);
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+    if (!(await canManageTicket(req.user, ticket))) return res.status(403).json({ error: 'Forbidden' });
 
     const [aRows] = await pool.query(
       'SELECT title FROM kb_articles WHERE id = ? LIMIT 1',
@@ -802,11 +990,43 @@ router.post(
         status = 'open',
         request_type = 'service_request',
         category,
+        subcategory,
+        subcategory2,
+        overtime_report,
         department,
         requester,
         assignee,
         asset_id
       } = req.body || {};
+
+      // Sub-categories are the lower levels of the cascading category picker. The
+      // client constrains them to a per-category taxonomy; the server keeps them
+      // optional + length-bounded, and only when a parent level is present.
+      const clampSub = (v) => (v ? String(v).trim().slice(0, 120) : null);
+      const subcat = category ? clampSub(subcategory) : null;
+      const subcat2 = subcat ? clampSub(subcategory2) : null;
+
+      // Structured Overtime & Accomplishment Report rows (sent as a JSON string
+      // via the multipart form). Validate shape + clamp lengths defensively.
+      let overtimeJson = null;
+      if (overtime_report) {
+        try {
+          const parsed = typeof overtime_report === 'string' ? JSON.parse(overtime_report) : overtime_report;
+          if (Array.isArray(parsed) && parsed.length) {
+            const clean = parsed.slice(0, 50).map((r) => ({
+              name: String(r?.name ?? '').slice(0, 120),
+              otIn: String(r?.otIn ?? '').slice(0, 10),
+              otOut: String(r?.otOut ?? '').slice(0, 10),
+              hours: String(r?.hours ?? '').slice(0, 20),
+              signature: String(r?.signature ?? '').slice(0, 120),
+              signatureUrl: String(r?.signatureUrl ?? '').slice(0, 255)
+            }));
+            overtimeJson = JSON.stringify(clean);
+          }
+        } catch {
+          overtimeJson = null; // ignore malformed payloads
+        }
+      }
 
       // A plain user can only file tickets under their own identity; agents
       // and admins may file on behalf of anyone.
@@ -835,10 +1055,41 @@ router.post(
         return res.status(400).json({ error: 'invalid category' });
       }
 
+      // 'HR Concerns' enter the manager-approval workflow: held 'pending' and
+      // routed to the filer's department manager while UNROUTED (department NULL,
+      // so coworkers can't see it); approval forwards it to HR. With no manager
+      // (or the filer IS the manager) there is nobody to approve it, so it is
+      // auto-approved straight to HR.
+      let departmentValue = department ? String(department).trim().slice(0, 80) : null;
+      let approvalStatus = 'not_required';
+      let approvalDept = null;
+      let approverName = null;
+      let approvalDecidedAt = null;
+      let pendingManager = null;
+      let hrName = null;
+      if (category === HR_CONCERNS) {
+        const homeDept = req.user?.department || null;
+        const manager = homeDept ? await managerOfDepartment(homeDept) : null;
+        hrName = await hrDepartmentName();
+        if (manager && manager.id !== req.user.sub) {
+          approvalStatus = 'pending';
+          approvalDept = homeDept;
+          departmentValue = null;          // unrouted until approved
+          pendingManager = manager;
+        } else {
+          approvalStatus = 'approved';     // nobody to approve → straight to HR
+          approvalDept = homeDept;
+          approverName = manager ? manager.name : 'Auto-approved';
+          approvalDecidedAt = new Date();
+          departmentValue = hrName;        // null if no HR department is configured
+        }
+      }
+
       const [result] = await pool.query(
         `INSERT INTO tickets
-           (title, description, priority, status, request_type, category, department, requester, assignee, asset_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (title, description, priority, status, request_type, category, subcategory, subcategory2, overtime_report, department, requester, assignee, asset_id,
+            approval_status, approval_dept, approver_name, approval_decided_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           String(title).trim().slice(0, 200),
           description ? String(description).trim() : null,
@@ -846,10 +1097,17 @@ router.post(
           status,
           request_type,
           category || null,
-          department ? String(department).trim().slice(0, 80) : null,
+          subcat,
+          subcat2,
+          overtimeJson,
+          departmentValue,
           String(requesterName).trim().slice(0, 120),
           assignee ? String(assignee).trim().slice(0, 120) : null,
-          asset_id ? Number(asset_id) : null
+          asset_id ? Number(asset_id) : null,
+          approvalStatus,
+          approvalDept,
+          approverName,
+          approvalDecidedAt
         ]
       );
       const ticketId = result.insertId;
@@ -884,9 +1142,27 @@ router.post(
         );
       }
 
+      // Approval workflow audit trail + notify the manager who must decide.
+      if (approvalStatus === 'pending' && pendingManager) {
+        await pool.query(
+          `INSERT INTO ticket_activity (ticket_id, type, actor, field, new_value)
+           VALUES (?, 'change', ?, 'approval_requested', ?)`,
+          [ticketId, String(creator).trim().slice(0, 120), String(pendingManager.name).slice(0, 500)]
+        );
+        notifyApprovalRequested({ ticket: { id: ticketId, title, requester: requesterName }, manager: pendingManager });
+      } else if (approvalStatus === 'approved' && category === HR_CONCERNS) {
+        await pool.query(
+          `INSERT INTO ticket_activity (ticket_id, type, actor, field, new_value)
+           VALUES (?, 'change', ?, 'approved', ?)`,
+          [ticketId, String(creator).trim().slice(0, 120), String(hrName || 'HR').slice(0, 500)]
+        );
+      }
+
       const [rows] = await pool.query(
-        `SELECT id, title, description, status, priority, request_type, category, department,
-                requester, assignee, asset_id, created_at, updated_at
+        `SELECT id, title, description, status, priority, request_type, category, subcategory, subcategory2, department,
+                requester, assignee, asset_id, overtime_report,
+                approval_status, approval_dept, approver_name, approver_signature_url, approval_note, approval_decided_at,
+                created_at, updated_at
            FROM tickets WHERE id = ?`,
         [ticketId]
       );
@@ -905,7 +1181,11 @@ router.post(
         uploaded_at: a.uploaded_at
       }));
 
-      notifyTicketCreated(ticket, req.user?.name || req.user?.email);
+      // Don't fire the ordinary "new work order" email while it's pending approval
+      // (it isn't routed anywhere yet).
+      if (approvalStatus !== 'pending') {
+        notifyTicketCreated(ticket, req.user?.name || req.user?.email);
+      }
 
       res.status(201).json(ticket);
     } catch (err) {

@@ -69,7 +69,9 @@
       "Read(//c/c/xampp/htdocs/new-mainframe/client/src/pages/**)",
       "Read(//c/c/xampp/htdocs/new-mainframe/client/src/**)",
       "Bash(sed -n \"/function canViewTicket/,/^}/p\" routes/tickets.js)",
-      "Bash(sed -n \"/userCanAccessRoom/,/^}/p\" routes/chat.js)"
+      "Bash(sed -n \"/userCanAccessRoom/,/^}/p\" routes/chat.js)",
+      "Bash(python *)",
+      "Bash(mysql -u root mainframe_app -e \"SELECT id, name, is_hr, manager_id FROM departments ORDER BY id;\")"
     ]
   }
 }

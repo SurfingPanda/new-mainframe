@@ -57,7 +57,8 @@ export async function ensureSchema() {
   // under /uploads/avatars). Added idempotently for pre-existing databases.
   for (const stmt of [
     `ALTER TABLE users ADD COLUMN job_title VARCHAR(120) NULL AFTER department`,
-    `ALTER TABLE users ADD COLUMN avatar_url VARCHAR(255) NULL AFTER job_title`
+    `ALTER TABLE users ADD COLUMN avatar_url VARCHAR(255) NULL AFTER job_title`,
+    `ALTER TABLE users ADD COLUMN signature_url VARCHAR(255) NULL AFTER avatar_url`
   ]) {
     try {
       await pool.query(stmt);
@@ -80,6 +81,20 @@ export async function ensureSchema() {
     await pool.query(`ALTER TABLE tickets ADD COLUMN department VARCHAR(80) NULL AFTER category`);
   } catch (err) {
     if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
+  // tickets.subcategory / subcategory2 — the 2nd/3rd level of the cascading
+  // category picker on the create form (each level unique to its parent).
+  for (const stmt of [
+    `ALTER TABLE tickets ADD COLUMN subcategory  VARCHAR(120) NULL AFTER category`,
+    `ALTER TABLE tickets ADD COLUMN subcategory2 VARCHAR(120) NULL AFTER subcategory`,
+    `ALTER TABLE tickets ADD COLUMN overtime_report JSON NULL AFTER subcategory2`
+  ]) {
+    try {
+      await pool.query(stmt);
+    } catch (err) {
+      if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+    }
   }
 
   // Date an SLA-breach Mailbox reminder was last sent for this work order —
@@ -331,6 +346,48 @@ export async function ensureSchema() {
     )
   `);
 
+  // departments.manager_id — the single user who heads this department (gains
+  // department-scoped oversight; orthogonal to users.role).
+  try {
+    await pool.query(`ALTER TABLE departments ADD COLUMN manager_id INT UNSIGNED NULL AFTER description`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+  try {
+    await pool.query(`ALTER TABLE departments ADD INDEX idx_departments_manager (manager_id)`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_KEYNAME') throw err;
+  }
+
+  // departments.is_hr — marks the single department approved 'HR Concerns'
+  // requests route to (the approvals target).
+  try {
+    await pool.query(`ALTER TABLE departments ADD COLUMN is_hr TINYINT(1) NOT NULL DEFAULT 0 AFTER manager_id`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
+  // tickets approval workflow columns (manager approval for 'HR Concerns').
+  for (const stmt of [
+    `ALTER TABLE tickets ADD COLUMN approval_status ENUM('not_required','pending','approved','denied') NOT NULL DEFAULT 'not_required' AFTER sla_reminded_at`,
+    `ALTER TABLE tickets ADD COLUMN approval_dept VARCHAR(80) NULL AFTER approval_status`,
+    `ALTER TABLE tickets ADD COLUMN approver_name VARCHAR(120) NULL AFTER approval_dept`,
+    `ALTER TABLE tickets ADD COLUMN approver_signature_url VARCHAR(255) NULL AFTER approver_name`,
+    `ALTER TABLE tickets ADD COLUMN approval_note VARCHAR(1000) NULL AFTER approver_name`,
+    `ALTER TABLE tickets ADD COLUMN approval_decided_at TIMESTAMP NULL AFTER approval_note`
+  ]) {
+    try {
+      await pool.query(stmt);
+    } catch (err) {
+      if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+    }
+  }
+  try {
+    await pool.query(`ALTER TABLE tickets ADD INDEX idx_tickets_approval (approval_status, approval_dept)`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_KEYNAME') throw err;
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS asset_requests (
       id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -428,12 +485,31 @@ export async function ensureSchema() {
     CREATE TABLE IF NOT EXISTS space_members (
       space_id   INT UNSIGNED NOT NULL,
       user_id    INT UNSIGNED NOT NULL,
-      role       ENUM('owner','member') NOT NULL DEFAULT 'member',
+      role       ENUM('owner','project_owner','member') NOT NULL DEFAULT 'member',
       added_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (space_id, user_id),
       INDEX idx_sm_user (user_id),
       FOREIGN KEY (space_id) REFERENCES spaces(id) ON DELETE CASCADE
     )
+  `);
+
+  // space_members.role gained a 'project_owner' tier (a read-only stakeholder
+  // limited to the Summary view) between the space owner (Project Manager) and
+  // regular members. MODIFY with the full enum is idempotent.
+  await pool.query(`
+    ALTER TABLE space_members
+      MODIFY COLUMN role
+        ENUM('owner','project_owner','member')
+        NOT NULL DEFAULT 'member'
+  `);
+  // Only the space creator may be the (sole) Project Manager. Reclassify any
+  // co-owners left by the previous "promote to owner" flow as project owners.
+  // Idempotent: after the first run no matching rows remain.
+  await pool.query(`
+    UPDATE space_members m
+      JOIN spaces s ON s.id = m.space_id
+       SET m.role = 'project_owner'
+     WHERE m.role = 'owner' AND m.user_id <> s.owner_id
   `);
 
   await pool.query(`

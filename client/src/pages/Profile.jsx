@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
-import { ProfileCard, PerformanceCard, ActivityCard, PermissionsCard } from '../components/AccountCards.jsx';
+import { ProfileCard, SignatureCard, PerformanceCard, ActivityCard, PermissionsCard } from '../components/AccountCards.jsx';
 import { api, getUser, updateStoredUser } from '../lib/auth.js';
 
 // Profile = read/manage your own profile information (identity, account activity,
@@ -25,6 +25,13 @@ export default function Profile() {
   const handleProfileUpdated = (next) => {
     setMe(next);
     updateStoredUser({ name: next.name, avatar_url: next.avatar_url ?? null });
+  };
+
+  // Keep the cached session user's signature current so it auto-fills on
+  // printed work orders without needing a re-login.
+  const handleSignatureUpdated = (next) => {
+    setMe(next);
+    updateStoredUser({ signature_url: next.signature_url ?? null });
   };
 
   return (
@@ -52,6 +59,7 @@ export default function Profile() {
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-6">
             <ProfileCard me={me} onUpdated={handleProfileUpdated} />
+            <SignatureCard me={me} onUpdated={handleSignatureUpdated} />
             <PerformanceCard />
           </div>
           <div className="space-y-6">

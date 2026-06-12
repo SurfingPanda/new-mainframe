@@ -2,16 +2,18 @@ import { useEffect, useState } from 'react';
 import { api } from './auth.js';
 
 const POLL_MS = 45_000;
+const ZERO = { total: 0, byView: { myQueue: 0, submitted: 0, all: 0 } };
 
-// Count of unread work-order notifications (assigned to the user or routed to
-// their department). Drives the badge on the Work Orders nav item. Polls in the
-// background, on tab focus, and whenever the notification bell is marked seen.
+// Unread work-order notifications, as a `total` plus a `byView` breakdown
+// (My Queue / Submitted / All) so the nav can badge both the Work Orders button
+// and each dropdown item. Polls in the background, on tab focus, and whenever
+// the notification bell is marked seen.
 export function useWorkOrderNotifications(enabled = true) {
-  const [count, setCount] = useState(0);
+  const [state, setState] = useState(ZERO);
 
   useEffect(() => {
     if (!enabled) {
-      setCount(0);
+      setState(ZERO);
       return;
     }
     let cancelled = false;
@@ -19,15 +21,23 @@ export function useWorkOrderNotifications(enabled = true) {
       try {
         const data = await api('/api/notifications');
         if (cancelled) return;
-        setCount(Number(data.workOrders) || 0);
+        const v = data.workOrdersByView || {};
+        setState({
+          total: Number(data.workOrders) || 0,
+          byView: {
+            myQueue: Number(v.myQueue) || 0,
+            submitted: Number(v.submitted) || 0,
+            all: Number(v.all) || 0
+          }
+        });
       } catch {
-        // ignore — keep the previous count rather than flashing 0
+        // ignore — keep the previous counts rather than flashing 0
       }
     };
     load();
     const id = setInterval(load, POLL_MS);
     const onFocus = () => load();
-    const onSeen = () => setCount(0);
+    const onSeen = () => setState(ZERO);
     window.addEventListener('focus', onFocus);
     window.addEventListener('notifications-seen', onSeen);
     return () => {
@@ -38,5 +48,5 @@ export function useWorkOrderNotifications(enabled = true) {
     };
   }, [enabled]);
 
-  return count;
+  return state;
 }

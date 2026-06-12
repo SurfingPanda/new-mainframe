@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
   department      VARCHAR(80),
   job_title       VARCHAR(120) NULL,
   avatar_url      VARCHAR(255) NULL,
+  signature_url   VARCHAR(255) NULL,
   is_active             TINYINT(1) NOT NULL DEFAULT 1,
   permissions           JSON NULL,
   -- Bumped on every password change/reset; embedded in the JWT (`tv`) and checked
@@ -33,17 +34,31 @@ CREATE TABLE IF NOT EXISTS tickets (
   priority      ENUM('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
   request_type  ENUM('incident','service_request','question','change') NOT NULL DEFAULT 'service_request',
   category      VARCHAR(80) NULL,
+  subcategory   VARCHAR(120) NULL,
+  subcategory2  VARCHAR(120) NULL,
+  overtime_report JSON NULL,
   department    VARCHAR(80) NULL,
   requester     VARCHAR(120) NOT NULL,
   assignee      VARCHAR(120),
   asset_id      INT UNSIGNED NULL,
   schedule_id   INT UNSIGNED NULL,
   sla_reminded_at DATE NULL,
+  -- Manager-approval workflow (used by 'HR Concerns'): a request is held
+  -- 'pending' and routed to the requester's department manager (approval_dept)
+  -- while UNROUTED (department NULL, so coworkers can't see it); on approval it
+  -- is routed to the HR department, on denial it is closed with a reason.
+  approval_status   ENUM('not_required','pending','approved','denied') NOT NULL DEFAULT 'not_required',
+  approval_dept     VARCHAR(80) NULL,
+  approver_name     VARCHAR(120) NULL,
+  approver_signature_url VARCHAR(255) NULL,
+  approval_note     VARCHAR(1000) NULL,
+  approval_decided_at TIMESTAMP NULL,
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_tickets_status (status),
   INDEX idx_tickets_assignee (assignee),
-  INDEX idx_tickets_schedule (schedule_id)
+  INDEX idx_tickets_schedule (schedule_id),
+  INDEX idx_tickets_approval (approval_status, approval_dept)
 );
 
 CREATE TABLE IF NOT EXISTS ticket_activity (
@@ -258,14 +273,23 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
   INDEX idx_prt_user (user_id)
 );
 
+-- manager_id: the single user who manages this department (a department head).
+-- Orthogonal to users.role — the manager keeps their admin/agent/user role and
+-- gains department-scoped oversight. The user must belong to this department
+-- (users.department = departments.name), which also keeps it one-dept-per-manager.
 CREATE TABLE IF NOT EXISTS departments (
   id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name          VARCHAR(80) NOT NULL UNIQUE,
   description   VARCHAR(255),
+  manager_id    INT UNSIGNED NULL,
+  -- The single department that approved 'HR Concerns' requests route to. At most
+  -- one row has is_hr = 1 (enforced in routes/departments.js, not by the schema).
+  is_hr         TINYINT(1) NOT NULL DEFAULT 0,
   is_active     TINYINT(1) NOT NULL DEFAULT 1,
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_departments_active (is_active)
+  INDEX idx_departments_active (is_active),
+  INDEX idx_departments_manager (manager_id)
 );
 
 -- System announcements / maintenance notices shown on the dashboard.
@@ -320,10 +344,13 @@ CREATE TABLE IF NOT EXISTS spaces (
   INDEX idx_spaces_owner (owner_id)
 );
 
+-- role: 'owner' = the space creator / Project Manager (full admin, sole one);
+-- 'project_owner' = a promoted read-only stakeholder limited to the Summary view;
+-- 'member' = regular contributor with access to all tabs.
 CREATE TABLE IF NOT EXISTS space_members (
   space_id   INT UNSIGNED NOT NULL,
   user_id    INT UNSIGNED NOT NULL,
-  role       ENUM('owner','member') NOT NULL DEFAULT 'member',
+  role       ENUM('owner','project_owner','member') NOT NULL DEFAULT 'member',
   added_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (space_id, user_id),
   INDEX idx_sm_user (user_id),
@@ -477,11 +504,11 @@ INSERT INTO assets (asset_tag, type, model, assignee, location, status) VALUES
   ('LT-0002', 'Laptop', 'MacBook Pro 14', 'asmith', 'Remote', 'in_use')
 ON DUPLICATE KEY UPDATE asset_tag = asset_tag;
 
-INSERT INTO departments (name, description) VALUES
-  ('IT', 'Information Technology'),
-  ('HR', 'Human Resources'),
-  ('Finance', 'Finance and Accounting'),
-  ('Operations', 'Business Operations')
+INSERT INTO departments (name, description, is_hr) VALUES
+  ('IT', 'Information Technology', 0),
+  ('HR', 'Human Resources', 1),
+  ('Finance', 'Finance and Accounting', 0),
+  ('Operations', 'Business Operations', 0)
 ON DUPLICATE KEY UPDATE name = name;
 
 INSERT INTO kb_articles (title, slug, category, body, author) VALUES

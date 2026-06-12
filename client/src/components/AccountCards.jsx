@@ -177,6 +177,223 @@ function EditableRow({ label, value, placeholder, allowEmpty = false, onSave }) 
   );
 }
 
+/* -------- E-signature (draw or upload) -------- */
+
+const SIG_ACCEPT = 'image/png,image/jpeg,image/webp,image/heic,image/avif';
+
+export function SignatureCard({ me, onUpdated }) {
+  const [mode, setMode] = useState('draw'); // 'draw' | 'upload'
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  // Strokes are kept as point lists so we can undo the last one by redrawing.
+  const strokes = useRef([]);
+  const current = useRef(null);
+  const [strokeCount, setStrokeCount] = useState(0);
+  const hasDrawing = strokeCount > 0;
+  const canvasRef = useRef(null);
+  const fileRef = useRef(null);
+  const drawing = useRef(false);
+
+  const ctx = () => canvasRef.current?.getContext('2d');
+
+  const pointFromEvent = (e) => {
+    const c = canvasRef.current;
+    const r = c.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * (c.width / r.width), y: (e.clientY - r.top) * (c.height / r.height) };
+  };
+
+  const strokeStyle = (g) => { g.lineWidth = 2.5; g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = '#0f172a'; };
+
+  // Repaint the whole canvas from the stored strokes (used after undo).
+  const redraw = () => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, c.width, c.height);
+    strokeStyle(g);
+    for (const st of strokes.current) {
+      if (!st.length) continue;
+      g.beginPath();
+      g.moveTo(st[0].x, st[0].y);
+      if (st.length === 1) g.lineTo(st[0].x + 0.1, st[0].y + 0.1); // a tap = a dot
+      else for (let i = 1; i < st.length; i++) g.lineTo(st[i].x, st[i].y);
+      g.stroke();
+    }
+  };
+
+  const onDown = (e) => {
+    drawing.current = true;
+    current.current = [pointFromEvent(e)];
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+  const onMove = (e) => {
+    if (!drawing.current) return;
+    e.preventDefault();
+    const g = ctx();
+    const p = pointFromEvent(e);
+    const st = current.current;
+    strokeStyle(g);
+    g.beginPath();
+    g.moveTo(st[st.length - 1].x, st[st.length - 1].y);
+    g.lineTo(p.x, p.y);
+    g.stroke();
+    st.push(p);
+  };
+  const onUp = () => {
+    if (!drawing.current) return;
+    drawing.current = false;
+    if (current.current?.length) {
+      strokes.current.push(current.current);
+      setStrokeCount(strokes.current.length);
+    }
+    current.current = null;
+  };
+
+  const undo = () => {
+    if (!strokes.current.length) return;
+    strokes.current.pop();
+    setStrokeCount(strokes.current.length);
+    redraw();
+  };
+
+  const clearCanvas = () => {
+    strokes.current = [];
+    current.current = null;
+    setStrokeCount(0);
+    const c = canvasRef.current;
+    if (c) ctx().clearRect(0, 0, c.width, c.height);
+  };
+
+  // Ctrl/⌘+Z undoes the last stroke while drawing (ignored when typing in a field).
+  useEffect(() => {
+    if (mode !== 'draw') return;
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        const el = document.activeElement;
+        if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+        e.preventDefault();
+        undo();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  const upload = async (fileOrBlob, name) => {
+    setError(''); setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('signature', fileOrBlob, name);
+      const { signature_url } = await api('/api/auth/me/signature', { method: 'POST', body: fd });
+      onUpdated({ ...me, signature_url });
+      clearCanvas();
+    } catch (e) {
+      setError(e.message || 'Could not save the signature.');
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const saveDrawn = () => {
+    const c = canvasRef.current;
+    if (!c || !hasDrawing) return;
+    c.toBlob((blob) => { if (blob) upload(blob, 'signature.png'); }, 'image/png');
+  };
+
+  const onPickFile = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) { setError('Image is larger than 5 MB.'); e.target.value = ''; return; }
+    upload(f, f.name);
+  };
+
+  const remove = async () => {
+    setError(''); setBusy(true);
+    try {
+      await api('/api/auth/me/signature', { method: 'DELETE' });
+      onUpdated({ ...me, signature_url: null });
+    } catch (e) {
+      setError(e.message || 'Could not remove the signature.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white shadow-card overflow-hidden">
+      <header className="border-b border-slate-100 px-5 py-3">
+        <h2 className="text-sm font-semibold text-slate-800">E-signature</h2>
+        <p className="text-xs text-slate-500 mt-0.5">Draw or upload a signature to use when signing off on work orders.</p>
+      </header>
+
+      <div className="px-5 py-4 space-y-4">
+        {me?.signature_url && (
+          <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-[linear-gradient(45deg,#f1f5f9_25%,transparent_25%,transparent_75%,#f1f5f9_75%),linear-gradient(45deg,#f1f5f9_25%,#fff_25%,#fff_75%,#f1f5f9_75%)] [background-size:14px_14px] [background-position:0_0,7px_7px] p-3">
+            <img src={me.signature_url} alt="Your signature" className="max-h-16 max-w-[220px] object-contain" />
+            <button type="button" onClick={remove} disabled={busy} className="ml-auto text-xs font-semibold text-rose-600 hover:underline disabled:opacity-50">
+              Remove
+            </button>
+          </div>
+        )}
+
+        <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-xs font-semibold">
+          {['draw', 'upload'].map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => { setMode(m); setError(''); }}
+              className={`rounded-md px-3 py-1 capitalize transition-colors ${mode === m ? 'bg-white text-brand-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+
+        {mode === 'draw' ? (
+          <div className="space-y-2">
+            <canvas
+              ref={canvasRef}
+              width={600}
+              height={200}
+              onPointerDown={onDown}
+              onPointerMove={onMove}
+              onPointerUp={onUp}
+              onPointerLeave={onUp}
+              className="w-full touch-none rounded-md border border-dashed border-slate-300 bg-white"
+              style={{ aspectRatio: '3 / 1', cursor: 'crosshair' }}
+            />
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={undo} disabled={!hasDrawing || busy} title="Undo (Ctrl+Z)" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-40">
+                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" /></svg>
+                  Undo
+                </button>
+                <button type="button" onClick={clearCanvas} disabled={!hasDrawing || busy} className="text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-40">
+                  Clear
+                </button>
+              </div>
+              <button type="button" onClick={saveDrawn} disabled={!hasDrawing || busy} className="btn-primary !px-3.5 !py-1.5 text-xs disabled:opacity-50">
+                {busy ? 'Saving…' : 'Save signature'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <label className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-slate-300 py-8 text-center hover:border-accent-300 hover:bg-accent-50/30 ${busy ? 'pointer-events-none opacity-50' : ''}`}>
+            <svg className="h-6 w-6 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 8l5-5 5 5" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /></svg>
+            <span className="text-sm font-medium text-slate-700">{busy ? 'Uploading…' : 'Click to upload a signature image'}</span>
+            <span className="text-[11px] text-slate-500">PNG with transparent background works best · up to 5 MB</span>
+            <input ref={fileRef} type="file" accept={SIG_ACCEPT} onChange={onPickFile} className="hidden" />
+          </label>
+        )}
+
+        {error && <p className="text-xs text-rose-600">{error}</p>}
+      </div>
+    </section>
+  );
+}
+
 /* -------- Change password -------- */
 
 export function PasswordCard() {

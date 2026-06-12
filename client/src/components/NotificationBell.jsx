@@ -147,7 +147,7 @@ export default function NotificationBell() {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-50 mt-2 w-80 sm:w-96 origin-top-right rounded-xl border border-slate-200 bg-white shadow-elevated ring-1 ring-black/5 overflow-hidden dark:bg-slate-900 dark:border-slate-700 dark:ring-white/5"
+          className="fixed inset-x-2 top-[4.25rem] z-50 w-auto rounded-xl border border-slate-200 bg-white shadow-elevated ring-1 ring-black/5 overflow-hidden sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 dark:bg-slate-900 dark:border-slate-700 dark:ring-white/5"
         >
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
             <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">Notifications</span>
@@ -161,7 +161,7 @@ export default function NotificationBell() {
             </button>
           </div>
 
-          <div className="max-h-96 overflow-y-auto">
+          <div className="max-h-[70vh] overflow-y-auto sm:max-h-96">
             {loading ? (
               <p className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400">Loading…</p>
             ) : items.length === 0 ? (

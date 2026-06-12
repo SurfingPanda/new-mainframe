@@ -4,6 +4,7 @@ import DashboardHeader from '../components/DashboardHeader.jsx';
 import UserPicker from '../components/UserPicker.jsx';
 import { api, getUser } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
+import { CATEGORY_TREE } from '../lib/categories.js';
 
 const TITLE_MAX = 200;
 const DESC_MAX = 4000;
@@ -32,6 +33,9 @@ const CATEGORIES = [
 // Picking "HR Concerns" swaps the free-text Description for this structured
 // leave-request form; its fields are serialized into the ticket description.
 const HR_CONCERNS = 'HR Concerns';
+// Selecting this sub-subcategory swaps the Description for an overtime table.
+const OVERTIME_FORM = 'Overtime and Accomplishment Report Form';
+const emptyOtRow = () => ({ name: '', otIn: '', otOut: '', hours: '', signature: '' });
 const LEAVE_TYPES = [
   'Vacation Leave',
   'Sick Leave',
@@ -54,10 +58,21 @@ export default function CreateTicket() {
   const user = getUser();
   const isStaff = user?.role === 'admin' || user?.role === 'agent';
 
+  // The signed-in user's saved e-signature, for the overtime report's signature
+  // cell. Refreshed from /me so it's current even on an older cached session.
+  const [mySignature, setMySignature] = useState(user?.signature_url || null);
+  useEffect(() => {
+    api('/api/auth/me')
+      .then((d) => { if (d && 'signature_url' in d) setMySignature(d.signature_url || null); })
+      .catch(() => {});
+  }, []);
+
   const titleId = useId();
   const requestTypeId = useId();
   const categoryId = useId();
   const descId = useId();
+  const subcategoryId = useId();
+  const subcategory2Id = useId();
   const leaveTypeId = useId();
   const leaveStartId = useId();
   const leaveEndId = useId();
@@ -69,6 +84,8 @@ export default function CreateTicket() {
   const [description, setDescription] = useState('');
   const [requestType, setRequestType] = useState('service_request');
   const [category, setCategory] = useState('');
+  const [subcategory, setSubcategory] = useState('');
+  const [subcategory2, setSubcategory2] = useState('');
   const [priority, setPriority] = useState('normal');
   const [requester, setRequester] = useState(user?.email || '');
   const [assignee, setAssignee] = useState('');
@@ -80,6 +97,9 @@ export default function CreateTicket() {
   const [leaveStart, setLeaveStart] = useState('');
   const [leaveEnd, setLeaveEnd] = useState('');
   const [leaveReason, setLeaveReason] = useState('');
+
+  // Overtime & Accomplishment Report rows (used when that form sub-subcategory is picked).
+  const [otRows, setOtRows] = useState([emptyOtRow()]);
 
   const [assignableUsers, setAssignableUsers] = useState([]);
   const [directoryUsers, setDirectoryUsers] = useState([]);
@@ -106,8 +126,20 @@ export default function CreateTicket() {
   const titleTooShort = title.trim().length > 0 && title.trim().length < 4;
 
   const isLeaveRequest = category === HR_CONCERNS;
+
+  // Cascading category options + handlers that reset deeper levels on change.
+  const subOptions = category ? Object.keys(CATEGORY_TREE[category] || {}) : [];
+  const sub2Options = category && subcategory ? (CATEGORY_TREE[category]?.[subcategory] || []) : [];
+  const onCategoryChange = (val) => { setCategory(val); setSubcategory(''); setSubcategory2(''); };
+  const onSubcategoryChange = (val) => { setSubcategory(val); setSubcategory2(''); };
   const leaveDatesInvalid = !!(leaveStart && leaveEnd && leaveEnd < leaveStart);
   const leaveIncomplete = !leaveType || !leaveStart || !leaveEnd || leaveDatesInvalid;
+
+  // The overtime form takes precedence over the leave form when its specific
+  // sub-subcategory is selected.
+  const isOvertimeForm = subcategory2 === OVERTIME_FORM;
+  const showLeaveForm = isLeaveRequest && !isOvertimeForm;
+  const overtimeIncomplete = isOvertimeForm && !otRows.some((r) => r.name.trim());
 
   // Departments that have at least one assignable user — picking one filters
   // the assignee list to that department's people.
@@ -135,12 +167,13 @@ export default function CreateTicket() {
     () =>
       title.trim().length >= 4 &&
       requester.trim() &&
-      department &&
+      (isLeaveRequest || department) &&
       !titleTooLong &&
       !descTooLong &&
-      !(isLeaveRequest && leaveIncomplete) &&
+      !(showLeaveForm && leaveIncomplete) &&
+      !overtimeIncomplete &&
       !submitting,
-    [title, requester, department, titleTooLong, descTooLong, isLeaveRequest, leaveIncomplete, submitting]
+    [title, requester, department, isLeaveRequest, titleTooLong, descTooLong, showLeaveForm, leaveIncomplete, overtimeIncomplete, submitting]
   );
 
   const isDirty = useMemo(
@@ -148,6 +181,8 @@ export default function CreateTicket() {
       title.trim() !== '' ||
       description.trim() !== '' ||
       category !== '' ||
+      subcategory !== '' ||
+      subcategory2 !== '' ||
       department !== '' ||
       assignee.trim() !== '' ||
       requestType !== 'service_request' ||
@@ -157,8 +192,9 @@ export default function CreateTicket() {
       leaveStart !== '' ||
       leaveEnd !== '' ||
       leaveReason.trim() !== '' ||
+      otRows.some((r) => r.name || r.otIn || r.otOut || r.hours || r.signature) ||
       requester.trim() !== (user?.email || '').trim(),
-    [title, description, category, department, assignee, requestType, priority, files, leaveType, leaveStart, leaveEnd, leaveReason, requester, user?.email]
+    [title, description, category, subcategory, subcategory2, department, assignee, requestType, priority, files, leaveType, leaveStart, leaveEnd, leaveReason, otRows, requester, user?.email]
   );
 
   // Warn before a full-page unload (refresh / close / external link) when the
@@ -187,6 +223,34 @@ export default function CreateTicket() {
     return lines.join('\n');
   };
 
+  // Flatten the overtime table into the ticket description text.
+  const overtimeFilledRows = () =>
+    otRows.filter((r) => r.name.trim() || r.otIn || r.otOut || r.hours.trim() || r.signatureUrl);
+
+  const buildOvertimeDescription = () => {
+    const lines = [
+      'Overtime and Accomplishment Report',
+      '',
+      'Name | OT-In | OT-Out | Hours Rendered | Employee Signature'
+    ];
+    for (const r of overtimeFilledRows()) {
+      const sig = r.signatureUrl ? `${r.signature.trim() || 'E-signature'} (e-signed)` : r.signature.trim();
+      lines.push(`${r.name.trim() || '—'} | ${r.otIn || '—'} | ${r.otOut || '—'} | ${r.hours.trim() || '—'} | ${sig}`);
+    }
+    return lines.join('\n');
+  };
+
+  // Overtime row helpers.
+  const setOtField = (i, field, val) => setOtRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, [field]: val } : r)));
+  const addOtRow = () => setOtRows((rows) => [...rows, emptyOtRow()]);
+  const removeOtRow = (i) => setOtRows((rows) => (rows.length > 1 ? rows.filter((_, idx) => idx !== i) : rows));
+  // Apply the signed-in user's saved e-signature to a row (renders as an image
+  // on the printed report); clearing it restores the text field.
+  const applyMySignature = (i) =>
+    setOtRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, signatureUrl: mySignature, signature: r.signature || user?.name || '' } : r)));
+  const clearSignature = (i) =>
+    setOtRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, signatureUrl: '' } : r)));
+
   const submit = async (e) => {
     e.preventDefault();
     setError('');
@@ -194,9 +258,10 @@ export default function CreateTicket() {
       if (!title.trim()) setError('Please add a title before submitting.');
       else if (title.trim().length < 4) setError('Title needs at least 4 characters.');
       else if (!requester.trim()) setError('Please confirm the requester before submitting.');
-      else if (!department) setError('Please select a department before submitting.');
-      else if (isLeaveRequest && leaveDatesInvalid) setError('End date must be on or after the start date.');
-      else if (isLeaveRequest && leaveIncomplete) setError('Please fill in the leave type and dates before submitting.');
+      else if (!isLeaveRequest && !department) setError('Please select a department before submitting.');
+      else if (overtimeIncomplete) setError('Add at least one employee name to the overtime report.');
+      else if (showLeaveForm && leaveDatesInvalid) setError('End date must be on or after the start date.');
+      else if (showLeaveForm && leaveIncomplete) setError('Please fill in the leave type and dates before submitting.');
       else setError('Please fix the highlighted fields before submitting.');
       return;
     }
@@ -204,11 +269,24 @@ export default function CreateTicket() {
     try {
       const fd = new FormData();
       fd.append('title', title.trim());
-      const finalDescription = isLeaveRequest ? buildLeaveDescription() : description.trim();
+      const finalDescription = isOvertimeForm
+        ? buildOvertimeDescription()
+        : showLeaveForm
+          ? buildLeaveDescription()
+          : description.trim();
       if (finalDescription) fd.append('description', finalDescription);
       fd.append('priority', priority);
       fd.append('request_type', requestType);
       if (category) fd.append('category', category);
+      if (subcategory) fd.append('subcategory', subcategory);
+      if (subcategory2) fd.append('subcategory2', subcategory2);
+      if (isOvertimeForm) {
+        const rows = overtimeFilledRows().map((r) => ({
+          name: r.name.trim(), otIn: r.otIn, otOut: r.otOut, hours: r.hours.trim(),
+          signature: r.signature.trim(), signatureUrl: r.signatureUrl || ''
+        }));
+        if (rows.length) fd.append('overtime_report', JSON.stringify(rows));
+      }
       if (department) fd.append('department', department);
       fd.append('requester', requester.trim());
       if (assignee.trim()) fd.append('assignee', assignee.trim());
@@ -303,7 +381,7 @@ export default function CreateTicket() {
                   <select
                     id={categoryId}
                     value={category}
-                    onChange={(e) => setCategory(e.target.value)}
+                    onChange={(e) => onCategoryChange(e.target.value)}
                     className={inputCls(false)}
                   >
                     <option value="">Select a category…</option>
@@ -314,7 +392,108 @@ export default function CreateTicket() {
                 </Field>
               </div>
 
-              {isLeaveRequest ? (
+              {subOptions.length > 0 && (
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <Field label="Subcategory" htmlFor={subcategoryId} hint={`Narrow down within ${category}.`}>
+                    <select
+                      id={subcategoryId}
+                      value={subcategory}
+                      onChange={(e) => onSubcategoryChange(e.target.value)}
+                      className={inputCls(false)}
+                    >
+                      <option value="">Select a subcategory…</option>
+                      {subOptions.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </Field>
+
+                  {sub2Options.length > 0 && (
+                    <Field label="Sub-subcategory" htmlFor={subcategory2Id} hint={`Narrow down within ${subcategory}.`}>
+                      <select
+                        id={subcategory2Id}
+                        value={subcategory2}
+                        onChange={(e) => setSubcategory2(e.target.value)}
+                        className={inputCls(false)}
+                      >
+                        <option value="">Select a sub-subcategory…</option>
+                        {sub2Options.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </Field>
+                  )}
+                </div>
+              )}
+
+              {isOvertimeForm ? (
+                <div className="space-y-3">
+                  <div className="rounded-md bg-brand-50 ring-1 ring-brand-100 px-3 py-2 text-[11px] text-brand-800">
+                    Overtime &amp; Accomplishment Report — add a row per employee. It'll be recorded on the work order.
+                  </div>
+                  <div className="overflow-x-auto rounded-lg border border-slate-200">
+                    <table className="w-full min-w-[640px] border-collapse text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          <th className="px-2 py-2 text-left">Name</th>
+                          <th className="px-2 py-2 text-left">OT-In</th>
+                          <th className="px-2 py-2 text-left">OT-Out</th>
+                          <th className="px-2 py-2 text-left">Hours Rendered</th>
+                          <th className="px-2 py-2 text-left">Employee Signature</th>
+                          <th className="w-8 px-1 py-2" aria-label="Remove" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {otRows.map((r, i) => (
+                          <tr key={i} className="border-t border-slate-100">
+                            <td className="px-1.5 py-1">
+                              <input value={r.name} onChange={(e) => setOtField(i, 'name', e.target.value)} placeholder="Employee name" className={otCell} />
+                            </td>
+                            <td className="px-1.5 py-1">
+                              <input type="time" value={r.otIn} onChange={(e) => setOtField(i, 'otIn', e.target.value)} className={otCell} />
+                            </td>
+                            <td className="px-1.5 py-1">
+                              <input type="time" value={r.otOut} onChange={(e) => setOtField(i, 'otOut', e.target.value)} className={otCell} />
+                            </td>
+                            <td className="px-1.5 py-1">
+                              <input value={r.hours} onChange={(e) => setOtField(i, 'hours', e.target.value)} placeholder="e.g. 3" inputMode="decimal" className={otCell} />
+                            </td>
+                            <td className="px-1.5 py-1">
+                              {r.signatureUrl ? (
+                                <div className="flex items-center gap-2">
+                                  <img src={r.signatureUrl} alt="E-signature" className="h-8 max-w-[120px] object-contain" />
+                                  <button type="button" onClick={() => clearSignature(i)} aria-label="Remove signature" className="shrink-0 rounded p-1 text-slate-400 hover:text-rose-600">
+                                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5">
+                                  <input value={r.signature} onChange={(e) => setOtField(i, 'signature', e.target.value)} placeholder="Signed on print" className={otCell} />
+                                  {mySignature && (
+                                    <button type="button" onClick={() => applyMySignature(i)} title="Use my e-signature" className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded border border-accent-200 bg-accent-50 px-1.5 py-1 text-[10px] font-semibold text-accent-700 hover:bg-accent-100">
+                                      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                                      Use mine
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-1 py-1 text-center">
+                              <button type="button" onClick={() => removeOtRow(i)} disabled={otRows.length === 1} aria-label="Remove row" className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30">
+                                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button type="button" onClick={addOtRow} className="inline-flex items-center gap-1 text-xs font-semibold text-accent-700 hover:text-accent-900">
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                    Add row
+                  </button>
+                </div>
+              ) : showLeaveForm ? (
                 <div className="space-y-5">
                   <div className="rounded-md bg-brand-50 ring-1 ring-brand-100 px-3 py-2 text-[11px] text-brand-800">
                     Filing an HR leave request. Complete the details below — they'll be recorded on the work order.
@@ -443,45 +622,55 @@ export default function CreateTicket() {
                 )}
               </Field>
 
-              <Field
-                label="Department"
-                htmlFor={departmentId}
-                required
-                hint={
-                  department
-                    ? `Assignee list is filtered to ${department}.`
-                    : 'Route this work order to a department.'
-                }
-              >
-                <select
-                  id={departmentId}
-                  value={department}
-                  onChange={(e) => onDepartmentChange(e.target.value)}
-                  className={inputCls(false)}
-                  required
-                  aria-required="true"
-                >
-                  <option value="" disabled>Select a department</option>
-                  {departments.map((d) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              </Field>
+              {isLeaveRequest ? (
+                <div className="rounded-md bg-sky-50 ring-1 ring-sky-200 px-3 py-2.5 text-xs text-sky-800">
+                  <span className="font-semibold">Needs approval.</span> This request is sent to your
+                  department manager first; once approved it’s routed to HR. No need to pick a
+                  department or assignee.
+                </div>
+              ) : (
+                <>
+                  <Field
+                    label="Department"
+                    htmlFor={departmentId}
+                    required
+                    hint={
+                      department
+                        ? `Assignee list is filtered to ${department}.`
+                        : 'Route this work order to a department.'
+                    }
+                  >
+                    <select
+                      id={departmentId}
+                      value={department}
+                      onChange={(e) => onDepartmentChange(e.target.value)}
+                      className={inputCls(false)}
+                      required
+                      aria-required="true"
+                    >
+                      <option value="" disabled>Select a department</option>
+                      {departments.map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </Field>
 
-              <Field
-                label="Assignee"
-                htmlFor={assigneeId}
-                hint={isStaff ? 'Leave blank to triage later.' : 'IT will assign someone.'}
-              >
-                <UserPicker
-                  id={assigneeId}
-                  value={assignee}
-                  users={assigneeChoices}
-                  onChange={setAssignee}
-                  disabled={!isStaff}
-                  placeholder={isStaff ? 'Type to search users (optional)' : 'unassigned'}
-                />
-              </Field>
+                  <Field
+                    label="Assignee"
+                    htmlFor={assigneeId}
+                    hint={isStaff ? 'Leave blank to triage later.' : 'IT will assign someone.'}
+                  >
+                    <UserPicker
+                      id={assigneeId}
+                      value={assignee}
+                      users={assigneeChoices}
+                      onChange={setAssignee}
+                      disabled={!isStaff}
+                      placeholder={isStaff ? 'Type to search users (optional)' : 'unassigned'}
+                    />
+                  </Field>
+                </>
+              )}
             </Card>
 
             {error && (
@@ -533,6 +722,9 @@ function inputCls(invalid) {
       : 'border-slate-300 focus:border-accent-500 focus:ring-accent-500'
   } disabled:bg-slate-50 disabled:text-slate-400`;
 }
+
+// Compact cell input for the overtime report table.
+const otCell = 'w-full rounded border border-slate-300 px-2 py-1 text-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500';
 
 function Card({ title, subtitle, children }) {
   return (

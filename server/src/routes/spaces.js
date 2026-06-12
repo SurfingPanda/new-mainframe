@@ -298,8 +298,25 @@ async function loadAccess(spaceId, user) {
 }
 
 // Write/admin actions (rename, archive, delete, membership) require the space
-// owner role or admin oversight.
+// owner role (the Project Manager / creator) or admin oversight.
 const canAdminister = (access, user) => access.membership?.role === 'owner' || canManageAll(user);
+
+// Contributing (create/edit items, comment, link, docs, goals) is open to the
+// Project Manager and regular members, but NOT to a 'project_owner' — that role
+// is a read-only stakeholder confined to the Summary view. Admin oversight
+// (spaces.manage) can always contribute.
+const canContribute = (access, user) =>
+  (!!access.membership && access.membership.role !== 'project_owner') || canManageAll(user);
+
+// Mutating an EXISTING item (move on the board, edit fields, add subtasks/links,
+// delete) is limited to its assignee plus the Project Manager (owner) and admins
+// (spaces.manage). Other members get view + comment only. Changing the assignee
+// is further restricted to PM/admins — see the reassign guard in the item PATCH.
+function canEditItem(access, user, item) {
+  if (canAdminister(access, user)) return true;
+  if (access.membership?.role !== 'member') return false; // project_owner / non-members
+  return !!item && item.assignee_id != null && item.assignee_id === user.sub;
+}
 
 const intId = (v) => {
   const n = Number(v);
@@ -565,7 +582,8 @@ router.post('/:id/members', async (req, res, next) => {
 
     const userId = intId(req.body?.user_id);
     if (!userId) return res.status(400).json({ error: 'A valid user is required' });
-    const role = req.body?.role === 'owner' ? 'owner' : 'member';
+    // Never mint a second Project Manager here — the sole 'owner' is the creator.
+    const role = req.body?.role === 'project_owner' ? 'project_owner' : 'member';
 
     const [[u]] = await pool.query('SELECT id, is_active FROM users WHERE id = ? LIMIT 1', [userId]);
     if (!u || !u.is_active) return res.status(400).json({ error: 'User not found or inactive' });
@@ -612,6 +630,36 @@ router.delete('/:id/members/:userId', async (req, res, next) => {
     }
 
     await pool.query('DELETE FROM space_members WHERE space_id = ? AND user_id = ?', [id, userId]);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/spaces/:id/members/:userId — change a member's role (owner or
+// manage). Used to promote a member to 'project_owner' (a read-only stakeholder
+// shown as "Project Owner") or demote them back to 'member'.
+router.patch('/:id/members/:userId', async (req, res, next) => {
+  try {
+    const id = intId(req.params.id);
+    const userId = intId(req.params.userId);
+    if (!id || !userId) return res.status(400).json({ error: 'invalid id' });
+    const role = String(req.body?.role || '');
+    if (!['project_owner', 'member'].includes(role)) return res.status(400).json({ error: 'invalid role' });
+    const access = await loadAccess(id, req.user);
+    if (!access) return res.status(404).json({ error: 'Space not found' });
+    if (!canAdminister(access, req.user)) return res.status(403).json({ error: 'Only the space owner can manage members' });
+
+    const [[target]] = await pool.query(
+      'SELECT role FROM space_members WHERE space_id = ? AND user_id = ? LIMIT 1',
+      [id, userId]
+    );
+    if (!target) return res.status(404).json({ error: 'Member not found' });
+
+    // The space creator is the immutable Project Manager — its role can't change.
+    if (target.role === 'owner') return res.status(400).json({ error: 'The Project Manager role cannot be changed' });
+
+    await pool.query('UPDATE space_members SET role = ? WHERE space_id = ? AND user_id = ?', [role, id, userId]);
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -773,7 +821,7 @@ router.post('/:id/items', async (req, res, next) => {
     if (!id) return res.status(400).json({ error: 'invalid space id' });
     const access = await loadAccess(id, req.user);
     if (!access) return res.status(404).json({ error: 'Space not found' });
-    if (!access.membership && !canManageAll(req.user)) {
+    if (!canContribute(access, req.user)) {
       return res.status(403).json({ error: 'Only members can add items' });
     }
 
@@ -799,7 +847,13 @@ router.post('/:id/items', async (req, res, next) => {
     let parentId = null;
     if (req.body?.parent_id != null && req.body.parent_id !== '') {
       parentId = intId(req.body.parent_id);
-      if (!(await itemInSpace(id, parentId))) return res.status(400).json({ error: 'Parent must be an item in this space' });
+      const [[parent]] = await pool.query('SELECT id, assignee_id FROM space_items WHERE id = ? AND space_id = ? LIMIT 1', [parentId, id]);
+      if (!parent) return res.status(400).json({ error: 'Parent must be an item in this space' });
+      // A subtask is part of its parent task — only the parent's assignee or
+      // PM/admins may add one.
+      if (!canEditItem(access, req.user, parent)) {
+        return res.status(403).json({ error: 'Only the task\'s assignee or the Project Manager can add subtasks' });
+      }
     }
     const start = parseDate(req.body?.start_date);
     if (!start.ok) return res.status(400).json({ error: 'Invalid start date' });
@@ -863,12 +917,13 @@ router.patch('/:id/items/:itemId', async (req, res, next) => {
     if (!id || !itemId) return res.status(400).json({ error: 'invalid id' });
     const access = await loadAccess(id, req.user);
     if (!access) return res.status(404).json({ error: 'Space not found' });
-    if (!access.membership && !canManageAll(req.user)) {
-      return res.status(403).json({ error: 'Only members can edit items' });
-    }
 
     const [[item]] = await pool.query('SELECT * FROM space_items WHERE id = ? AND space_id = ? LIMIT 1', [itemId, id]);
     if (!item) return res.status(404).json({ error: 'Item not found' });
+    // Only the assignee (or PM/admins) may move/edit a task.
+    if (!canEditItem(access, req.user, item)) {
+      return res.status(403).json({ error: 'Only the assignee or the Project Manager can change this task' });
+    }
 
     const sets = [];
     const params = [];
@@ -924,6 +979,12 @@ router.patch('/:id/items/:itemId', async (req, res, next) => {
       }
     }
     if (b.assignee_id !== undefined) {
+      // (Re)assignment is a Project Manager / admin action — a member working
+      // their own task can't change who it's assigned to.
+      const nextAssigneeId = (b.assignee_id === null || b.assignee_id === '') ? null : intId(b.assignee_id);
+      if (nextAssigneeId !== (item.assignee_id ?? null) && !canAdminister(access, req.user)) {
+        return res.status(403).json({ error: 'Only the Project Manager can change who a task is assigned to' });
+      }
       if (b.assignee_id === null || b.assignee_id === '') {
         sets.push('assignee_id = NULL', 'assignee_name = NULL');
         if (item.assignee_id) changes.push({ field: 'assignee', old: item.assignee_name || 'Unassigned', new: 'Unassigned' });
@@ -984,7 +1045,7 @@ router.patch('/:id/items/:itemId', async (req, res, next) => {
   }
 });
 
-// DELETE /api/spaces/:id/items/:itemId — delete a work item (any member).
+// DELETE /api/spaces/:id/items/:itemId — delete a work item (PM / admins only).
 router.delete('/:id/items/:itemId', async (req, res, next) => {
   try {
     const id = intId(req.params.id);
@@ -992,8 +1053,8 @@ router.delete('/:id/items/:itemId', async (req, res, next) => {
     if (!id || !itemId) return res.status(400).json({ error: 'invalid id' });
     const access = await loadAccess(id, req.user);
     if (!access) return res.status(404).json({ error: 'Space not found' });
-    if (!access.membership && !canManageAll(req.user)) {
-      return res.status(403).json({ error: 'Only members can delete items' });
+    if (!canAdminister(access, req.user)) {
+      return res.status(403).json({ error: 'Only the Project Manager can delete tasks' });
     }
 
     const [result] = await pool.query('DELETE FROM space_items WHERE id = ? AND space_id = ?', [itemId, id]);
@@ -1081,7 +1142,7 @@ router.post('/:id/items/:itemId/comments', docUploadMiddleware, async (req, res,
     if (!id || !itemId) { cleanup(); return res.status(400).json({ error: 'invalid id' }); }
     const access = await loadAccess(id, req.user);
     if (!access) { cleanup(); return res.status(404).json({ error: 'Space not found' }); }
-    if (!access.membership && !canManageAll(req.user)) { cleanup(); return res.status(403).json({ error: 'Only members can comment' }); }
+    if (!canContribute(access, req.user)) { cleanup(); return res.status(403).json({ error: 'Only members can comment' }); }
     const item = await loadItem(id, itemId);
     if (!item) { cleanup(); return res.status(404).json({ error: 'Item not found' }); }
 
@@ -1154,8 +1215,9 @@ router.post('/:id/items/:itemId/links', async (req, res, next) => {
     if (!id || !itemId) return res.status(400).json({ error: 'invalid id' });
     const access = await loadAccess(id, req.user);
     if (!access) return res.status(404).json({ error: 'Space not found' });
-    if (!access.membership && !canManageAll(req.user)) return res.status(403).json({ error: 'Only members can link items' });
-    if (!(await itemInSpace(id, itemId))) return res.status(404).json({ error: 'Item not found' });
+    const [[linkItem]] = await pool.query('SELECT id, assignee_id FROM space_items WHERE id = ? AND space_id = ? LIMIT 1', [itemId, id]);
+    if (!linkItem) return res.status(404).json({ error: 'Item not found' });
+    if (!canEditItem(access, req.user, linkItem)) return res.status(403).json({ error: 'Only the assignee or the Project Manager can link items' });
 
     const linkedId = intId(req.body?.linked_item_id);
     if (!linkedId) return res.status(400).json({ error: 'A linked item is required' });
@@ -1188,7 +1250,9 @@ router.delete('/:id/items/:itemId/links/:linkedItemId', async (req, res, next) =
     if (!id || !itemId || !linkedId) return res.status(400).json({ error: 'invalid id' });
     const access = await loadAccess(id, req.user);
     if (!access) return res.status(404).json({ error: 'Space not found' });
-    if (!access.membership && !canManageAll(req.user)) return res.status(403).json({ error: 'Only members can unlink items' });
+    const [[unlinkItem]] = await pool.query('SELECT id, assignee_id FROM space_items WHERE id = ? AND space_id = ? LIMIT 1', [itemId, id]);
+    if (!unlinkItem) return res.status(404).json({ error: 'Item not found' });
+    if (!canEditItem(access, req.user, unlinkItem)) return res.status(403).json({ error: 'Only the assignee or the Project Manager can unlink items' });
 
     await pool.query(
       `DELETE FROM space_item_links
@@ -1265,7 +1329,7 @@ router.post('/:id/docs', docUploadMiddleware, async (req, res, next) => {
     if (!id) { cleanup(); return res.status(400).json({ error: 'invalid space id' }); }
     const access = await loadAccess(id, req.user);
     if (!access) { cleanup(); return res.status(404).json({ error: 'Space not found' }); }
-    if (!access.membership && !canManageAll(req.user)) { cleanup(); return res.status(403).json({ error: 'Only members can add documents' }); }
+    if (!canContribute(access, req.user)) { cleanup(); return res.status(403).json({ error: 'Only members can add documents' }); }
     if (!req.file) return res.status(400).json({ error: 'A file is required' });
 
     const title = (String(req.body?.title ?? '').trim() || req.file.originalname).slice(0, DOC_TITLE_MAX);
@@ -1291,7 +1355,7 @@ router.patch('/:id/docs/:docId', async (req, res, next) => {
     if (!id || !docId) return res.status(400).json({ error: 'invalid id' });
     const access = await loadAccess(id, req.user);
     if (!access) return res.status(404).json({ error: 'Space not found' });
-    if (!access.membership && !canManageAll(req.user)) return res.status(403).json({ error: 'Only members can edit documents' });
+    if (!canContribute(access, req.user)) return res.status(403).json({ error: 'Only members can edit documents' });
 
     const [[doc]] = await pool.query('SELECT id FROM space_docs WHERE id = ? AND space_id = ? LIMIT 1', [docId, id]);
     if (!doc) return res.status(404).json({ error: 'Document not found' });
@@ -1388,7 +1452,7 @@ router.post('/:id/goals', async (req, res, next) => {
     if (!id) return res.status(400).json({ error: 'invalid space id' });
     const access = await loadAccess(id, req.user);
     if (!access) return res.status(404).json({ error: 'Space not found' });
-    if (!access.membership && !canManageAll(req.user)) return res.status(403).json({ error: 'Only members can add goals' });
+    if (!canContribute(access, req.user)) return res.status(403).json({ error: 'Only members can add goals' });
 
     const title = String(req.body?.title ?? '').trim();
     if (!title) return res.status(400).json({ error: 'Title is required' });
@@ -1419,7 +1483,7 @@ router.patch('/:id/goals/:goalId', async (req, res, next) => {
     if (!id || !goalId) return res.status(400).json({ error: 'invalid id' });
     const access = await loadAccess(id, req.user);
     if (!access) return res.status(404).json({ error: 'Space not found' });
-    if (!access.membership && !canManageAll(req.user)) return res.status(403).json({ error: 'Only members can edit goals' });
+    if (!canContribute(access, req.user)) return res.status(403).json({ error: 'Only members can edit goals' });
 
     const [[goal]] = await pool.query('SELECT id FROM space_goals WHERE id = ? AND space_id = ? LIMIT 1', [goalId, id]);
     if (!goal) return res.status(404).json({ error: 'Goal not found' });
@@ -1466,7 +1530,7 @@ router.delete('/:id/goals/:goalId', async (req, res, next) => {
     if (!id || !goalId) return res.status(400).json({ error: 'invalid id' });
     const access = await loadAccess(id, req.user);
     if (!access) return res.status(404).json({ error: 'Space not found' });
-    if (!access.membership && !canManageAll(req.user)) return res.status(403).json({ error: 'Only members can delete goals' });
+    if (!canContribute(access, req.user)) return res.status(403).json({ error: 'Only members can delete goals' });
     const [result] = await pool.query('DELETE FROM space_goals WHERE id = ? AND space_id = ?', [goalId, id]);
     if (!result.affectedRows) return res.status(404).json({ error: 'Goal not found' });
     res.json({ ok: true });

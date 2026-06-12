@@ -26,7 +26,7 @@ const PRIORITIES = [
   { key: 'high', label: 'High', color: '#f59e0b' },
   { key: 'urgent', label: 'Urgent', color: '#ef4444' }
 ];
-const TABS = ['summary', 'board', 'list', 'calendar', 'documents', 'members'];
+const TABS = ['summary', 'board', 'list', 'calendar', 'timeline', 'documents', 'members'];
 
 const toYmd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -153,7 +153,8 @@ export default function SpaceDetail() {
     if (loading) return;
     const itemParam = params.get('item');
     if (!itemParam) return;
-    const target = items.find((i) => String(i.id) === itemParam);
+    // Project owners are confined to the Summary view — don't surface item detail.
+    const target = space?.my_role === 'project_owner' ? null : items.find((i) => String(i.id) === itemParam);
     if (target) setItemModal({ item: target });
     const next = new URLSearchParams(params);
     next.delete('item');
@@ -161,7 +162,11 @@ export default function SpaceDetail() {
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [loading, items, params]);
 
-  const setTab = (next) => setParams(next === 'summary' ? {} : { view: next }, { replace: true });
+  // A 'project_owner' is a read-only stakeholder confined to the Summary view.
+  const setTab = (next) => {
+    if (space?.my_role === 'project_owner' && next !== 'summary') return;
+    setParams(next === 'summary' ? {} : { view: next }, { replace: true });
+  };
 
   // Optimistically move an item to a new status, then persist.
   const moveItem = async (itemId, status) => {
@@ -207,6 +212,16 @@ export default function SpaceDetail() {
     );
   }
 
+  // Project owners are read-only stakeholders: only the Summary tab, no create.
+  const isStakeholder = space.my_role === 'project_owner';
+  const visibleTabs = isStakeholder ? ['summary'] : TABS;
+  const activeTab = visibleTabs.includes(tab) ? tab : 'summary';
+
+  // A task can only be moved/edited by its assignee, the Project Manager (owner),
+  // or an admin (can_administer). Everyone else gets view + comment only.
+  const meId = getUser()?.id;
+  const canEditTask = (item) => !!space.can_administer || (meId != null && item?.assignee_id === meId);
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <DashboardHeader />
@@ -246,10 +261,12 @@ export default function SpaceDetail() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button type="button" className="btn-primary !py-2 text-xs" onClick={() => setItemModal({ status: 'todo' })}>
-              <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-              Create item
-            </button>
+            {!isStakeholder && (
+              <button type="button" className="btn-primary !py-2 text-xs" onClick={() => setItemModal({ status: 'todo' })}>
+                <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                Create item
+              </button>
+            )}
             {space.can_administer && (
               <SpaceSettingsButton space={space} onDeleted={() => navigate('/spaces')} onUpdated={loadSpace} />
             )}
@@ -258,32 +275,33 @@ export default function SpaceDetail() {
 
         <div className="border-b border-slate-200 dark:border-slate-800">
           <div className="flex gap-1 overflow-x-auto overflow-y-hidden">
-            {TABS.map((t) => (
+            {visibleTabs.map((t) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => setTab(t)}
                 className={`relative px-4 py-2.5 text-sm font-medium capitalize transition-colors ${
-                  tab === t
+                  activeTab === t
                     ? 'text-accent-700 dark:text-accent-300'
                     : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
                 }`}
               >
                 {t}
-                {tab === t && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-accent-500" />}
+                {activeTab === t && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-accent-500" />}
               </button>
             ))}
           </div>
         </div>
 
-        {tab === 'summary' && <Summary items={items} onView={setTab} />}
-        {tab === 'board' && (
-          <Board items={items} onMove={moveItem} onOpen={(item) => setItemModal({ item })} onCreate={(status) => setItemModal({ status })} />
+        {activeTab === 'summary' && <Summary items={items} onView={setTab} />}
+        {activeTab === 'board' && (
+          <Board items={items} onMove={moveItem} onOpen={(item) => setItemModal({ item })} onCreate={(status) => setItemModal({ status })} canEdit={canEditTask} />
         )}
-        {tab === 'list' && <ListView items={items} onOpen={(item) => setItemModal({ item })} />}
-        {tab === 'calendar' && <CalendarView items={items} onOpen={(item) => setItemModal({ item })} onCreate={(ymd) => setItemModal({ status: 'todo', dueDate: ymd })} />}
-        {tab === 'documents' && <DocumentsView spaceId={id} canManage={space.can_administer} />}
-        {tab === 'members' && <Members space={space} onChanged={loadSpace} />}
+        {activeTab === 'list' && <ListView items={items} onOpen={(item) => setItemModal({ item })} />}
+        {activeTab === 'calendar' && <CalendarView items={items} onOpen={(item) => setItemModal({ item })} onCreate={(ymd) => setItemModal({ status: 'todo', dueDate: ymd })} />}
+        {activeTab === 'timeline' && <TimelineView items={items} onOpen={(item) => setItemModal({ item })} />}
+        {activeTab === 'documents' && <DocumentsView spaceId={id} canManage={space.can_administer} />}
+        {activeTab === 'members' && <Members space={space} onChanged={loadSpace} />}
       </main>
 
       {itemModal?.item && (
@@ -292,6 +310,8 @@ export default function SpaceDetail() {
           members={space.members}
           allItems={items}
           itemId={itemModal.item.id}
+          canEdit={canEditTask(itemModal.item)}
+          canAdminister={!!space.can_administer}
           onClose={() => setItemModal(null)}
           onChanged={loadItems}
           onDeleted={async (itemId) => { await deleteItem(itemId); setItemModal(null); }}
@@ -551,22 +571,94 @@ const BOARD_COL = {
   done: { accent: 'bg-emerald-500', head: 'text-emerald-600 dark:text-emerald-300', count: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200' }
 };
 
-function Board({ items, onMove, onOpen, onCreate }) {
+function Board({ items, onMove, onOpen, onCreate, canEdit }) {
   const [dragId, setDragId] = useState(null);
+  const [overCol, setOverCol] = useState(null);
+  const [ghost, setGhost] = useState(null); // { x, y, title }
+  const drag = useRef(null);          // live gesture state (avoids stale closures)
+  const suppressClick = useRef(false); // a drag shouldn't also open the card
+
   // Subtasks live inside their parent's detail modal, not on the board.
   const boardItems = items.filter((i) => i.type !== 'subtask');
+
+  // While a drag is active, block the page from scrolling under the finger.
+  // (Before the drag starts, normal touch scrolling still works.)
+  useEffect(() => {
+    if (!dragId) return;
+    const prevent = (e) => e.preventDefault();
+    document.addEventListener('touchmove', prevent, { passive: false });
+    return () => document.removeEventListener('touchmove', prevent);
+  }, [dragId]);
+
+  const colAtPoint = (x, y) =>
+    document.elementFromPoint(x, y)?.closest('[data-col]')?.getAttribute('data-col') || null;
+
+  const beginDrag = (item) => {
+    if (!drag.current) return;
+    drag.current.started = true;
+    drag.current.target = item.status;
+    suppressClick.current = true;
+    setDragId(item.id);
+    setOverCol(item.status);
+    setGhost({ x: drag.current.x, y: drag.current.y, title: item.title });
+    navigator.vibrate?.(10);
+  };
+
+  const reset = () => {
+    if (drag.current?.timer) clearTimeout(drag.current.timer);
+    drag.current = null;
+    setDragId(null);
+    setOverCol(null);
+    setGhost(null);
+  };
+
+  const onPointerDown = (e, item) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // Only the assignee (or PM/admin) can move a task — others can open it to
+    // view/comment, so let the click through but don't start a drag.
+    if (!canEdit(item)) return;
+    suppressClick.current = false;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    const touch = e.pointerType !== 'mouse';
+    drag.current = { id: item.id, item, status: item.status, target: item.status, x: e.clientX, y: e.clientY, started: false, touch, timer: null };
+    // Touch: hold briefly to pick up (so a quick swipe scrolls instead).
+    if (touch) drag.current.timer = setTimeout(() => beginDrag(item), 180);
+  };
+
+  const onPointerMove = (e) => {
+    const d = drag.current;
+    if (!d) return;
+    const moved = Math.hypot(e.clientX - d.x, e.clientY - d.y);
+    if (!d.started) {
+      if (d.touch) {
+        if (moved > 10) reset();      // moved before the hold fired → it's a scroll
+      } else if (moved > 6) {
+        beginDrag(d.item);            // mouse picks up on a small move
+      }
+      return;
+    }
+    d.target = colAtPoint(e.clientX, e.clientY);
+    setOverCol(d.target);
+    setGhost((g) => (g ? { ...g, x: e.clientX, y: e.clientY } : g));
+  };
+
+  const onPointerUp = () => {
+    const d = drag.current;
+    if (d?.started && d.target && d.target !== d.status) onMove(d.id, d.target);
+    reset();
+  };
 
   return (
     <div className="grid gap-4 md:grid-cols-3">
       {STATUSES.map((col) => {
         const colItems = boardItems.filter((i) => i.status === col.key);
         const c = BOARD_COL[col.key] || BOARD_COL.todo;
+        const isOver = dragId && overCol === col.key;
         return (
           <div
             key={col.key}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => { e.preventDefault(); const itemId = Number(e.dataTransfer.getData('text/plain')); if (itemId) onMove(itemId, col.key); setDragId(null); }}
-            className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40"
+            data-col={col.key}
+            className={`flex flex-col overflow-hidden rounded-2xl border bg-slate-50 transition-colors dark:bg-slate-900/40 ${isOver ? 'border-accent-400 ring-2 ring-accent-300 dark:border-accent-500' : 'border-slate-200 dark:border-slate-800'}`}
           >
             <span className={`h-1 w-full ${c.accent}`} />
             <div className="flex items-center justify-between px-3 pt-3 pb-2">
@@ -583,32 +675,45 @@ function Board({ items, onMove, onOpen, onCreate }) {
                 <BoardCard
                   key={item.id}
                   item={item}
+                  canEdit={canEdit(item)}
                   dragging={dragId === item.id}
-                  onDragStart={(e) => { e.dataTransfer.setData('text/plain', String(item.id)); e.dataTransfer.effectAllowed = 'move'; setDragId(item.id); }}
-                  onDragEnd={() => setDragId(null)}
-                  onOpen={() => onOpen(item)}
+                  onPointerDown={(e) => onPointerDown(e, item)}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={onPointerUp}
+                  onPointerCancel={reset}
+                  onOpen={() => { if (suppressClick.current) { suppressClick.current = false; return; } onOpen(item); }}
                   onMove={onMove}
                 />
               ))}
               {colItems.length === 0 && (
-                <div className="rounded-lg border border-dashed border-slate-300 py-6 text-center text-xs text-slate-400 dark:border-slate-700">Drop items here</div>
+                <div className="rounded-lg border border-dashed border-slate-300 py-6 text-center text-xs text-slate-400 dark:border-slate-700">{isOver ? 'Release to drop' : 'Drop items here'}</div>
               )}
             </div>
           </div>
         );
       })}
+
+      {ghost && (
+        <div
+          className="pointer-events-none fixed z-[60] max-w-[70vw] -translate-x-1/2 -translate-y-1/2 truncate rounded-lg border border-accent-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-lg dark:bg-slate-800 dark:text-slate-100"
+          style={{ left: ghost.x, top: ghost.y }}
+        >
+          {ghost.title}
+        </div>
+      )}
     </div>
   );
 }
 
-function BoardCard({ item, dragging, onDragStart, onDragEnd, onOpen, onMove }) {
+function BoardCard({ item, canEdit, dragging, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onOpen, onMove }) {
   return (
     <div
-      draggable
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
       onClick={onOpen}
-      className={`cursor-pointer rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition hover:border-accent-300 hover:shadow dark:border-slate-700 dark:bg-slate-800 ${dragging ? 'opacity-50' : ''}`}
+      className={`cursor-pointer select-none rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition hover:border-accent-300 hover:shadow dark:border-slate-700 dark:bg-slate-800 ${dragging ? 'opacity-50 ring-2 ring-accent-400' : ''}`}
     >
       <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{item.title}</p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -624,12 +729,15 @@ function BoardCard({ item, dragging, onDragStart, onDragEnd, onOpen, onMove }) {
             <span className="truncate max-w-[90px]">{item.assignee_name}</span>
           </span>
         ) : <span className="text-xs text-slate-400">Unassigned</span>}
-        {/* Accessible fallback to drag-and-drop */}
+        {/* Accessible fallback to drag-and-drop — assignee/PM only */}
         <select
           value={item.status}
+          disabled={!canEdit}
+          title={canEdit ? undefined : 'Only the assignee can move this task'}
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
           onChange={(e) => { e.stopPropagation(); onMove(item.id, e.target.value); }}
-          className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] text-slate-600 focus:outline-none dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+          className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] text-slate-600 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
         >
           {STATUSES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
@@ -792,8 +900,17 @@ function Members({ space, onChanged }) {
   const [requests, setRequests] = useState([]);
   const [busyReq, setBusyReq] = useState(null);
   const [confirmReq, setConfirmReq] = useState(null); // { request, action }
+  const [menuFor, setMenuFor] = useState(null); // member user_id whose ⋮ menu is open
 
   useEffect(() => { api('/api/users/directory').then(setDirectory).catch(() => setDirectory([])); }, []);
+
+  // Close the open member action menu on any outside click.
+  useEffect(() => {
+    if (menuFor == null) return;
+    const close = () => setMenuFor(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [menuFor]);
 
   const loadRequests = () => {
     if (!space.can_administer) return;
@@ -842,6 +959,18 @@ function Members({ space, onChanged }) {
       await onChanged();
     } catch (e) {
       setError(e.message || 'Failed to remove member');
+    }
+  };
+
+  // Promote a member to 'project_owner' (a read-only stakeholder shown as
+  // "Project Owner") or demote one back to 'member'.
+  const setMemberRole = async (userId, role) => {
+    setError('');
+    try {
+      await api(`/api/spaces/${space.id}/members/${userId}`, { method: 'PATCH', body: JSON.stringify({ role }) });
+      await onChanged();
+    } catch (e) {
+      setError(e.message || 'Failed to update member');
     }
   };
 
@@ -898,9 +1027,58 @@ function Members({ space, onChanged }) {
                 </span>
               </span>
               <span className="flex items-center gap-3">
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${m.role === 'owner' ? 'bg-brand-100 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>{m.role}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                  m.role === 'owner'
+                    ? 'bg-brand-100 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200'
+                    : m.role === 'project_owner'
+                      ? 'bg-accent-100 text-accent-700 dark:bg-accent-500/15 dark:text-accent-200'
+                      : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                }`}>
+                  {m.role === 'owner' ? 'Project Manager' : m.role === 'project_owner' ? 'Project Owner' : 'Member'}
+                </span>
                 {space.can_administer && m.role !== 'owner' && (
-                  <button type="button" onClick={() => removeMember(m.user_id)} className="text-xs font-semibold text-rose-600 hover:underline dark:text-rose-400">Remove</button>
+                  <div className="relative" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => setMenuFor(menuFor === m.user_id ? null : m.user_id)}
+                      aria-label="Member actions"
+                      aria-haspopup="menu"
+                      className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                    >
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
+                    </button>
+                    {menuFor === m.user_id && (
+                      <div role="menu" className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                        {m.role === 'project_owner' ? (
+                          <button
+                            type="button"
+                            onClick={() => { setMenuFor(null); setMemberRole(m.user_id, 'member'); }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700/60"
+                          >
+                            <svg className="h-3.5 w-3.5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12l7 7 7-7" /></svg>
+                            Demote to member
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setMenuFor(null); setMemberRole(m.user_id, 'project_owner'); }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700/60"
+                          >
+                            <svg className="h-3.5 w-3.5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+                            Promote to project owner
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => { setMenuFor(null); removeMember(m.user_id); }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
+                        >
+                          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
+                          Remove user
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
               </span>
             </li>
@@ -1247,7 +1425,7 @@ function SpaceSettingsButton({ space, onDeleted, onUpdated }) {
 
 /* ---------------- Item detail (Jira-style two-column) ---------------- */
 
-function ItemDetailModal({ spaceId, members, allItems, itemId, onClose, onChanged, onDeleted }) {
+function ItemDetailModal({ spaceId, members, allItems, itemId, canEdit, canAdminister, onClose, onChanged, onDeleted }) {
   const me = getUser();
   const [activeId, setActiveId] = useState(itemId);
   const [detail, setDetail] = useState(null);
@@ -1315,6 +1493,12 @@ function ItemDetailModal({ spaceId, members, allItems, itemId, onClose, onChange
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_368px]">
           {/* Left column */}
           <div className="min-w-0 space-y-6">
+            {!canEdit && (
+              <div className="flex items-center gap-2 rounded-md bg-slate-100 px-3 py-2 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                <svg className="h-4 w-4 shrink-0 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" /><circle cx="12" cy="12" r="3" /></svg>
+                View only — you’re not the assignee. You can still add comments.
+              </div>
+            )}
             {detail.parent && (
               <button type="button" onClick={() => setActiveId(detail.parent.id)} className="group flex items-center gap-1.5 text-xs font-medium text-accent-700 dark:text-accent-300">
                 <span className="font-mono underline underline-offset-2 group-hover:text-accent-900 dark:group-hover:text-accent-200">{detail.parent.item_key}</span>
@@ -1323,7 +1507,7 @@ function ItemDetailModal({ spaceId, members, allItems, itemId, onClose, onChange
               </button>
             )}
             <div>
-              <EditableTitle key={`t-${item.id}`} value={item.title} onSave={(v) => patch({ title: v })} />
+              <EditableTitle key={`t-${item.id}`} value={item.title} readOnly={!canEdit} onSave={(v) => patch({ title: v })} />
               <div className="mt-1 flex flex-wrap items-center gap-1.5 px-2">
                 <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${TYPE_BADGE[item.type]}`}>{item.type}</span>
                 <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${PRIORITY_BADGE[item.priority]}`}>{item.priority}</span>
@@ -1335,12 +1519,12 @@ function ItemDetailModal({ spaceId, members, allItems, itemId, onClose, onChange
 
             <section>
               <SectionHeading color="text-sky-500">Description</SectionHeading>
-              <EditableDescription key={`d-${item.id}`} value={item.description || ''} onSave={(v) => patch({ description: v })} />
+              <EditableDescription key={`d-${item.id}`} value={item.description || ''} readOnly={!canEdit} onSave={(v) => patch({ description: v })} />
             </section>
 
-            <SubtasksSection subtasks={detail.subtasks} onOpen={setActiveId} onAdd={addSubtask} onToggle={(sid, status) => patchOther(sid, { status })} />
+            <SubtasksSection subtasks={detail.subtasks} canEdit={canEdit} onOpen={setActiveId} onAdd={addSubtask} onToggle={(sid, status) => patchOther(sid, { status })} />
 
-            <LinksSection links={detail.links} allItems={allItems} activeId={activeId} onOpen={setActiveId} onAdd={addLink} onRemove={removeLink} />
+            <LinksSection links={detail.links} allItems={allItems} activeId={activeId} canEdit={canEdit} onOpen={setActiveId} onAdd={addLink} onRemove={removeLink} />
 
             <ActivitySection comments={detail.comments} history={detail.history || []} me={me} onAdd={addComment} onDelete={deleteComment} />
           </div>
@@ -1350,8 +1534,10 @@ function ItemDetailModal({ spaceId, members, allItems, itemId, onClose, onChange
             <div className="flex items-center gap-2">
               <select
                 value={item.status}
+                disabled={!canEdit}
+                title={canEdit ? undefined : 'Only the assignee can move this task'}
                 onChange={(e) => patch({ status: e.target.value })}
-                className={`rounded-md border px-3 py-1.5 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-accent-500 ${STATUS_PILL[item.status]}`}
+                className={`rounded-md border px-3 py-1.5 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-70 ${STATUS_PILL[item.status]}`}
               >
                 {STATUSES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
               </select>
@@ -1368,20 +1554,20 @@ function ItemDetailModal({ spaceId, members, allItems, itemId, onClose, onChange
                 <DetailRow label="Assignee" icon="assignee">
                   <div className="flex items-center gap-2">
                     {item.assignee_name && <Avatar name={item.assignee_name} size="h-6 w-6" textClass="text-[10px]" />}
-                    <select className={DETAIL_INPUT} value={item.assignee_id || ''} onChange={(e) => patch({ assignee_id: e.target.value || null })}>
+                    <select className={DETAIL_INPUT} value={item.assignee_id || ''} disabled={!canAdminister} title={canAdminister ? undefined : 'Only the Project Manager can change the assignee'} onChange={(e) => patch({ assignee_id: e.target.value || null })}>
                       <option value="">Unassigned</option>
                       {members.map((m) => <option key={m.user_id} value={m.user_id}>{m.name}</option>)}
                     </select>
                   </div>
                 </DetailRow>
                 <DetailRow label="Type" icon="type">
-                  <select className={DETAIL_INPUT} value={item.type} onChange={(e) => patch({ type: e.target.value })}>
+                  <select className={DETAIL_INPUT} value={item.type} disabled={!canEdit} onChange={(e) => patch({ type: e.target.value })}>
                     {/* Subtask is only selectable for items that already are one (created from a parent). */}
                     {TYPES.filter((t) => t.key !== 'subtask' || item.type === 'subtask').map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
                   </select>
                 </DetailRow>
                 <DetailRow label="Priority" icon="priority">
-                  <select className={DETAIL_INPUT} value={item.priority} onChange={(e) => patch({ priority: e.target.value })}>
+                  <select className={DETAIL_INPUT} value={item.priority} disabled={!canEdit} onChange={(e) => patch({ priority: e.target.value })}>
                     {PRIORITIES.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
                   </select>
                 </DetailRow>
@@ -1391,25 +1577,25 @@ function ItemDetailModal({ spaceId, members, allItems, itemId, onClose, onChange
                       {item.labels.map((l) => <span key={l} className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{l}</span>)}
                     </div>
                   )}
-                  <InlineText key={`l-${item.id}`} value={(item.labels || []).join(', ')} placeholder="Add labels…" onSave={(v) => patch({ labels: v.split(',') })} />
+                  <InlineText key={`l-${item.id}`} value={(item.labels || []).join(', ')} readOnly={!canEdit} placeholder="Add labels…" onSave={(v) => patch({ labels: v.split(',') })} />
                 </DetailRow>
                 <DetailRow label="Parent" icon="parent">
-                  <select className={DETAIL_INPUT} value={item.parent_id || ''} onChange={(e) => patch({ parent_id: e.target.value || null })}>
+                  <select className={DETAIL_INPUT} value={item.parent_id || ''} disabled={!canEdit} onChange={(e) => patch({ parent_id: e.target.value || null })}>
                     <option value="">None</option>
                     {allItems.filter((x) => x.id !== item.id).map((x) => <option key={x.id} value={x.id}>{x.item_key} · {x.title}</option>)}
                   </select>
                 </DetailRow>
                 <DetailRow label="SLA (days)" icon="sla">
-                  <InlineText key={`s-${item.id}`} type="number" value={item.sla_days != null ? String(item.sla_days) : ''} placeholder="None" onSave={(v) => patch({ sla_days: v === '' ? null : Number(v) })} />
+                  <InlineText key={`s-${item.id}`} type="number" value={item.sla_days != null ? String(item.sla_days) : ''} readOnly={!canEdit} placeholder="None" onSave={(v) => patch({ sla_days: v === '' ? null : Number(v) })} />
                 </DetailRow>
                 <DetailRow label="Due date" icon="due">
                   <span className="px-2 text-slate-700 dark:text-slate-200">{item.due_at ? formatYmd(item.due_at) : <span className="text-slate-400">None</span>}</span>
                 </DetailRow>
                 <DetailRow label="Start date" icon="start">
-                  <input type="date" className={DETAIL_INPUT} value={item.start_date || ''} onChange={(e) => patch({ start_date: e.target.value || null })} />
+                  <input type="date" className={DETAIL_INPUT} value={item.start_date || ''} disabled={!canEdit} onChange={(e) => patch({ start_date: e.target.value || null })} />
                 </DetailRow>
                 <DetailRow label="Team" icon="team">
-                  <InlineText key={`tm-${item.id}`} value={item.team || ''} placeholder="None" onSave={(v) => patch({ team: v })} />
+                  <InlineText key={`tm-${item.id}`} value={item.team || ''} readOnly={!canEdit} placeholder="None" onSave={(v) => patch({ team: v })} />
                 </DetailRow>
                 <DetailRow label="Reporter" icon="reporter">
                   <span className="flex items-center gap-2 px-2 text-slate-700 dark:text-slate-200">
@@ -1465,10 +1651,13 @@ function DetailRow({ label, icon, children }) {
 }
 
 // Text input that commits on blur / Enter (used for inline detail fields).
-function InlineText({ value, onSave, placeholder, type = 'text' }) {
+function InlineText({ value, onSave, placeholder, type = 'text', readOnly = false }) {
   const [v, setV] = useState(value);
   useEffect(() => { setV(value); }, [value]);
   const commit = () => { if (v !== value) onSave(v.trim()); };
+  if (readOnly) {
+    return <span className="block px-2 py-1.5 text-sm text-slate-700 dark:text-slate-200">{value || <span className="text-slate-400">{placeholder || 'None'}</span>}</span>;
+  }
   return (
     <input
       type={type}
@@ -1482,10 +1671,13 @@ function InlineText({ value, onSave, placeholder, type = 'text' }) {
   );
 }
 
-function EditableTitle({ value, onSave }) {
+function EditableTitle({ value, onSave, readOnly = false }) {
   const [v, setV] = useState(value);
   useEffect(() => { setV(value); }, [value]);
   const commit = () => { const t = v.trim(); if (t && t !== value) onSave(t); else setV(value); };
+  if (readOnly) {
+    return <h2 className="px-2 py-1 text-2xl font-bold text-brand-900 dark:text-white">{value}</h2>;
+  }
   return (
     <input
       value={v}
@@ -1498,10 +1690,15 @@ function EditableTitle({ value, onSave }) {
   );
 }
 
-function EditableDescription({ value, onSave }) {
+function EditableDescription({ value, onSave, readOnly = false }) {
   const [v, setV] = useState(value);
   useEffect(() => { setV(value); }, [value]);
   const commit = () => { if (v.trim() !== value) onSave(v.trim()); };
+  if (readOnly) {
+    return value
+      ? <p className="whitespace-pre-wrap rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:bg-slate-800/60 dark:text-slate-200">{value}</p>
+      : <p className="px-1 text-sm italic text-slate-400">No description.</p>;
+  }
   return (
     <textarea
       value={v}
@@ -1513,7 +1710,7 @@ function EditableDescription({ value, onSave }) {
   );
 }
 
-function SubtasksSection({ subtasks, onOpen, onAdd, onToggle }) {
+function SubtasksSection({ subtasks, onOpen, onAdd, onToggle, canEdit = true }) {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
   const done = subtasks.filter((s) => s.status === 'done').length;
@@ -1531,11 +1728,11 @@ function SubtasksSection({ subtasks, onOpen, onAdd, onToggle }) {
     <section>
       <SectionHeading
         color="text-emerald-500"
-        action={(
+        action={canEdit ? (
           <button type="button" onClick={() => setAdding((a) => !a)} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800" aria-label="Add subtask">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
           </button>
-        )}
+        ) : null}
       >
         Subtasks
       </SectionHeading>
@@ -1556,7 +1753,7 @@ function SubtasksSection({ subtasks, onOpen, onAdd, onToggle }) {
             <button type="button" onClick={() => onOpen(s.id)} className="font-mono text-xs text-accent-700 underline underline-offset-2 hover:text-accent-900 dark:text-accent-300 dark:hover:text-accent-200">{s.item_key}</button>
             <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200">{s.title}</span>
             <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${PRIORITY_BADGE[s.priority]}`}>{s.priority}</span>
-            <select value={s.status} onChange={(e) => onToggle(s.id, e.target.value)} className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] text-slate-600 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
+            <select value={s.status} disabled={!canEdit} onChange={(e) => onToggle(s.id, e.target.value)} className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] text-slate-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
               {STATUSES.map((st) => <option key={st.key} value={st.key}>{st.label}</option>)}
             </select>
           </li>
@@ -1572,7 +1769,7 @@ function SubtasksSection({ subtasks, onOpen, onAdd, onToggle }) {
   );
 }
 
-function LinksSection({ links, allItems, activeId, onOpen, onAdd, onRemove }) {
+function LinksSection({ links, allItems, activeId, onOpen, onAdd, onRemove, canEdit = true }) {
   const [adding, setAdding] = useState(false);
   const [pick, setPick] = useState('');
   const linkedIds = new Set(links.map((l) => l.item.id));
@@ -1590,11 +1787,11 @@ function LinksSection({ links, allItems, activeId, onOpen, onAdd, onRemove }) {
     <section>
       <SectionHeading
         color="text-violet-500"
-        action={(
+        action={canEdit ? (
           <button type="button" onClick={() => setAdding((a) => !a)} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800" aria-label="Add link">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
           </button>
-        )}
+        ) : null}
       >
         Linked work items
       </SectionHeading>
@@ -1605,9 +1802,11 @@ function LinksSection({ links, allItems, activeId, onOpen, onAdd, onRemove }) {
             <button type="button" onClick={() => onOpen(l.item.id)} className="font-mono text-xs text-accent-700 underline underline-offset-2 hover:text-accent-900 dark:text-accent-300 dark:hover:text-accent-200">{l.item.item_key}</button>
             <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200">{l.item.title}</span>
             <span className="text-[10px] uppercase text-slate-400">{labelOf(STATUSES, l.item.status)}</span>
-            <button type="button" onClick={() => onRemove(l.item.id)} className="text-slate-400 hover:text-rose-500" aria-label="Remove link">
-              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-            </button>
+            {canEdit && (
+              <button type="button" onClick={() => onRemove(l.item.id)} className="text-slate-400 hover:text-rose-500" aria-label="Remove link">
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+              </button>
+            )}
           </li>
         ))}
       </ul>
@@ -1927,6 +2126,222 @@ function relativeDue(ymd) {
   if (diff === 1) return 'Tomorrow';
   if (diff === -1) return 'Yesterday';
   return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+/* ---------------- Timeline (Jira-style Gantt) ---------------- */
+
+const TIMELINE_DAY = 86400000;
+const TIMELINE_STATUS_COLOR = { todo: '#94a3b8', in_progress: '#3b82f6', done: '#22c55e' };
+const TIMELINE_DAY_PX = 26; // horizontal pixels per day
+const TIMELINE_NAME_W = 264; // frozen left name column
+const TIMELINE_ROW_H = 44;
+
+const startOfMonth = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
+const endOfMonth = (d) => new Date(d.getFullYear(), d.getMonth() + 1, 0);
+const daysBetween = (a, b) => Math.round((b - a) / TIMELINE_DAY);
+
+function TimelineView({ items, onOpen }) {
+  const [filters, setFilters] = useState({ assignees: [], types: [], statuses: [] });
+
+  // Top-level items only (subtasks live in their parent's detail modal), filtered.
+  const rows = useMemo(() => {
+    const list = applyItemFilters(items, filters).filter((i) => i.type !== 'subtask');
+    return list
+      .map((it) => {
+        const s = ymdToLocal(it.start_date);
+        const e = ymdToLocal(it.due_at);
+        const start = s || e;            // fall back to whichever date exists
+        let end = e || s;
+        if (start && end && end < start) end = start; // guard bad data
+        return { item: it, start, end };
+      })
+      .sort((a, b) => {
+        if (!a.start && !b.start) return 0;
+        if (!a.start) return 1;          // unscheduled sink to the bottom
+        if (!b.start) return -1;
+        return a.start - b.start || a.item.id - b.item.id;
+      });
+  }, [items, filters]);
+
+  const scheduled = rows.filter((r) => r.start && r.end);
+
+  // Span whole calendar year(s) covering the items + today, so EVERY month is
+  // shown (not just the month an item happens to fall in). Horizontally scrollable.
+  const range = useMemo(() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    let min = today, max = today;
+    for (const r of scheduled) { if (r.start < min) min = r.start; if (r.end > max) max = r.end; }
+    return { start: new Date(min.getFullYear(), 0, 1), end: new Date(max.getFullYear(), 11, 31) };
+  }, [scheduled]);
+
+  const totalDays = Math.max(1, daysBetween(range.start, range.end) + 1);
+  const trackW = totalDays * TIMELINE_DAY_PX;
+  const offsetPx = (d) => daysBetween(range.start, d) * TIMELINE_DAY_PX;
+
+  const months = useMemo(() => {
+    const out = [];
+    let cur = startOfMonth(range.start);
+    while (cur <= range.end) {
+      const from = cur < range.start ? range.start : cur;
+      const to = endOfMonth(cur) > range.end ? range.end : endOfMonth(cur);
+      out.push({
+        key: `${cur.getFullYear()}-${cur.getMonth()}`,
+        label: cur.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }),
+        left: offsetPx(from),
+        width: (daysBetween(from, to) + 1) * TIMELINE_DAY_PX
+      });
+      cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+    }
+    return out;
+  }, [range, totalDays]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // One cell per calendar day — drives the day-number header row + weekend shading.
+  const days = useMemo(() => {
+    const t = toYmd(new Date());
+    return Array.from({ length: totalDays }, (_, i) => {
+      const d = new Date(range.start.getFullYear(), range.start.getMonth(), range.start.getDate() + i);
+      const dow = d.getDay();
+      return { i, ymd: toYmd(d), day: d.getDate(), isWeekend: dow === 0 || dow === 6, isToday: toYmd(d) === t };
+    });
+  }, [range, totalDays]);
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const todayLeft = today >= range.start && today <= range.end ? offsetPx(today) : null;
+
+  // Open scrolled to ~today rather than January (the year now spans all months).
+  const scrollRef = useRef(null);
+  useEffect(() => {
+    if (scrollRef.current && todayLeft != null) {
+      scrollRef.current.scrollLeft = Math.max(0, todayLeft - 100);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (rows.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-200 bg-white py-20 text-center dark:border-slate-700 dark:bg-slate-900">
+        <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-300 dark:bg-slate-800 dark:text-slate-600">
+          <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h13M3 12h9M3 18h6" /><path d="M18 9l3 3-3 3" /></svg>
+        </span>
+        <p className="text-sm text-slate-500 dark:text-slate-400">No items to schedule yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-brand-900 dark:text-white">Timeline</h2>
+        <ItemFilters items={items} filters={filters} onChange={setFilters} />
+      </div>
+
+      <div ref={scrollRef} className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div style={{ width: TIMELINE_NAME_W + trackW }}>
+          {/* Month + day header */}
+          <div className="flex border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/40">
+            <div
+              className="sticky left-0 z-30 flex items-center border-r border-slate-200 bg-slate-50 px-4 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400"
+              style={{ width: TIMELINE_NAME_W }}
+            >
+              Work item
+            </div>
+            <div style={{ width: trackW }}>
+              {/* Month row */}
+              <div className="relative border-b border-slate-200/80 dark:border-slate-800" style={{ height: 26 }}>
+                {months.map((m) => (
+                  <div key={m.key} className="absolute top-0 bottom-0 flex items-center border-l border-slate-200 dark:border-slate-800" style={{ left: m.left, width: m.width }}>
+                    <span className="truncate px-2 text-[11px] font-semibold text-slate-600 dark:text-slate-300">{m.label}</span>
+                  </div>
+                ))}
+              </div>
+              {/* Day-number row */}
+              <div className="flex" style={{ height: 24 }}>
+                {days.map((d) => (
+                  <div
+                    key={d.ymd}
+                    className={`flex items-center justify-center border-l border-slate-100 text-[10px] tabular-nums dark:border-slate-800/70 ${
+                      d.isToday
+                        ? 'bg-rose-500 font-bold text-white'
+                        : d.isWeekend
+                          ? 'bg-slate-100 text-slate-400 dark:bg-slate-800/50 dark:text-slate-500'
+                          : 'text-slate-500 dark:text-slate-400'
+                    }`}
+                    style={{ width: TIMELINE_DAY_PX }}
+                  >
+                    {d.day}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Rows */}
+          <div className="relative">
+            {/* Weekend shading + month gridlines + today marker (behind bars/names) */}
+            {days.filter((d) => d.isWeekend).map((d) => (
+              <div key={`wk-${d.ymd}`} className="pointer-events-none absolute top-0 bottom-0 z-0 bg-slate-50 dark:bg-slate-800/30" style={{ left: TIMELINE_NAME_W + d.i * TIMELINE_DAY_PX, width: TIMELINE_DAY_PX }} />
+            ))}
+            {months.map((m) => (
+              <div key={`g-${m.key}`} className="pointer-events-none absolute top-0 bottom-0 z-0 border-l border-slate-100 dark:border-slate-800/70" style={{ left: TIMELINE_NAME_W + m.left }} />
+            ))}
+            {todayLeft != null && (
+              <div className="pointer-events-none absolute top-0 bottom-0 z-0 w-px bg-rose-400/80" style={{ left: TIMELINE_NAME_W + todayLeft }} />
+            )}
+
+            {rows.map((r) => {
+              const overdue = r.end && r.item.status !== 'done' && r.end < today;
+              const color = TIMELINE_STATUS_COLOR[r.item.status] || '#94a3b8';
+              const barLeft = r.start ? offsetPx(r.start) : 0;
+              const barWidth = r.start && r.end ? Math.max(TIMELINE_DAY_PX, (daysBetween(r.start, r.end) + 1) * TIMELINE_DAY_PX) : 0;
+              return (
+                <div key={r.item.id} className="flex border-b border-slate-100 last:border-b-0 dark:border-slate-800/70" style={{ height: TIMELINE_ROW_H }}>
+                  <button
+                    type="button"
+                    onClick={() => onOpen(r.item)}
+                    title={r.item.title}
+                    className="sticky left-0 z-20 flex items-center gap-2 border-r border-slate-200 bg-white px-4 text-left hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800/60"
+                    style={{ width: TIMELINE_NAME_W }}
+                  >
+                    <span className="font-mono text-[10px] text-slate-400">{r.item.item_key}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-slate-700 dark:text-slate-200">{r.item.title}</span>
+                    {r.item.assignee_name && <Avatar name={r.item.assignee_name} src={r.item.assignee_avatar} size="h-5 w-5" textClass="text-[9px]" />}
+                  </button>
+                  <div className="relative" style={{ width: trackW }}>
+                    {r.start && r.end ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpen(r.item)}
+                        title={`${r.item.title}\n${formatYmd(toYmd(r.start))} → ${formatYmd(toYmd(r.end))}`}
+                        className={`absolute top-1/2 flex h-7 -translate-y-1/2 items-center overflow-hidden rounded-md px-2 text-left text-[11px] font-medium text-white shadow-sm transition hover:brightness-110 ${overdue ? 'ring-2 ring-rose-400 ring-offset-1 dark:ring-offset-slate-900' : ''}`}
+                        style={{ left: barLeft, width: barWidth, backgroundColor: color, opacity: r.item.status === 'done' ? 0.7 : 1 }}
+                      >
+                        <span className="truncate">{r.item.title}</span>
+                      </button>
+                    ) : (
+                      <span className="absolute top-1/2 left-2 -translate-y-1/2 text-[11px] italic text-slate-400">Not scheduled — add a start &amp; due date</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
+        <span>Bars span each item's <span className="font-medium text-slate-500 dark:text-slate-300">start date → due date</span>.</span>
+        <span className="flex items-center gap-3">
+          {STATUSES.map((s) => (
+            <span key={s.key} className="flex items-center gap-1.5">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: s.color }} />
+              {s.label}
+            </span>
+          ))}
+          <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-px bg-rose-400" />Today</span>
+        </span>
+      </div>
+    </div>
+  );
 }
 
 function CalendarView({ items, onOpen, onCreate }) {

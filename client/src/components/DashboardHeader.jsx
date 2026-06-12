@@ -12,14 +12,14 @@ import { useChatUnread } from '../lib/useChatUnread.js';
 import { useMailboxUnread } from '../lib/useMailboxUnread.js';
 import Modal from './Modal.jsx';
 
-function ticketsMenu(user) {
+function ticketsMenu(user, byView = {}) {
   const sections = [
     {
       heading: 'Views',
       items: [
-        { to: '/tickets/my-queue', label: 'My Queue', desc: 'Work orders assigned to you', icon: 'queue' },
-        { to: '/tickets/submitted', label: 'Submitted Work Orders', desc: 'Work orders you own or were filed for you', icon: 'submitted' },
-        { to: '/tickets/all', label: 'All Work Orders', desc: 'Every work order in the system', icon: 'list' }
+        { to: '/tickets/my-queue', label: 'My Queue', desc: 'Work orders assigned to you', icon: 'queue', badge: byView.myQueue },
+        { to: '/tickets/submitted', label: 'Submitted Work Orders', desc: 'Work orders you own or were filed for you', icon: 'submitted', badge: byView.submitted },
+        { to: '/tickets/all', label: 'All Work Orders', desc: 'Every work order in the system', icon: 'list', badge: byView.all }
       ]
     }
   ];
@@ -83,6 +83,7 @@ export default function DashboardHeader() {
   const pendingResets = usePendingResetCount(canManageUsers);
   const usersSections = usersMenu(pendingResets);
   const workOrderAlerts = useWorkOrderNotifications(hasPermission('tickets', 'view', user));
+  const workOrderByView = workOrderAlerts.byView;
   const chatUnread = useChatUnread(!!user);
   const mailUnread = useMailboxUnread(!!user);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -127,7 +128,7 @@ export default function DashboardHeader() {
             Overview
           </NavLink>
           {hasPermission('tickets', 'view', user) && (
-            <NavDropdown label="Work Orders" basePath="/tickets" sections={ticketsMenu(user)} badge={workOrderAlerts} />
+            <NavDropdown label="Work Orders" basePath="/tickets" sections={ticketsMenu(user, workOrderByView)} badge={workOrderAlerts.total} />
           )}
           {hasPermission('kb', 'view', user) && (
             <NavDropdown label="Knowledge Base" basePath="/kb" sections={KB_MENU} />
@@ -194,7 +195,7 @@ export default function DashboardHeader() {
       </div>
 
       {mobileOpen && (
-        <MobileNav user={user} usersSections={usersSections} chatUnread={chatUnread} mailUnread={mailUnread} onClose={() => setMobileOpen(false)} />
+        <MobileNav user={user} usersSections={usersSections} workOrderByView={workOrderByView} chatUnread={chatUnread} mailUnread={mailUnread} onClose={() => setMobileOpen(false)} />
       )}
     </header>
 
@@ -235,14 +236,14 @@ export default function DashboardHeader() {
   );
 }
 
-function MobileNav({ user, usersSections, chatUnread = 0, mailUnread = 0, onClose }) {
+function MobileNav({ user, usersSections, workOrderByView = {}, chatUnread = 0, mailUnread = 0, onClose }) {
   const sections = [];
   sections.push({
     heading: 'Overview',
     items: [{ to: '/dashboard', label: 'Overview', desc: 'Dashboard home' }]
   });
   if (hasPermission('tickets', 'view', user)) {
-    sections.push({ heading: 'Work Orders', items: ticketsMenu(user).flatMap((s) => s.items) });
+    sections.push({ heading: 'Work Orders', items: ticketsMenu(user, workOrderByView).flatMap((s) => s.items) });
   }
   if (hasPermission('kb', 'view', user)) {
     sections.push({ heading: 'Knowledge Base', items: KB_MENU.flatMap((s) => s.items) });
@@ -397,7 +398,7 @@ function ProfileMenu({ user, onSignOut }) {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-50 mt-2 w-64 origin-top-right rounded-xl border border-slate-200 bg-white shadow-elevated ring-1 ring-black/5 overflow-hidden dark:bg-slate-900 dark:border-slate-700 dark:ring-white/5"
+          className="absolute right-0 top-full z-50 mt-2 w-64 max-w-[calc(100vw-1rem)] origin-top-right rounded-xl border border-slate-200 bg-white shadow-elevated ring-1 ring-black/5 overflow-hidden dark:bg-slate-900 dark:border-slate-700 dark:ring-white/5"
         >
           <div className="px-4 pt-3 pb-3 border-b border-slate-100 dark:border-slate-800">
             <div className="text-sm font-semibold text-slate-900 truncate dark:text-slate-100">{user?.name}</div>

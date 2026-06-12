@@ -111,7 +111,7 @@ export default function NavDropdown({ label, basePath, sections, badge }) {
       {open && (
         <div
           role="menu"
-          className="absolute left-0 top-full z-50 mt-2 w-72 origin-top-left rounded-xl border border-slate-200 bg-white shadow-elevated ring-1 ring-black/5 overflow-hidden"
+          className="absolute left-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-1rem)] origin-top-left rounded-xl border border-slate-200 bg-white shadow-elevated ring-1 ring-black/5 overflow-hidden"
         >
           <div className="px-4 pt-3 pb-2 border-b border-slate-100">
             <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-accent-700">

@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import UserPicker from '../components/UserPicker.jsx';
-import { api, getUser } from '../lib/auth.js';
+import { api, getUser, updateStoredUser } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
 import { SLA_DAYS, RESOLVED_STATUSES, PAUSED_STATUSES as SLA_PAUSED_STATUSES } from '../lib/sla.js';
+import { CATEGORY_TREE } from '../lib/categories.js';
 
 const STATUSES = [
   { key: 'open', label: 'Open' },
@@ -43,8 +44,19 @@ const CATEGORIES = [
 
 const DRAFT_FIELDS = [
   'description', 'status', 'priority', 'request_type',
-  'category', 'department', 'requester', 'assignee'
+  'category', 'subcategory', 'subcategory2', 'department', 'requester', 'assignee'
 ];
+
+// Parse the overtime report JSON column (mysql2 may return it parsed or as text).
+function parseOvertime(v) {
+  if (!v) return [];
+  try {
+    const arr = typeof v === 'string' ? JSON.parse(v) : v;
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
 
 function makeDraft(ticket) {
   return DRAFT_FIELDS.reduce((acc, f) => {
@@ -57,6 +69,19 @@ export default function TicketDetail() {
   const { id } = useParams();
   const me = getUser();
   const isStaff = me?.role === 'admin' || me?.role === 'agent';
+
+  // Refresh the signed-in user so the printout has the latest e-signature even
+  // if this session predates the signature being set (cached user can be stale).
+  const [printUser, setPrintUser] = useState(me);
+  useEffect(() => {
+    api('/api/auth/me')
+      .then((d) => {
+        if (!d) return;
+        setPrintUser(d);
+        if ('signature_url' in d) updateStoredUser({ signature_url: d.signature_url ?? null });
+      })
+      .catch(() => {});
+  }, []);
 
   const [ticket, setTicket] = useState(null);
   const [draft, setDraft] = useState({});
@@ -121,12 +146,23 @@ export default function TicketDetail() {
 
   const isDirty = dirtyFields.length > 0;
 
+  // Cascading sub-categories (mirrors the create form) + the structured overtime
+  // report, both driven off the loaded ticket / current draft.
+  const overtime = parseOvertime(ticket?.overtime_report);
+  const subOpts = draft.category ? Object.keys(CATEGORY_TREE[draft.category] || {}) : [];
+  const sub2Opts = draft.category && draft.subcategory ? (CATEGORY_TREE[draft.category]?.[draft.subcategory] || []) : [];
+  const onCategoryEdit = (v) => setDraft((d) => ({ ...d, category: v, subcategory: '', subcategory2: '' }));
+  const onSubcategoryEdit = (v) => setDraft((d) => ({ ...d, subcategory: v, subcategory2: '' }));
+
   // Self-assign: a department member (or staff) can pick up a work order routed
   // to their department. Staff edit through the normal draft/Save flow (they can
   // assign anyone); non-staff have no Save bar, so they persist immediately via
   // the claim/release endpoints.
   const myIdentity = me?.name || me?.email || '';
   const canClaim = isStaff || (!!me?.department && !!ticket?.department && me.department === ticket.department);
+  // Staff edit the whole queue; a department manager gets the same full-edit UI
+  // for work orders routed to the department they head (server returns can_edit).
+  const canManage = isStaff || !!ticket?.can_edit;
   // Assignment edits are staged in the draft like every other field, so nothing
   // is written (or logged) until the user clicks Save. Staff save via PATCH;
   // non-staff save via the claim/release endpoints (see `save` below).
@@ -174,7 +210,7 @@ export default function TicketDetail() {
     setError('');
     try {
       let updated;
-      if (isStaff) {
+      if (canManage) {
         const patch = {};
         for (const f of dirtyFields) {
           const v = draft[f];
@@ -266,6 +302,19 @@ export default function TicketDetail() {
     setKbLinks((prev) => prev.filter((a) => a.id !== articleId));
   };
 
+  // Approve or deny a pending HR request (manager / staff). On approve the work
+  // order is routed to HR; on deny it's closed with the given reason.
+  const decideApproval = async (action, reason) => {
+    const updated = await api(`/api/tickets/${id}/${action}`, {
+      method: 'POST',
+      ...(action === 'deny' ? { body: JSON.stringify({ reason }) } : {})
+    });
+    const merged = { ...ticket, ...updated };
+    setTicket(merged);
+    setDraft(makeDraft(merged));
+    reloadActivity();
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader />
@@ -344,6 +393,8 @@ export default function TicketDetail() {
 
             <SlaBanner ticket={ticket} activity={activity} />
 
+            <ApprovalBanner ticket={ticket} onDecide={decideApproval} />
+
             {error && (
               <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">
                 {error}
@@ -360,21 +411,21 @@ export default function TicketDetail() {
                       value={draft.status}
                       options={STATUSES}
                       onChange={(v) => setField('status', v)}
-                      disabled={!isStaff}
+                      disabled={!canManage}
                     />
                     <SelectField
                       label="Priority"
                       value={draft.priority}
                       options={PRIORITIES}
                       onChange={(v) => setField('priority', v)}
-                      disabled={!isStaff}
+                      disabled={!canManage}
                     />
                     <SelectField
                       label="Request type"
                       value={draft.request_type}
                       options={REQUEST_TYPES}
                       onChange={(v) => setField('request_type', v)}
-                      disabled={!isStaff}
+                      disabled={!canManage}
                     />
                     <SelectField
                       label="Category"
@@ -383,20 +434,75 @@ export default function TicketDetail() {
                         { key: '', label: '— None —' },
                         ...CATEGORIES.map((c) => ({ key: c, label: c }))
                       ]}
-                      onChange={(v) => setField('category', v)}
-                      disabled={!isStaff}
+                      onChange={onCategoryEdit}
+                      disabled={!canManage}
                     />
+                    {subOpts.length > 0 && (
+                      <SelectField
+                        label="Subcategory"
+                        value={draft.subcategory || ''}
+                        options={[{ key: '', label: '— None —' }, ...subOpts.map((s) => ({ key: s, label: s }))]}
+                        onChange={onSubcategoryEdit}
+                        disabled={!canManage}
+                      />
+                    )}
+                    {sub2Opts.length > 0 && (
+                      <SelectField
+                        label="Sub-subcategory"
+                        value={draft.subcategory2 || ''}
+                        options={[{ key: '', label: '— None —' }, ...sub2Opts.map((s) => ({ key: s, label: s }))]}
+                        onChange={(v) => setField('subcategory2', v)}
+                        disabled={!canManage}
+                      />
+                    )}
                   </div>
 
-                  <FieldLabel>Description</FieldLabel>
-                  <textarea
-                    value={draft.description || ''}
-                    onChange={(e) => setField('description', e.target.value)}
-                    placeholder="Describe the issue, steps to reproduce, expected behavior, error messages…"
-                    rows={10}
-                    disabled={!isStaff}
-                    className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm leading-relaxed placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:bg-slate-50 disabled:text-slate-700 resize-y"
-                  />
+                  {overtime.length > 0 ? (
+                    <>
+                      <FieldLabel>Overtime &amp; Accomplishment Report</FieldLabel>
+                      <div className="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-700">
+                        <table className="w-full min-w-[640px] border-collapse text-sm">
+                          <thead>
+                            <tr className="bg-slate-50 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                              <th className="px-3 py-2">Name</th>
+                              <th className="px-3 py-2">OT-In</th>
+                              <th className="px-3 py-2">OT-Out</th>
+                              <th className="px-3 py-2">Hours Rendered</th>
+                              <th className="px-3 py-2">Employee Signature</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {overtime.map((r, i) => (
+                              <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
+                                <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{r.name || '—'}</td>
+                                <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{r.otIn || '—'}</td>
+                                <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{r.otOut || '—'}</td>
+                                <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{r.hours || '—'}</td>
+                                <td className="px-3 py-2">
+                                  {r.signatureUrl
+                                    ? <img src={r.signatureUrl} alt="E-signature" className="h-8 max-w-[140px] object-contain" />
+                                    : <span className="text-slate-600 dark:text-slate-300">{r.signature || ''}</span>}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="mt-1.5 text-[11px] text-slate-400">Submitted via the overtime form on creation.</p>
+                    </>
+                  ) : (
+                    <>
+                      <FieldLabel>Description</FieldLabel>
+                      <textarea
+                        value={draft.description || ''}
+                        onChange={(e) => setField('description', e.target.value)}
+                        placeholder="Describe the issue, steps to reproduce, expected behavior, error messages…"
+                        rows={10}
+                        disabled={!canManage}
+                        className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm leading-relaxed placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:bg-slate-50 disabled:text-slate-700 resize-y"
+                      />
+                    </>
+                  )}
                 </Card>
 
                 <Card title="People">
@@ -405,7 +511,7 @@ export default function TicketDetail() {
                     <select
                       value={draft.department || ''}
                       onChange={(e) => onDepartmentChange(e.target.value)}
-                      disabled={!isStaff}
+                      disabled={!canManage}
                       className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:opacity-60"
                     >
                       <option value="" disabled>Select a department</option>
@@ -426,7 +532,7 @@ export default function TicketDetail() {
                         value={draft.requester || ''}
                         users={directoryUsers}
                         onChange={(v) => setField('requester', v)}
-                        disabled={!isStaff}
+                        disabled={!canManage}
                         placeholder="Type to search users or enter a name"
                       />
                     </div>
@@ -436,7 +542,7 @@ export default function TicketDetail() {
                         value={draft.assignee || ''}
                         users={assigneeChoices}
                         onChange={(v) => setField('assignee', v)}
-                        disabled={!isStaff}
+                        disabled={!canManage}
                         placeholder="Type to search users or enter a name"
                       />
                     </div>
@@ -452,7 +558,7 @@ export default function TicketDetail() {
                         >
                           Unassign me
                         </button>
-                      ) : (!effectiveAssignee || isStaff) ? (
+                      ) : (!effectiveAssignee || canManage) ? (
                         <button
                           type="button"
                           onClick={() => claimTicket(true)}
@@ -485,7 +591,7 @@ export default function TicketDetail() {
                         <AttachmentRow
                           key={a.id}
                           attachment={a}
-                          canRemove={isStaff}
+                          canRemove={canManage}
                           onRemove={removeAttachment}
                         />
                       ))}
@@ -500,7 +606,7 @@ export default function TicketDetail() {
               <aside className="space-y-6">
                 <KbLinkPanel
                   links={kbLinks}
-                  canEdit={isStaff}
+                  canEdit={canManage}
                   onLink={linkArticle}
                   onUnlink={unlinkArticle}
                 />
@@ -518,7 +624,7 @@ export default function TicketDetail() {
                   saving={saving}
                   onSave={save}
                   onDiscard={discard}
-                  visible={isStaff || (canClaim && isDirty)}
+                  visible={canManage || (canClaim && isDirty)}
                 />
               </aside>
             </div>
@@ -526,15 +632,47 @@ export default function TicketDetail() {
         )}
       </main>
 
-      {ticket && <PrintableTicket ticket={ticket} />}
+      {ticket && <PrintableTicket ticket={ticket} me={printUser} directory={directoryUsers} />}
     </div>
   );
 }
 
 /* -------- Printable ticket -------- */
 
-function PrintableTicket({ ticket }) {
+function PrintableTicket({ ticket, me, directory }) {
   const pretty = (v) => (v ? String(v).replace(/_/g, ' ') : '—');
+  // Resolve a requester/assignee value (often an email) to the user's full name
+  // for the signature blocks. Falls back to the original value if unknown.
+  const nameByKey = new Map();
+  for (const u of directory || []) {
+    if (u?.email) nameByKey.set(String(u.email).trim().toLowerCase(), u.name);
+    if (u?.name) nameByKey.set(String(u.name).trim().toLowerCase(), u.name);
+  }
+  if (me?.email && me?.name) nameByKey.set(String(me.email).trim().toLowerCase(), me.name);
+  const resolveName = (v) => (v ? (nameByKey.get(String(v).trim().toLowerCase()) || v) : v);
+  // Auto-place the current user's e-signature above the line in whichever block
+  // names them (requester or assignee), matched on name/email.
+  const myIds = [me?.name, me?.email].filter(Boolean).map((s) => s.trim().toLowerCase());
+  const isMe = (person) => !!person && myIds.includes(String(person).trim().toLowerCase());
+  const signReq = me?.signature_url && isMe(ticket.requester);
+  const signTech = me?.signature_url && isMe(ticket.assignee);
+  // "Approved by": the approval-workflow manager (name + signature snapshotted on
+  // the work order when they approved). Falls back to the assignee, signed by the
+  // current viewer if it's them, for ordinary work orders without an approval.
+  const approvedName = ticket.approver_name || resolveName(ticket.assignee);
+  const approvedSig = ticket.approver_signature_url || (signTech ? me.signature_url : null);
+  // Structured Overtime & Accomplishment Report rows (JSON column; mysql2 may
+  // return it parsed or as a string).
+  const overtime = (() => {
+    const v = ticket.overtime_report;
+    if (!v) return [];
+    try {
+      const arr = typeof v === 'string' ? JSON.parse(v) : v;
+      return Array.isArray(arr) ? arr : [];
+    } catch {
+      return [];
+    }
+  })();
   return (
     <article className="printable-ticket">
       <div className="pt-accent" />
@@ -565,19 +703,43 @@ function PrintableTicket({ ticket }) {
 
       <div className="pt-grid">
         <div><b>Type</b><span>{pretty(ticket.request_type)}</span></div>
-        <div><b>Category</b><span>{ticket.category || '—'}</span></div>
+        <div><b>Category</b><span>{[ticket.category, ticket.subcategory, ticket.subcategory2].filter(Boolean).join(' › ') || '—'}</span></div>
         <div><b>Department</b><span>{ticket.department || '—'}</span></div>
         <div><b>Requested by</b><span>{ticket.requester || '—'}</span></div>
         <div><b>Assigned to</b><span>{ticket.assignee || '—'}</span></div>
-        <div><b>Date opened</b><span>{formatDateTime(ticket.created_at)}</span></div>
+        <div><b>Date requested</b><span>{formatDateTime(ticket.created_at)}</span></div>
       </div>
 
-      {ticket.description && (
+      {overtime.length > 0 ? (
+        <section className="pt-section">
+          <div className="pt-label">Overtime &amp; Accomplishment Report</div>
+          <table className="pt-ot-table">
+            <thead>
+              <tr>
+                <th>Name</th><th>OT-In</th><th>OT-Out</th><th>Hours Rendered</th><th>Employee Signature</th>
+              </tr>
+            </thead>
+            <tbody>
+              {overtime.map((r, i) => (
+                <tr key={i}>
+                  <td>{r.name || '—'}</td>
+                  <td>{r.otIn || '—'}</td>
+                  <td>{r.otOut || '—'}</td>
+                  <td>{r.hours || '—'}</td>
+                  <td className="pt-ot-sigcell">
+                    {r.signatureUrl ? <img className="pt-ot-sig" src={r.signatureUrl} alt="" /> : (r.signature || '')}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : ticket.description ? (
         <section className="pt-section">
           <div className="pt-label">Description of work</div>
           <div className="pt-body">{ticket.description}</div>
         </section>
-      )}
+      ) : null}
 
 
       <section className="pt-certify">
@@ -591,21 +753,25 @@ function PrintableTicket({ ticket }) {
 
       <div className="pt-signatures">
         <div className="pt-sig">
-          <div className="pt-sig-line" />
-          <div className="pt-sig-name">{ticket.requester || ' '}</div>
-          <div className="pt-sig-role">Requested by</div>
+          <div className="pt-sig-line">
+            {signReq && <img className="pt-sig-img" src={me.signature_url} alt="" />}
+          </div>
+          <div className="pt-sig-name">{resolveName(ticket.requester) || ' '}</div>
+          <div className="pt-sig-role">Prepared by</div>
           <div className="pt-sig-date">Date:&nbsp;_________________</div>
         </div>
         <div className="pt-sig">
-          <div className="pt-sig-line" />
-          <div className="pt-sig-name">{ticket.assignee || ' '}</div>
-          <div className="pt-sig-role">Performed by · Technician</div>
+          <div className="pt-sig-line">
+            {approvedSig && <img className="pt-sig-img" src={approvedSig} alt="" />}
+          </div>
+          <div className="pt-sig-name">{approvedName || ' '}</div>
+          <div className="pt-sig-role">Approved by</div>
           <div className="pt-sig-date">Date:&nbsp;_________________</div>
         </div>
         <div className="pt-sig pt-sig--approver">
           <div className="pt-sig-line" />
           <div className="pt-sig-name">&nbsp;</div>
-          <div className="pt-sig-role">Approved by · Manager</div>
+          <div className="pt-sig-role">Noted by</div>
           <div className="pt-sig-date">Date:&nbsp;_________________</div>
         </div>
       </div>
@@ -661,6 +827,97 @@ function SavePanel({ isDirty, dirtyFields, saving, onSave, onDiscard, visible })
         </div>
       </div>
     </section>
+  );
+}
+
+/* -------- Approval banner (HR Concerns workflow) -------- */
+
+function ApprovalBanner({ ticket, onDecide }) {
+  const [denying, setDenying] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const status = ticket?.approval_status;
+  if (!status || status === 'not_required') return null;
+
+  const run = async (action) => {
+    setErr('');
+    if (action === 'deny' && !reason.trim()) { setErr('Please give a reason.'); return; }
+    setBusy(true);
+    try {
+      await onDecide(action, reason.trim());
+    } catch (e) {
+      setErr(e.message || 'Could not complete the action.');
+      setBusy(false);
+    }
+  };
+
+  if (status === 'approved') {
+    return (
+      <div className="rounded-md bg-emerald-50 ring-1 ring-emerald-200 px-3 py-2.5 text-sm text-emerald-800 print:hidden">
+        <span className="font-semibold">Approved.</span>{' '}
+        {ticket.approver_name ? `${ticket.approver_name} approved this request` : 'This request was approved'}
+        {ticket.department ? ` and routed to ${ticket.department}.` : '.'}
+      </div>
+    );
+  }
+  if (status === 'denied') {
+    return (
+      <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2.5 text-sm text-rose-800 print:hidden">
+        <span className="font-semibold">Declined.</span>{' '}
+        {ticket.approver_name ? `${ticket.approver_name} declined this request.` : 'This request was declined.'}
+        {ticket.approval_note ? <span className="mt-0.5 block text-rose-700">Reason: {ticket.approval_note}</span> : null}
+      </div>
+    );
+  }
+
+  // pending
+  if (!ticket.can_approve) {
+    return (
+      <div className="rounded-md bg-amber-50 ring-1 ring-amber-200 px-3 py-2.5 text-sm text-amber-800 print:hidden">
+        <span className="font-semibold">Awaiting approval.</span> This request is with your department
+        manager — it’ll be routed to HR once approved.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-sm text-amber-900 print:hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <span className="font-semibold">Approval needed.</span> Approve to forward this request to HR, or decline it.
+        </div>
+        {!denying && (
+          <div className="flex gap-2">
+            <button type="button" disabled={busy} onClick={() => run('approve')} className="inline-flex items-center rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">
+              {busy ? 'Working…' : 'Approve'}
+            </button>
+            <button type="button" disabled={busy} onClick={() => setDenying(true)} className="inline-flex items-center rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 ring-1 ring-rose-200 hover:bg-rose-50 disabled:opacity-60">
+              Decline
+            </button>
+          </div>
+        )}
+      </div>
+      {denying && (
+        <div className="mt-3 space-y-2">
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={2}
+            placeholder="Reason for declining (shared with the requester)…"
+            className="block w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-rose-400 focus:outline-none focus:ring-1 focus:ring-rose-400"
+          />
+          <div className="flex justify-end gap-2">
+            <button type="button" disabled={busy} onClick={() => { setDenying(false); setReason(''); setErr(''); }} className="btn-ghost !px-3 !py-1.5 text-xs">Cancel</button>
+            <button type="button" disabled={busy} onClick={() => run('deny')} className="inline-flex items-center rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-60">
+              {busy ? 'Working…' : 'Decline request'}
+            </button>
+          </div>
+        </div>
+      )}
+      {err && <p className="mt-2 text-xs font-medium text-rose-700">{err}</p>}
+    </div>
   );
 }
 

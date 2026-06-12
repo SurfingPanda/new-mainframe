@@ -1,5 +1,8 @@
 import { pool } from '../config/db.js';
 import { hasPermission } from './permissions.js';
+import { managesDepartment } from './department-managers.js';
+
+const HR_CONCERNS = 'HR Concerns';
 
 // Per-resource authorization for static `/uploads`. Being signed in isn't enough:
 // a file is only viewable by someone who can see its parent ticket / chat room /
@@ -41,9 +44,10 @@ export async function canAccessUpload(user, fullPath) {
   if (parts[0] !== 'uploads' || parts.length < 3) return false;
   const category = parts[1];
 
-  // Avatars are surfaced app-wide (header, directory, chat, pickers), so any
-  // signed-in user may load any avatar.
-  if (category === 'avatars') return true;
+  // Avatars are surfaced app-wide (header, directory, chat, pickers) and
+  // e-signatures are rendered onto shared documents (e.g. work-order printouts),
+  // so any signed-in user may load them.
+  if (category === 'avatars' || category === 'signatures') return true;
 
   if (category === 'chat') {
     const [[m]] = await pool.query(
@@ -87,7 +91,7 @@ export async function canAccessUpload(user, fullPath) {
     );
     if (!att) return false;
     const [[t]] = await pool.query(
-      'SELECT requester, assignee, department FROM tickets WHERE id = ? LIMIT 1',
+      'SELECT requester, assignee, department, category, approval_dept FROM tickets WHERE id = ? LIMIT 1',
       [att.ticket_id]
     );
     if (!t) return false;
@@ -96,6 +100,15 @@ export async function canAccessUpload(user, fullPath) {
     const ids = identities(user);
     if (t.requester && ids.includes(String(t.requester).trim().toLowerCase())) return true;
     if (t.assignee && ids.includes(String(t.assignee).trim().toLowerCase())) return true;
+    // 'HR Concerns' are need-to-know (mirrors tickets.js canReadTicket): the
+    // requester's department manager + whoever the request is routed to (HR staff
+    // after approval). No generic same-department access.
+    if (t.category === HR_CONCERNS) {
+      if (await managesDepartment(user.sub, t.approval_dept)) return true;
+      if (t.department && user.department && t.department === user.department) return true;
+      if (await managesDepartment(user.sub, t.department)) return true;
+      return false;
+    }
     if (t.department && user.department && t.department === user.department) return true;
     return false;
   }

@@ -392,6 +392,40 @@
     line-height: 1.45;
   }
 
+  /* Overtime & Accomplishment Report table on the printout. */
+  .pt-ot-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 4pt;
+    font-size: 9pt;
+  }
+  .pt-ot-table th,
+  .pt-ot-table td {
+    border: 0.5pt solid #cbd5e1;
+    padding: 4pt 6pt;
+    text-align: left;
+    vertical-align: middle;
+    overflow-wrap: anywhere;
+  }
+  .pt-ot-table th {
+    background: #f1f5f9;
+    font-size: 7pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #16365c;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .pt-ot-sigcell { height: 30pt; }
+  .pt-ot-sig {
+    max-height: 26pt;
+    max-width: 130pt;
+    object-fit: contain;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
   .pt-certify { margin-top: 13pt; break-inside: avoid; }
   .pt-certify-text {
     margin-top: 4pt;
@@ -417,6 +451,18 @@
   .pt-sig-line {
     border-bottom: 1pt solid #0f172a;
     height: 36pt;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  /* E-signature image sits on the line and overflows upward, above the name. */
+  .pt-sig-img {
+    max-height: 64pt;
+    max-width: 100%;
+    object-fit: contain;
+    margin-bottom: 1pt;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   .pt-sig-name {
     margin-top: 5pt;
@@ -514,6 +560,7 @@
     grid-template-columns: 1fr 1fr;
   }
   body.print-3x5 .pt-sig-line { height: 14pt; }
+  body.print-3x5 .pt-sig-img { max-height: 26pt; }
   body.print-3x5 .pt-sig-name { font-size: 6pt; margin-top: 1pt; min-height: 7pt; }
   body.print-3x5 .pt-sig-role { font-size: 4.5pt; letter-spacing: 0.04em; }
   body.print-3x5 .pt-sig-date { display: none; }

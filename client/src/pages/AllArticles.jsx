@@ -202,9 +202,7 @@ export default function AllArticles() {
               {filtered.map((a) => (
                 <li key={a.slug} className="flex items-start gap-4 px-5 py-4 transition-colors hover:bg-slate-50/60 group dark:hover:bg-slate-800/40">
                   <span className={`mt-0.5 flex-none inline-flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br ${articleGradient(a.category)} text-white shadow-sm`}>
-                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M4 4h12a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4V4z" /><path d="M4 16a4 4 0 0 1 4-4h12" />
-                    </svg>
+                    <CategoryIcon category={a.category} />
                   </span>
 
                   <div className="flex-1 min-w-0">
@@ -309,6 +307,41 @@ function articleGradient(key = '') {
   let h = 0;
   for (const c of String(key)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return ARTICLE_GRADIENTS[h % ARTICLE_GRADIENTS.length];
+}
+
+// A recognizable icon per knowledge-base category (matched loosely so both the
+// KB and ticket category names resolve). Falls back to a book for anything else.
+function CategoryIcon({ category }) {
+  const k = String(category || '').toLowerCase();
+  let body;
+  if (k.includes('account') || k.includes('access')) {
+    body = <><circle cx="12" cy="8" r="4" /><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" /></>;
+  } else if (k.includes('network') || k.includes('connectivity')) {
+    body = <><path d="M5 12.55a11 11 0 0 1 14.08 0" /><path d="M1.42 9a16 16 0 0 1 21.16 0" /><path d="M8.53 16.11a6 6 0 0 1 6.95 0" /><path d="M12 20h.01" /></>;
+  } else if (k.includes('software')) {
+    body = <><path d="M16 18l6-6-6-6" /><path d="M8 6l-6 6 6 6" /></>;
+  } else if (k.includes('hardware')) {
+    body = <><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" /></>;
+  } else if (k.includes('security')) {
+    body = <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />;
+  } else if (k.includes('email') || k.includes('mail') || k.includes('communication')) {
+    body = <><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M22 7l-10 6L2 7" /></>;
+  } else if (k.includes('print') || k.includes('peripheral')) {
+    body = <><path d="M6 9V2h12v7" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></>;
+  } else if (k.includes('trouble')) {
+    body = <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.1 2.1-2.4-.6-.6-2.4 2.1-2.1z" />;
+  } else if (k.includes('faq') || k.includes('question')) {
+    body = <><circle cx="12" cy="12" r="10" /><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></>;
+  } else if (k.includes('polic')) {
+    body = <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M9 13h6M9 17h5" /></>;
+  } else {
+    body = <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></>;
+  }
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      {body}
+    </svg>
+  );
 }
 
 // A published article counts as "new" for a week after it was created.
