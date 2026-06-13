@@ -702,6 +702,14 @@ export async function ensureSchema() {
     )
   `);
 
+  // users.preferences — JSON blob for user-controlled settings (notification
+  // prefs, chat prefs, etc.). Separate from `permissions` which is admin-managed.
+  try {
+    await pool.query(`ALTER TABLE users ADD COLUMN preferences JSON NULL AFTER signature_url`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
   // space_item_comments attachment columns — comments can now carry a single file.
   for (const stmt of [
     `ALTER TABLE space_item_comments ADD COLUMN attachment_url      VARCHAR(255) NULL`,

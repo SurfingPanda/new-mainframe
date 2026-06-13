@@ -1,10 +1,27 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
-import { PasswordCard } from '../components/AccountCards.jsx';
+import {
+  PasswordCard,
+  NotificationPreferencesCard,
+  SessionsSecurityCard,
+  ChatPreferencesCard
+} from '../components/AccountCards.jsx';
+import { api } from '../lib/auth.js';
 
 // Settings = account security & preferences (currently: change password). Your
 // profile information (name, photo, role, access) lives on the Profile page.
 export default function Settings() {
+  const [me, setMe] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api('/api/auth/me')
+      .then(setMe)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader />
@@ -23,13 +40,18 @@ export default function Settings() {
             <p className="mt-1 text-slate-600">Manage your account security and preferences.</p>
           </div>
           <Link to="/profile" className="text-xs font-semibold text-accent-700 hover:text-accent-900">
-            View profile →
+            View profile &rarr;
           </Link>
         </section>
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-6">
             <PasswordCard />
+            <NotificationPreferencesCard />
+            <ChatPreferencesCard />
+          </div>
+          <div className="space-y-6">
+            <SessionsSecurityCard me={me} loading={loading} />
           </div>
         </div>
       </main>

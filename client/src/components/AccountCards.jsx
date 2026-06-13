@@ -672,6 +672,213 @@ export function PermissionsCard({ me }) {
   );
 }
 
+/* -------- Notification Preferences -------- */
+
+const NOTIF_OPTIONS = [
+  { key: 'email_assigned',      label: 'Work order assigned to me',     desc: 'Get notified when a work order is assigned to you.' },
+  { key: 'email_status_change', label: 'Status changes',                desc: 'Get notified when a work order you\'re involved in changes status.' },
+  { key: 'email_new_comment',   label: 'New comments or notes',         desc: 'Get notified when someone adds a comment to your work order.' },
+  { key: 'email_hr_approval',   label: 'HR approval requests',          desc: 'Get notified when an HR concern needs your approval.' }
+];
+
+export function NotificationPreferencesCard() {
+  const [prefs, setPrefs] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api('/api/auth/me/preferences')
+      .then((data) => setPrefs(data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const toggle = async (key) => {
+    const current = prefs?.notifications?.[key] ?? true;
+    setSaving(true);
+    try {
+      const updated = await api('/api/auth/me/preferences', {
+        method: 'PATCH',
+        body: JSON.stringify({ notifications: { [key]: !current } })
+      });
+      setPrefs(updated);
+    } catch { /* ignore */ }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white shadow-card overflow-hidden">
+      <header className="border-b border-slate-100 px-5 py-3">
+        <h2 className="text-sm font-semibold text-slate-800">Notification preferences</h2>
+        <p className="text-xs text-slate-500 mt-0.5">Choose which email notifications you receive.</p>
+      </header>
+      <ul className="divide-y divide-slate-100">
+        {NOTIF_OPTIONS.map((opt) => {
+          const checked = prefs?.notifications?.[opt.key] ?? true;
+          return (
+            <li key={opt.key} className="flex items-center justify-between gap-4 px-5 py-3">
+              <div>
+                <div className="text-sm font-medium text-slate-800">{opt.label}</div>
+                <div className="text-xs text-slate-500">{opt.desc}</div>
+              </div>
+              <ToggleSwitch
+                checked={checked}
+                disabled={loading || saving}
+                onChange={() => toggle(opt.key)}
+              />
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/* -------- Sessions & Security -------- */
+
+export function SessionsSecurityCard({ me, loading: meLoading }) {
+  const [busy, setBusy] = useState(false);
+  const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
+
+  const invalidateSessions = async () => {
+    setBusy(true);
+    setError('');
+    setSuccess('');
+    try {
+      await api('/api/auth/me/invalidate-sessions', { method: 'POST' });
+      setSuccess('All other sessions have been signed out.');
+    } catch (e) {
+      setError(e.message || 'Could not invalidate sessions.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white shadow-card overflow-hidden">
+      <header className="border-b border-slate-100 px-5 py-3">
+        <h2 className="text-sm font-semibold text-slate-800">Sessions & security</h2>
+        <p className="text-xs text-slate-500 mt-0.5">Manage your active sessions and account security.</p>
+      </header>
+
+      <dl className="divide-y divide-slate-100">
+        <Row label="Last sign-in" value={meLoading ? 'Loading...' : formatDateTime(me?.last_login_at)} />
+        <Row label="Member since" value={meLoading ? 'Loading...' : formatDateTime(me?.created_at)} />
+        <Row label="Status" value={<StatusDot active />} />
+      </dl>
+
+      <div className="border-t border-slate-100 px-5 py-4 space-y-3">
+        <div>
+          <div className="text-sm font-medium text-slate-800">Sign out other devices</div>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Invalidate all other active sessions. You'll stay signed in on this device.
+          </p>
+        </div>
+
+        {error && (
+          <p className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-xs text-rose-700">{error}</p>
+        )}
+        {success && (
+          <p className="rounded-md bg-accent-50 ring-1 ring-accent-200 px-3 py-2 text-xs text-accent-800">{success}</p>
+        )}
+
+        <button
+          type="button"
+          onClick={invalidateSessions}
+          disabled={busy}
+          className="btn-secondary !px-3.5 !py-2 text-xs text-rose-600 hover:text-rose-700 disabled:opacity-50"
+        >
+          {busy ? 'Signing out...' : 'Sign out all other devices'}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/* -------- Chat Preferences -------- */
+
+const CHAT_OPTIONS = [
+  { key: 'sound_enabled', label: 'Notification sound',   desc: 'Play a sound when you receive a new chat message.' },
+  { key: 'enter_to_send', label: 'Enter to send',        desc: 'Press Enter to send messages. When off, use Shift+Enter to send.' }
+];
+
+export function ChatPreferencesCard() {
+  const [prefs, setPrefs] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api('/api/auth/me/preferences')
+      .then((data) => setPrefs(data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const toggle = async (key) => {
+    const current = prefs?.chat?.[key] ?? true;
+    setSaving(true);
+    try {
+      const updated = await api('/api/auth/me/preferences', {
+        method: 'PATCH',
+        body: JSON.stringify({ chat: { [key]: !current } })
+      });
+      setPrefs(updated);
+    } catch { /* ignore */ }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white shadow-card overflow-hidden">
+      <header className="border-b border-slate-100 px-5 py-3">
+        <h2 className="text-sm font-semibold text-slate-800">Chat preferences</h2>
+        <p className="text-xs text-slate-500 mt-0.5">Customize your chat experience.</p>
+      </header>
+      <ul className="divide-y divide-slate-100">
+        {CHAT_OPTIONS.map((opt) => {
+          const checked = prefs?.chat?.[opt.key] ?? true;
+          return (
+            <li key={opt.key} className="flex items-center justify-between gap-4 px-5 py-3">
+              <div>
+                <div className="text-sm font-medium text-slate-800">{opt.label}</div>
+                <div className="text-xs text-slate-500">{opt.desc}</div>
+              </div>
+              <ToggleSwitch
+                checked={checked}
+                disabled={loading || saving}
+                onChange={() => toggle(opt.key)}
+              />
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/* -------- Toggle Switch -------- */
+
+function ToggleSwitch({ checked, disabled, onChange }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={onChange}
+      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+        checked ? 'bg-accent-500' : 'bg-slate-300'
+      }`}
+    >
+      <span
+        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 ease-in-out ${
+          checked ? 'translate-x-4' : 'translate-x-0.5'
+        }`}
+      />
+    </button>
+  );
+}
+
 /* -------- Helpers -------- */
 
 function Row({ label, value, mono }) {

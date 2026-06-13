@@ -229,7 +229,7 @@ router.post('/reset-password', forgotLimiter, async (req, res, next) => {
 });
 
 const ME_COLUMNS =
-  'id, email, name, role, department, job_title, avatar_url, signature_url, permissions, last_login_at, created_at';
+  'id, email, name, role, department, job_title, avatar_url, signature_url, permissions, preferences, last_login_at, created_at';
 
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
@@ -400,6 +400,85 @@ router.delete('/me/signature', requireAuth, async (req, res, next) => {
     await pool.query('UPDATE users SET signature_url = NULL WHERE id = ?', [req.user.sub]);
     removeSignatureFile(prev?.signature_url);
     res.json({ signature_url: null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---- User preferences (notification, chat, etc.) ---- //
+
+const PREFERENCE_DEFAULTS = {
+  notifications: {
+    email_assigned: true,
+    email_status_change: true,
+    email_new_comment: true,
+    email_hr_approval: true
+  },
+  chat: {
+    sound_enabled: true,
+    enter_to_send: true
+  }
+};
+
+function mergedPreferences(raw) {
+  const saved = (typeof raw === 'string' ? JSON.parse(raw) : raw) || {};
+  return {
+    notifications: { ...PREFERENCE_DEFAULTS.notifications, ...saved.notifications },
+    chat: { ...PREFERENCE_DEFAULTS.chat, ...saved.chat }
+  };
+}
+
+router.get('/me/preferences', requireAuth, async (req, res, next) => {
+  try {
+    const [[row]] = await pool.query('SELECT preferences FROM users WHERE id = ? LIMIT 1', [req.user.sub]);
+    res.json(mergedPreferences(row?.preferences));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/me/preferences', requireAuth, async (req, res, next) => {
+  try {
+    const patch = req.body;
+    if (!patch || typeof patch !== 'object') {
+      return res.status(400).json({ error: 'Request body must be an object' });
+    }
+    const [[row]] = await pool.query('SELECT preferences FROM users WHERE id = ? LIMIT 1', [req.user.sub]);
+    const current = (typeof row?.preferences === 'string' ? JSON.parse(row.preferences) : row?.preferences) || {};
+    // Shallow-merge each section
+    if (patch.notifications && typeof patch.notifications === 'object') {
+      current.notifications = { ...current.notifications, ...patch.notifications };
+    }
+    if (patch.chat && typeof patch.chat === 'object') {
+      current.chat = { ...current.chat, ...patch.chat };
+    }
+    await pool.query('UPDATE users SET preferences = ? WHERE id = ?', [JSON.stringify(current), req.user.sub]);
+    res.json(mergedPreferences(current));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Invalidate all other sessions by bumping token_version, then re-issue a
+// fresh token for THIS device so the user stays signed in.
+router.post('/me/invalidate-sessions', requireAuth, async (req, res, next) => {
+  try {
+    await pool.query('UPDATE users SET token_version = token_version + 1 WHERE id = ?', [req.user.sub]);
+    const [[u]] = await pool.query('SELECT token_version FROM users WHERE id = ? LIMIT 1', [req.user.sub]);
+    const token = jwt.sign(
+      {
+        sub: req.user.sub,
+        email: req.user.email,
+        role: req.user.role,
+        name: req.user.name,
+        permissions: req.user.permissions,
+        tv: u.token_version
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    );
+    setAuthCookie(res, token);
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }

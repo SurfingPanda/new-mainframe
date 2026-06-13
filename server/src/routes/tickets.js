@@ -11,6 +11,7 @@ import { slaStanding } from '../lib/sla.js';
 import { maybeSendResolutionSurvey } from '../lib/resolution-survey.js';
 import { managesDepartment, managedDepartments, hrDepartmentName, managerOfDepartment } from '../lib/department-managers.js';
 import { notifyApprovalRequested, notifyApprovalDecision, notifyHrRoutedToTeam } from '../lib/hr-approval.js';
+import { emitNotification } from '../lib/socket.js';
 
 // Category that triggers the manager-approval workflow.
 const HR_CONCERNS = 'HR Concerns';
@@ -457,6 +458,9 @@ router.patch('/:id', requireAuth, requirePermission('tickets', 'view'), async (r
       maybeSendResolutionSurvey(updatedRows[0], before.status);
     }
     res.json(updatedRows[0]);
+
+    // Real-time: notify involved users (requester + assignee + old assignee).
+    emitTicketNotifications(updatedRows[0], changes);
   } catch (err) {
     next(err);
   }
@@ -1238,12 +1242,51 @@ router.post(
       }
 
       res.status(201).json(ticket);
+
+      // Real-time: notify assignee + department members.
+      emitTicketNotifications(ticket, []);
     } catch (err) {
       cleanup();
       next(err);
     }
   }
 );
+
+// Fire-and-forget: resolve involved users and emit socket notifications so
+// their bells + badge counts update in real time.
+async function emitTicketNotifications(ticket, changes) {
+  try {
+    const userIds = new Set();
+    // Look up requester + assignee by name/email.
+    const names = [ticket.requester, ticket.assignee].filter(Boolean);
+    if (names.length) {
+      const [rows] = await pool.query(
+        'SELECT id FROM users WHERE (name IN (?) OR email IN (?)) AND is_active = 1',
+        [names, names]
+      );
+      for (const r of rows) userIds.add(r.id);
+    }
+    // Also include the old assignee if reassigned.
+    for (const c of changes) {
+      if (c.field === 'assignee' && c.oldValue) {
+        const [rows] = await pool.query(
+          'SELECT id FROM users WHERE (name = ? OR email = ?) AND is_active = 1',
+          [c.oldValue, c.oldValue]
+        );
+        for (const r of rows) userIds.add(r.id);
+      }
+    }
+    // Notify department members if routed to a department.
+    if (ticket.department) {
+      const [rows] = await pool.query(
+        'SELECT id FROM users WHERE department = ? AND is_active = 1',
+        [ticket.department]
+      );
+      for (const r of rows) userIds.add(r.id);
+    }
+    for (const uid of userIds) emitNotification(uid);
+  } catch { /* best-effort */ }
+}
 
 export { ALLOWED_CATEGORIES, ALLOWED_REQUEST_TYPES };
 export default router;

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import { api, getUser } from '../lib/auth.js';
+import { useSocket, useSocketEvent } from '../lib/useSocket.jsx';
 
-const MESSAGE_POLL_MS = 5000;
-const ROOMS_POLL_MS = 30000;
-const TYPING_POLL_MS = 2500;
+const MESSAGE_POLL_MS = 30_000;  // Relaxed from 5s — socket pushes handle the fast path.
+const ROOMS_POLL_MS = 60_000;    // Relaxed from 30s.
+const TYPING_POLL_MS = 10_000;   // Relaxed from 2.5s — socket handles real-time typing.
 const GROUP_GAP_MS = 5 * 60 * 1000;
 const MAX_LEN = 2000;
 const GENERAL_KEY = 'general';
@@ -84,13 +85,63 @@ export default function ChatRoom() {
   // Throttle the "I'm typing" heartbeat to at most one POST every few seconds.
   const lastTypingRef = useRef(0);
 
+  const socket = useSocket();
+
   // Tell the server we're typing in the active room (throttled).
+  // Prefer socket when connected, fall back to REST.
   const notifyTyping = () => {
     const now = Date.now();
     if (now - lastTypingRef.current < 2500) return;
     lastTypingRef.current = now;
-    api('/api/chat/typing', { method: 'POST', body: JSON.stringify({ room: activeKey }) }).catch(() => {});
+    if (socket?.connected) {
+      socket.emit('chat:typing', activeKey);
+    } else {
+      api('/api/chat/typing', { method: 'POST', body: JSON.stringify({ room: activeKey }) }).catch(() => {});
+    }
   };
+
+  // Join/leave socket rooms so we receive real-time messages.
+  useEffect(() => {
+    if (!socket) return;
+    socket.emit('chat:join', activeKey);
+    return () => { socket.emit('chat:leave', activeKey); };
+  }, [socket, activeKey]);
+
+  // Real-time: new message pushed by the server.
+  useSocketEvent('chat:message', (msg) => {
+    if (msg.room_key !== activeKey) return;
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === msg.id)) return prev;
+      const next = [...prev, msg].sort((a, b) => a.id - b.id);
+      return next;
+    });
+    // Auto-mark read since we're looking at this room.
+    if (msg.id) markRoomRead(activeKey, msg.id);
+  });
+
+  // Real-time: message unsent.
+  useSocketEvent('chat:unsend', ({ room, messageId }) => {
+    if (room !== activeKey) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId ? { ...m, is_unsent: 1, body: '', attachment_url: null } : m
+      )
+    );
+  });
+
+  // Real-time: typing indicator from another user.
+  useSocketEvent('chat:typing', (data) => {
+    if (data.room !== activeKey || data.userId === myId) return;
+    setTypingUsers((prev) => {
+      const exists = prev.some((u) => u.id === data.userId);
+      if (exists) return prev;
+      return [...prev, { id: data.userId, name: data.name }];
+    });
+    // Auto-clear after the TTL (matches server's 6s).
+    setTimeout(() => {
+      setTypingUsers((prev) => prev.filter((u) => u.id !== data.userId));
+    }, 6000);
+  });
 
   // Pull per-room unread counts (drives the conversation badges + nav badge).
   const refreshUnread = async () => {

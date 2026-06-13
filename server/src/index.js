@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { createServer } from 'node:http';
 import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
@@ -13,6 +14,7 @@ import { logMailerStatus } from './lib/mailer.js';
 import { securityHeaders } from './middleware/securityHeaders.js';
 import { requireAuth } from './middleware/auth.js';
 import { authorizeUpload } from './lib/upload-access.js';
+import { initSocket } from './lib/socket.js';
 import auth from './routes/auth.js';
 import users from './routes/users.js';
 import tickets from './routes/tickets.js';
@@ -41,6 +43,7 @@ if (process.env.JWT_SECRET.length < 32) {
 }
 
 const app = express();
+const server = createServer(app);
 const PORT = Number(process.env.PORT) || 4000;
 
 // Behind a reverse proxy (nginx, Cloudflare, most PaaS), req.ip is the proxy's
@@ -80,6 +83,12 @@ if (corsAllowlist.length) {
   // credentialed requests — the auth cookie won't be sent with a wildcard origin.
   app.use(cors({ origin: true, credentials: true }));
 }
+
+// Attach Socket.IO to the same HTTP server with matching CORS settings.
+initSocket(server, corsAllowlist.length
+  ? { origin: corsAllowlist, credentials: true }
+  : { origin: true, credentials: true }
+);
 
 app.use(securityHeaders);
 app.use(express.json());
@@ -146,7 +155,7 @@ ensureSchema()
   .then(() => { startMaintenanceScheduler(); startSpaceDueReminders(); startSlaBreachReminders(); startAutoClose(); })
   .catch((err) => console.error('schema bootstrap failed:', err));
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Hubly API listening on http://localhost:${PORT}`);
   logMailerStatus();
 });

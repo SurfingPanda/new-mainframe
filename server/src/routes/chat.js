@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { userWriteLimit } from '../middleware/rateLimit.js';
+import { emitChatMessage, emitChatUnsend, emitUnreadUpdate } from '../lib/socket.js';
 
 const router = Router();
 const MAX_BODY = 2000;
@@ -633,7 +634,13 @@ router.post('/messages', requireAuth, sendLimiter, attachmentMiddleware, async (
          FROM chat_messages WHERE id = ?`,
       [result.insertId]
     );
-    res.status(201).json((await attachAvatars(rows))[0]);
+    const msg = (await attachAvatars(rows))[0];
+    res.status(201).json(msg);
+
+    // Real-time: broadcast the new message to connected clients in this room.
+    emitChatMessage(room, msg);
+    // Notify other room members to refresh unread counts.
+    notifyRoomMembers(room, req.user.sub);
   } catch (err) {
     if (req.file) fs.unlink(req.file.path, () => {});
     next(err);
@@ -682,10 +689,42 @@ router.delete('/messages/:id', requireAuth, async (req, res, next) => {
       }
     }
 
+    // Look up the room key so we can broadcast the unsend.
+    const [[unsent]] = await pool.query('SELECT room_key FROM chat_messages WHERE id = ? LIMIT 1', [id]);
     res.json({ ok: true });
+
+    if (unsent?.room_key) {
+      emitChatUnsend(unsent.room_key, id);
+    }
   } catch (err) {
     next(err);
   }
 });
+
+// Fire-and-forget: tell other room members to refresh unread counts.
+async function notifyRoomMembers(room, senderId) {
+  try {
+    let userIds = [];
+    if (room === GENERAL_ROOM) {
+      // Everyone is in the general room — get all active users.
+      const [rows] = await pool.query('SELECT id FROM users WHERE is_active = 1');
+      userIds = rows.map((r) => r.id);
+    } else {
+      const dm = parseDm(room);
+      if (dm) {
+        userIds = [dm.a, dm.b];
+      } else {
+        const group = parseGroup(room);
+        if (group) {
+          const [rows] = await pool.query('SELECT user_id FROM chat_room_members WHERE room_id = ?', [group.id]);
+          userIds = rows.map((r) => r.user_id);
+        }
+      }
+    }
+    for (const uid of userIds) {
+      if (uid !== senderId) emitUnreadUpdate(uid);
+    }
+  } catch { /* best-effort */ }
+}
 
 export default router;

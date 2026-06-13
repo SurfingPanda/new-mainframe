@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from './auth.js';
+import { useSocketEvent } from './useSocket.jsx';
 
-const POLL_MS = 20_000;
+const POLL_MS = 60_000; // Relaxed from 20s — socket pushes handle the fast path.
 const LS_MUTE = 'mf_chat_muted';
 
 // Muted conversations (client-only, stored in localStorage by ChatRoom) should
@@ -17,10 +18,16 @@ function mutedSet() {
 
 // Total unread chat messages across the user's rooms (DMs, groups, and the
 // Team Chat channel), excluding muted conversations. Drives the badge on the
-// Chat Room nav item. Polls in the background, on tab focus, and whenever a
-// `chat-read` event fires (the chat view marks a room read).
+// Chat Room nav item. Real-time updates via Socket.IO with polling fallback.
 export function useChatUnread(enabled = true) {
   const [count, setCount] = useState(0);
+
+  // Refetch trigger — bumped by socket events AND the old polling interval.
+  const [tick, setTick] = useState(0);
+  const bump = () => setTick((t) => t + 1);
+
+  // Listen for real-time unread pushes from the server.
+  useSocketEvent('chat:unread', bump);
 
   useEffect(() => {
     if (!enabled) {
@@ -55,7 +62,7 @@ export function useChatUnread(enabled = true) {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('chat-read', onRead);
     };
-  }, [enabled]);
+  }, [enabled, tick]);
 
   return count;
 }

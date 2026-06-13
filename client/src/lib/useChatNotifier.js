@@ -1,12 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { api, getUser } from './auth.js';
+import { useSocketEvent } from './useSocket.jsx';
 
 // Active chat alerts: a sound + desktop (Web Notifications) ping when a new
 // message arrives. Built on the same /api/chat/unread signal as the badge — an
 // increase in a room's unread count means someone messaged you (your own
 // messages never count, and the room you're actively viewing is continuously
 // marked read by the widget, so it won't false-fire).
-const POLL_MS = 15000;
+const POLL_MS = 60_000; // Relaxed from 15s — socket pushes handle the fast path.
 const LS_MUTE = 'mf_chat_muted';     // muted conversations (shared with the chat UI)
 const LS_ALERTS = 'mf_chat_alerts';  // 'off' disables alerts
 const NOTIFY_ICON = '/GEM.png';
@@ -131,6 +132,13 @@ export function useChatNotifier(enabled = true) {
     return () => window.removeEventListener('pointerdown', prime);
   }, [enabled]);
 
+  // Real-time: when the server pushes a chat:unread event, trigger an immediate
+  // poll cycle to detect the delta and fire sound/desktop notification.
+  const pollNow = useRef(null);
+  useSocketEvent('chat:unread', () => {
+    if (pollNow.current) pollNow.current();
+  });
+
   useEffect(() => {
     if (!enabled || !myId) return;
     let cancelled = false;
@@ -165,12 +173,14 @@ export function useChatNotifier(enabled = true) {
       }
     };
 
+    pollNow.current = poll;
     poll();
     const id = setInterval(poll, POLL_MS);
     const onFocus = () => poll();
     window.addEventListener('focus', onFocus);
     return () => {
       cancelled = true;
+      pollNow.current = null;
       clearInterval(id);
       window.removeEventListener('focus', onFocus);
     };
