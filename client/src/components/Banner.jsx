@@ -7,7 +7,7 @@ export default function Banner() {
             <rect x="4" y="11" width="16" height="9" rx="2" />
             <path d="M8 11V8a4 4 0 0 1 8 0v3" />
           </svg>
-          <span>Eljin Corp internal system — authorized personnel only</span>
+          <span>Hubly internal system — authorized personnel only</span>
         </div>
         <div className="hidden sm:flex items-center gap-4 text-brand-200">
           <span className="font-mono">v1.0.0</span>

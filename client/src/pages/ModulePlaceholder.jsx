@@ -15,7 +15,7 @@ const SECTIONS = {
   },
   assets: {
     label: 'Asset Inventory',
-    accent: 'Track every device issued by Eljin Corp.',
+    accent: 'Track every device issued by Hubly.',
     views: {
       '': 'All Assets',
       'all': 'All Assets',

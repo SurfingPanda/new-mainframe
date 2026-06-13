@@ -6,11 +6,11 @@ import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { userWriteLimit } from '../middleware/rateLimit.js';
-import { notifyTicketCreated, notifyTicketChanges, notifyTicketNote } from '../lib/ticket-emails.js';
+import { notifyTicketCreated, notifyTicketChanges } from '../lib/ticket-emails.js';
 import { slaStanding } from '../lib/sla.js';
 import { maybeSendResolutionSurvey } from '../lib/resolution-survey.js';
 import { managesDepartment, managedDepartments, hrDepartmentName, managerOfDepartment } from '../lib/department-managers.js';
-import { notifyApprovalRequested, notifyApprovalDecision } from '../lib/hr-approval.js';
+import { notifyApprovalRequested, notifyApprovalDecision, notifyHrRoutedToTeam } from '../lib/hr-approval.js';
 
 // Category that triggers the manager-approval workflow.
 const HR_CONCERNS = 'HR Concerns';
@@ -338,7 +338,7 @@ router.patch('/:id', requireAuth, requirePermission('tickets', 'view'), async (r
 
     const [existingRows] = await pool.query(
       `SELECT id, title, description, status, priority, request_type, category, subcategory, subcategory2, department,
-              requester, assignee, asset_id
+              requester, assignee, asset_id, approval_status
          FROM tickets WHERE id = ?`,
       [id]
     );
@@ -349,6 +349,35 @@ router.patch('/:id', requireAuth, requirePermission('tickets', 'view'), async (r
     // out mid-edit by rerouting it.)
     if (!(await canManageTicket(req.user, before))) {
       return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    // HR Concerns are need-to-know and are routed/approved by the manager-approval
+    // workflow at intake (POST /). The edit path has no equivalent unrouting or
+    // approval step, so reclassifying a ticket into or out of 'HR Concerns' here
+    // would bypass it — e.g. an ordinary, department-visible ticket relabelled to
+    // 'HR Concerns' would keep its department and stay readable by every coworker
+    // in it. Disallow the reclassification entirely.
+    if ('category' in (req.body || {})) {
+      const rawCat = req.body.category;
+      const nextCat = rawCat === null || rawCat === '' ? null : String(rawCat).trim();
+      const prevCat = before.category ?? null;
+      if (nextCat !== prevCat && (nextCat === HR_CONCERNS || prevCat === HR_CONCERNS)) {
+        return res.status(400).json({
+          error: "A work order can't be reclassified into or out of 'HR Concerns' after creation. File it as a new HR Concern so it routes for manager approval."
+        });
+      }
+    }
+    // While an HR Concern is pending approval it is deliberately UNROUTED
+    // (department NULL); don't let a manual department edit route it around the
+    // approve/deny decision (and its signature snapshot + requester notice).
+    if (before.category === HR_CONCERNS && before.approval_status === 'pending' && 'department' in (req.body || {})) {
+      const rawDept = req.body.department;
+      const nextDept = rawDept === null || rawDept === '' ? null : String(rawDept).trim().slice(0, 80);
+      if ((nextDept ?? null) !== (before.department ?? null)) {
+        return res.status(400).json({
+          error: 'This HR Concern is awaiting manager approval; approve or decline it instead of routing it manually.'
+        });
+      }
     }
 
     const updates = [];
@@ -560,6 +589,7 @@ router.post('/:id/approve', requireAuth, requirePermission('tickets', 'view'), a
     );
     const [[updated]] = await pool.query(APPROVAL_SELECT, [id]);
     notifyApprovalDecision({ ticket: updated, decision: 'approved', hrName });
+    notifyHrRoutedToTeam({ ticket: updated });
     res.json(updated);
   } catch (err) {
     next(err);
@@ -748,8 +778,6 @@ router.post(
          VALUES (?, 'note', ?, ?, ?)`,
         [id, actor, body ? body.slice(0, 4000) : null, attachmentId]
       );
-
-      if (body) notifyTicketNote(exists[0], body, actor);
 
       const [rows] = await pool.query(
         `SELECT a.id, a.type, a.actor, a.field, a.old_value, a.new_value, a.body,
@@ -1056,10 +1084,10 @@ router.post(
       }
 
       // 'HR Concerns' enter the manager-approval workflow: held 'pending' and
-      // routed to the filer's department manager while UNROUTED (department NULL,
-      // so coworkers can't see it); approval forwards it to HR. With no manager
-      // (or the filer IS the manager) there is nobody to approve it, so it is
-      // auto-approved straight to HR.
+      // routed to the REQUESTER's department manager while UNROUTED (department
+      // NULL, so coworkers can't see it); approval forwards it to HR. With no
+      // manager (or the requester IS the manager) there is nobody to approve it,
+      // so it is auto-approved straight to HR.
       let departmentValue = department ? String(department).trim().slice(0, 80) : null;
       let approvalStatus = 'not_required';
       let approvalDept = null;
@@ -1068,10 +1096,30 @@ router.post(
       let pendingManager = null;
       let hrName = null;
       if (category === HR_CONCERNS) {
-        const homeDept = req.user?.department || null;
+        // Route approval to the REQUESTER's department manager, not the filer's:
+        // staff may open an HR concern on behalf of someone in another department.
+        // For a self-service filer the requester IS them, so use their own
+        // department; otherwise resolve the requester (free-text name/email) to a
+        // user. No match (e.g. an external requester) → no manager → straight to HR.
+        let homeDept;
+        let requesterUserId;
+        if (userIdentities(req.user).includes(requesterName)) {
+          homeDept = req.user?.department || null;
+          requesterUserId = req.user?.sub ?? null;
+        } else {
+          const lookup = String(requesterName).trim();
+          const [requesterRows] = await pool.query(
+            'SELECT id, department FROM users WHERE is_active = 1 AND (email = ? OR name = ?) LIMIT 1',
+            [lookup.toLowerCase(), lookup]
+          );
+          homeDept = requesterRows[0]?.department || null;
+          requesterUserId = requesterRows[0]?.id ?? null;
+        }
         const manager = homeDept ? await managerOfDepartment(homeDept) : null;
         hrName = await hrDepartmentName();
-        if (manager && manager.id !== req.user.sub) {
+        // Auto-approve when there's no manager, or the requester heads their own
+        // department (they can't approve their own concern).
+        if (manager && manager.id !== requesterUserId) {
           approvalStatus = 'pending';
           approvalDept = homeDept;
           departmentValue = null;          // unrouted until approved
@@ -1156,6 +1204,8 @@ router.post(
            VALUES (?, 'change', ?, 'approved', ?)`,
           [ticketId, String(creator).trim().slice(0, 120), String(hrName || 'HR').slice(0, 500)]
         );
+        // Auto-approved straight to HR (no approving manager) — notify the HR team.
+        notifyHrRoutedToTeam({ ticket: { id: ticketId } });
       }
 
       const [rows] = await pool.query(

@@ -9,7 +9,7 @@ import { api, getUser } from './auth.js';
 const POLL_MS = 15000;
 const LS_MUTE = 'mf_chat_muted';     // muted conversations (shared with the chat UI)
 const LS_ALERTS = 'mf_chat_alerts';  // 'off' disables alerts
-const NOTIFY_ICON = '/images/logo.png';
+const NOTIFY_ICON = '/GEM.png';
 
 export function getAlertsEnabled() {
   return localStorage.getItem(LS_ALERTS) !== 'off';

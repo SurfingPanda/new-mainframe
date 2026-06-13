@@ -20,6 +20,19 @@ export function isConfigured() {
   return Boolean(process.env.SMTP_HOST) || devMode();
 }
 
+// One-line status logged at boot so it's obvious whether outbound email is live.
+// (Without this the mailer only warns on the FIRST send attempt — easy to miss.)
+export function logMailerStatus() {
+  if (process.env.SMTP_HOST) {
+    const port = Number(process.env.SMTP_PORT) || 587;
+    console.log(`[mailer] SMTP enabled — ${process.env.SMTP_HOST}:${port} (from: ${fromAddress()})`);
+  } else if (devMode()) {
+    console.log('[mailer] MAIL_DEV mode — Ethereal test inbox, no real delivery.');
+  } else {
+    console.warn('[mailer] SMTP disabled (SMTP_HOST empty) — emails are no-ops. Set SMTP_* in .env and restart to enable.');
+  }
+}
+
 async function getTransport() {
   if (cachedTransport) return cachedTransport;
   if (process.env.SMTP_HOST) {
@@ -46,7 +59,7 @@ async function getTransport() {
 }
 
 function fromAddress() {
-  return process.env.MAIL_FROM || 'Hubly <no-reply@mainframe.local>';
+  return process.env.MAIL_FROM || 'Hubly Ticketing <no-reply@mainframe.local>';
 }
 
 // Build an absolute link into the client app (e.g. a password-reset URL).

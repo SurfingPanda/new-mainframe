@@ -7,11 +7,11 @@ export default function Footer() {
       <div className="container-page py-12 grid gap-10 sm:grid-cols-3">
         <div>
           <div className="inline-flex items-center gap-3">
-            <img src="/images/logo.png" alt="Eljin Corp" className="h-9 w-auto" />
+            <img src="/12a-removebg-preview.png" alt="Hubly" className="h-10 w-auto" />
           </div>
           <p className="mt-4 text-sm text-slate-400 max-w-xs leading-relaxed">
-            <span className="text-white font-semibold">Hubly</span> — Eljin Corp's internal operations portal.
-            For use by Eljin Corp employees and authorized contractors only.
+            <span className="text-white font-semibold">Hubly</span> — the internal operations portal.
+            For authorized employees and contractors only.
           </p>
         </div>
 
@@ -27,7 +27,7 @@ export default function Footer() {
         <div>
           <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-accent-400">Support</h4>
           <ul className="mt-3 space-y-2 text-sm">
-            <li><a href="mailto:it-helpdesk@eljin.corp" className="hover:text-white transition-colors">it-helpdesk@eljin.corp</a></li>
+            <li><a href="mailto:it-helpdesk@hubly.app" className="hover:text-white transition-colors">it-helpdesk@hubly.app</a></li>
             <li><a href="tel:+10000000000" className="hover:text-white transition-colors">Internal ext. 4357 (HELP)</a></li>
             <li><a href="/api/health" className="hover:text-white transition-colors">API health</a></li>
           </ul>
@@ -36,7 +36,7 @@ export default function Footer() {
 
       <div className="border-t border-white/10">
         <div className="container-page py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-400">
-          <div>© {new Date().getFullYear()} Eljin Corp. All rights reserved.</div>
+          <div>© {new Date().getFullYear()} Hubly. All rights reserved.</div>
           <div className="font-mono">Hubly v1.0.0 · build {new Date().toISOString().slice(0, 10)}</div>
         </div>
       </div>

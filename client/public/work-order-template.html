@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Service Work Order — Template</title>
+<style>
+  @page { size: landscape; margin: 0.4in; }
+  html, body { background: #fff; color: #0f172a; margin: 0; padding: 0; }
+  .printable-ticket {
+    display: flex; flex-direction: column; box-sizing: border-box;
+    width: 100%; margin: 0; padding: 0; color: #0f172a;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 10.5pt; line-height: 1.35;
+  }
+  .pt-accent { height: 5pt; background: #16365c; border-radius: 2pt; margin-bottom: 9pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pt-header { display: flex; justify-content: space-between; align-items: center; gap: 12pt; padding-bottom: 8pt; margin-bottom: 12pt; border-bottom: 0.75pt solid #d3dbe6; }
+  .pt-brand { display: flex; align-items: center; gap: 10pt; min-width: 0; }
+  .pt-logo { height: 32pt; width: auto; object-fit: contain; flex: none; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pt-brand-text { line-height: 1.12; min-width: 0; }
+  .pt-brand-name { font-size: 13pt; font-weight: 700; color: #0f172a; letter-spacing: 0.01em; }
+  .pt-brand-sub { margin-top: 2pt; font-size: 7.5pt; color: #16365c; text-transform: uppercase; letter-spacing: 0.18em; font-weight: 700; }
+  .pt-ticket-id { text-align: right; flex: none; border: 0.9pt solid #16365c; border-radius: 4pt; padding: 4pt 11pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pt-id-label { font-size: 6.5pt; color: #16365c; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; }
+  .pt-id { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13.5pt; font-weight: 700; color: #0f172a; letter-spacing: 0.05em; margin-top: 1pt; }
+  .pt-titlebar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16pt; margin-bottom: 12pt; }
+  .pt-title-wrap { flex: 1; min-width: 0; }
+  .pt-title-label { font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.11em; color: #64748b; margin-bottom: 2.5pt; }
+  .pt-title { font-size: 15.5pt; font-weight: 700; margin: 0; line-height: 1.22; min-width: 0; color: #0f172a; min-height: 19pt; }
+  .pt-pills { display: flex; gap: 6pt; flex: none; flex-wrap: wrap; justify-content: flex-end; }
+  .pt-pill { display: inline-flex; align-items: stretch; overflow: hidden; border: 0.7pt solid #cbd5e1; border-radius: 4pt; line-height: 1.3; white-space: nowrap; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pt-pill b { display: inline-flex; align-items: center; background: #16365c; color: #fff; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; font-size: 7pt; padding: 2.5pt 6pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pt-pill i { display: inline-flex; align-items: center; font-style: normal; font-weight: 600; color: #0f172a; text-transform: capitalize; font-size: 8.5pt; padding: 2.5pt 8pt; min-width: 40pt; }
+  .pt-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 0.6pt solid #cbd5e1; border-radius: 4pt; overflow: hidden; margin-bottom: 12pt; }
+  .pt-grid > div { display: flex; flex-direction: column; gap: 2pt; padding: 6pt 9pt; min-width: 0; border-top: 0.5pt solid #e2e8f0; border-left: 0.5pt solid #e2e8f0; }
+  .pt-grid > div:nth-child(-n+3) { border-top: none; }
+  .pt-grid > div:nth-child(3n+1) { border-left: none; }
+  .pt-grid b { font-weight: 700; color: #16365c; text-transform: uppercase; letter-spacing: 0.08em; font-size: 6.8pt; }
+  .pt-grid span { font-size: 10pt; color: #0f172a; overflow-wrap: anywhere; line-height: 1.3; min-height: 13pt; }
+  .pt-section { margin-top: 11pt; break-inside: avoid; }
+  .pt-label { font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #16365c; margin-bottom: 4pt; }
+  .pt-body { white-space: pre-wrap; word-break: break-word; padding: 7pt 10pt; border: 0.6pt solid #e2e8f0; border-left: 2pt solid #16365c; border-radius: 0 3pt 3pt 0; background: #f8fafc; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-size: 10pt; line-height: 1.45; min-height: 44pt; }
+  .pt-certify { margin-top: 13pt; break-inside: avoid; }
+  .pt-certify-text { margin-top: 4pt; padding: 7pt 11pt; border: 0.6pt solid #cbd5e1; border-radius: 4pt; background: #f1f5f9; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-size: 9pt; line-height: 1.55; color: #1e293b; }
+  .pt-signatures { margin-top: 34pt; display: grid; grid-template-columns: repeat(3, 1fr); gap: 28pt; break-inside: avoid; }
+  .pt-sig { display: flex; flex-direction: column; }
+  .pt-sig-line { border-bottom: 1pt solid #0f172a; height: 36pt; display: flex; align-items: flex-end; justify-content: center; }
+  .pt-sig-name { margin-top: 5pt; text-align: center; font-size: 10pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #0f172a; min-height: 13pt; }
+  .pt-sig-role { margin-top: 2pt; text-align: center; font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #16365c; }
+  .pt-sig-date { margin-top: 11pt; text-align: center; font-size: 8.5pt; color: #334155; white-space: nowrap; }
+  .pt-footer { margin-top: 14pt; padding-top: 6pt; border-top: 0.75pt solid #d3dbe6; font-size: 7.5pt; color: #64748b; letter-spacing: 0.03em; display: flex; justify-content: space-between; gap: 12pt; }
+</style>
+</head>
+<body>
+  <article class="printable-ticket">
+    <div class="pt-accent"></div>
+    <header class="pt-header">
+      <div class="pt-brand">
+        <img src="GEM.png" alt="Hubly" class="pt-logo" />
+        <div class="pt-brand-text">
+          <div class="pt-brand-name">Hubly</div>
+          <div class="pt-brand-sub">Service Work Order</div>
+        </div>
+      </div>
+      <div class="pt-ticket-id">
+        <div class="pt-id-label">Work Order No.</div>
+        <div class="pt-id">&nbsp;</div>
+      </div>
+    </header>
+
+    <div class="pt-titlebar">
+      <div class="pt-title-wrap">
+        <div class="pt-title-label">Subject</div>
+        <h1 class="pt-title">&nbsp;</h1>
+      </div>
+      <div class="pt-pills">
+        <span class="pt-pill"><b>Status</b><i>&nbsp;</i></span>
+        <span class="pt-pill"><b>Priority</b><i>&nbsp;</i></span>
+      </div>
+    </div>
+
+    <div class="pt-grid">
+      <div><b>Type</b><span>&nbsp;</span></div>
+      <div><b>Category</b><span>&nbsp;</span></div>
+      <div><b>Department</b><span>&nbsp;</span></div>
+      <div><b>Requested by</b><span>&nbsp;</span></div>
+      <div><b>Assigned to</b><span>&nbsp;</span></div>
+      <div><b>Date requested</b><span>&nbsp;</span></div>
+    </div>
+
+    <section class="pt-section">
+      <div class="pt-label">Description of work</div>
+      <div class="pt-body">&nbsp;</div>
+    </section>
+
+    <section class="pt-certify">
+      <div class="pt-label">Acknowledgement &amp; Conformity</div>
+      <p class="pt-certify-text">
+        I hereby acknowledge that the work order detailed above has been carried out and that the
+        service rendered is complete and satisfactory. The signatures below certify the accuracy of
+        the information recorded on this form.
+      </p>
+    </section>
+
+    <div class="pt-signatures">
+      <div class="pt-sig">
+        <div class="pt-sig-line"></div>
+        <div class="pt-sig-name">&nbsp;</div>
+        <div class="pt-sig-role">Prepared by</div>
+        <div class="pt-sig-date">Date:&nbsp;_________________</div>
+      </div>
+      <div class="pt-sig">
+        <div class="pt-sig-line"></div>
+        <div class="pt-sig-name">&nbsp;</div>
+        <div class="pt-sig-role">Approved by</div>
+        <div class="pt-sig-date">Date:&nbsp;_________________</div>
+      </div>
+      <div class="pt-sig">
+        <div class="pt-sig-line"></div>
+        <div class="pt-sig-name">&nbsp;</div>
+        <div class="pt-sig-role">Noted by</div>
+        <div class="pt-sig-date">Date:&nbsp;_________________</div>
+      </div>
+    </div>
+
+    <div class="pt-footer">
+      <span>Hubly · Service Work Order Form</span>
+      <span>&nbsp;</span>
+    </div>
+  </article>
+</body>
+</html>

@@ -126,7 +126,7 @@ export default function AddAsset() {
             {isNew ? 'Add New Asset' : `Edit Asset`}
           </h1>
           <p className="mt-1 text-slate-600">
-            {isNew ? 'Register a hardware device in the Eljin Corp inventory.' : 'Update the details for this asset record.'}
+            {isNew ? 'Register a hardware device in the Hubly inventory.' : 'Update the details for this asset record.'}
           </p>
         </div>
 

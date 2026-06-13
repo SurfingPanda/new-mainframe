@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import { api, getUser } from '../lib/auth.js';
-import { formatTicketId, matchesTicketId } from '../lib/ticket.js';
+import { formatTicketId, matchesTicketId, truncateWords } from '../lib/ticket.js';
 
 const STATUSES = [
   { key: 'open', label: 'Open' },
@@ -333,7 +333,7 @@ export default function SubmittedTickets() {
                         <Link to={`/tickets/${t.id}`} className="block">
                           <span className="font-medium text-slate-800 line-clamp-1">{t.title}</span>
                           {t.description && (
-                            <span className="block text-xs text-slate-500 line-clamp-1 mt-0.5">{t.description}</span>
+                            <span className="text-xs text-slate-500 line-clamp-1 mt-0.5">{truncateWords(t.description)}</span>
                           )}
                         </Link>
                       </td>

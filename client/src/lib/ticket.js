@@ -4,6 +4,14 @@ export function formatTicketId(id) {
   return `WO${String(id ?? 0).padStart(8, '0')}`;
 }
 
+// Trim a string to at most `maxWords` whitespace-separated words, appending an
+// ellipsis when truncated. Used to keep list descriptions short.
+export function truncateWords(text, maxWords = 7) {
+  const words = String(text ?? '').trim().split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return words.join(' ');
+  return `${words.slice(0, maxWords).join(' ')}…`;
+}
+
 // Does a search query match this work order's ID?
 //
 // Plain text is a substring match against the formatted id, so "22", "0022",

@@ -95,7 +95,7 @@ export default function AssignedAssets() {
           <div>
             <span className="eyebrow">Asset Inventory</span>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900">Assigned Assets</h1>
-            <p className="mt-1 text-slate-600">Devices currently issued to employees across Eljin Corp.</p>
+            <p className="mt-1 text-slate-600">Devices currently issued to employees across Hubly.</p>
           </div>
           <div className="flex flex-wrap gap-2 self-start md:self-auto">
             <Link to="/assets/all" className="btn-ghost !px-3.5 !py-2 text-xs">View all assets</Link>

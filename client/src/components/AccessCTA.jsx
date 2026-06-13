@@ -17,12 +17,12 @@ export default function AccessCTA() {
             Ready to access Hubly?
           </h2>
           <p className="mt-4 text-slate-300 leading-relaxed">
-            Sign in with your Eljin Corp account to open the IT portal. If you do not yet have access,
+            Sign in with your Hubly account to open the IT portal. If you do not yet have access,
             reach out to the IT Helpdesk and we'll get you provisioned.
           </p>
 
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <SignInButton className="btn-accent">
+            <SignInButton className="btn-signin">
               Sign in to Hubly
               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M5 12h14M13 5l7 7-7 7" />

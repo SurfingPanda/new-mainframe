@@ -8,6 +8,8 @@ import { pingDb, ensureSchema } from './config/db.js';
 import { startMaintenanceScheduler } from './lib/maintenance-scheduler.js';
 import { startSpaceDueReminders } from './lib/space-notify.js';
 import { startSlaBreachReminders } from './lib/sla-reminders.js';
+import { startAutoClose } from './lib/auto-close.js';
+import { logMailerStatus } from './lib/mailer.js';
 import { securityHeaders } from './middleware/securityHeaders.js';
 import { requireAuth } from './middleware/auth.js';
 import { authorizeUpload } from './lib/upload-access.js';
@@ -141,9 +143,10 @@ app.use((err, req, res, _next) => {
 });
 
 ensureSchema()
-  .then(() => { startMaintenanceScheduler(); startSpaceDueReminders(); startSlaBreachReminders(); })
+  .then(() => { startMaintenanceScheduler(); startSpaceDueReminders(); startSlaBreachReminders(); startAutoClose(); })
   .catch((err) => console.error('schema bootstrap failed:', err));
 
 app.listen(PORT, () => {
   console.log(`Hubly API listening on http://localhost:${PORT}`);
+  logMailerStatus();
 });

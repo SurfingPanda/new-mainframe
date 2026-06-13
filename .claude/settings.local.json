@@ -71,7 +71,18 @@
       "Bash(sed -n \"/function canViewTicket/,/^}/p\" routes/tickets.js)",
       "Bash(sed -n \"/userCanAccessRoom/,/^}/p\" routes/chat.js)",
       "Bash(python *)",
-      "Bash(mysql -u root mainframe_app -e \"SELECT id, name, is_hr, manager_id FROM departments ORDER BY id;\")"
+      "Bash(mysql -u root mainframe_app -e \"SELECT id, name, is_hr, manager_id FROM departments ORDER BY id;\")",
+      "Read(//c/c/xampp/htdocs/new-mainframe/client/**)",
+      "Read(//c/c/xampp/htdocs/new-mainframe/client/public/**)",
+      "Bash(sed -i -e s/accent-500/blue-500/g -e s/accent-600/blue-600/g -e s/accent-700/blue-700/g -e s/accent-800/blue-800/g -e 's#you@eljin.corp#you@company.com#g' -e 's#it-helpdesk@eljin.corp#it-helpdesk@hubly.app#g' src/pages/SignIn.jsx)",
+      "Bash(sed -i '0,/<img src=\"\\\\/GEM.png\" alt=\"Hubly\" className=\"h-9 w-auto\" \\\\/>/s//<img src=\"\\\\/GEM.png\" alt=\"Hubly\" className=\"h-10 w-auto\" \\\\/>/' src/pages/SignIn.jsx)",
+      "Read(//c/Program Files \\(x86\\)/Microsoft/Edge/Application/**)",
+      "Read(//c/Program Files \\(x86\\)/Google/Chrome/Application/**)",
+      "Bash(base64 -w0 client/public/GEM.png)",
+      "Read(//tmp/**)",
+      "Bash(\"/c/Program Files/Google/Chrome/Application/chrome.exe\" --headless --disable-gpu --no-pdf-header-footer --print-to-pdf=\"work-order-template.pdf\" \"work-order-template.html\")",
+      "Bash(echo \"exit=$?\")",
+      "PowerShell(Move-Item *)"
     ]
   }
 }

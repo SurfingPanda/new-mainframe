@@ -8,6 +8,7 @@ import { rateLimit } from '../middleware/rateLimit.js';
 import { effectivePermissions } from '../lib/permissions.js';
 import { sendMailSafe, appUrl } from '../lib/mailer.js';
 import { passwordResetLink } from '../lib/email-templates.js';
+import { passwordPolicyError } from '../lib/password-policy.js';
 import { avatarUpload, saveAvatar, removeAvatarFile, InvalidImageError } from '../lib/avatar-upload.js';
 import { signatureUpload, saveSignature, removeSignatureFile } from '../lib/signature-upload.js';
 import { slaStanding } from '../lib/sla.js';
@@ -192,8 +193,9 @@ router.post('/reset-password', forgotLimiter, async (req, res, next) => {
     if (!token || !newPassword) {
       return res.status(400).json({ error: 'token and new_password are required' });
     }
-    if (String(newPassword).length < 8) {
-      return res.status(400).json({ error: 'new password must be at least 8 characters' });
+    const resetPolicyError = passwordPolicyError(newPassword);
+    if (resetPolicyError) {
+      return res.status(400).json({ error: resetPolicyError });
     }
 
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
@@ -409,8 +411,9 @@ router.post('/change-password', requireAuth, changePasswordLimiter, async (req, 
     if (!current_password || !new_password) {
       return res.status(400).json({ error: 'current_password and new_password are required' });
     }
-    if (String(new_password).length < 8) {
-      return res.status(400).json({ error: 'new password must be at least 8 characters' });
+    const changePolicyError = passwordPolicyError(new_password);
+    if (changePolicyError) {
+      return res.status(400).json({ error: changePolicyError });
     }
     if (current_password === new_password) {
       return res.status(400).json({ error: 'new password must be different from current password' });

@@ -127,7 +127,7 @@ export default function AllAssets() {
           <div>
             <span className="eyebrow">Asset Inventory</span>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900">All Assets</h1>
-            <p className="mt-1 text-slate-600">Track every device issued by Eljin Corp.</p>
+            <p className="mt-1 text-slate-600">Track every device issued by Hubly.</p>
           </div>
           {canEdit && (
             <Link to="/assets/new" className="btn-primary !px-3.5 !py-2 text-xs self-start md:self-auto inline-flex items-center">

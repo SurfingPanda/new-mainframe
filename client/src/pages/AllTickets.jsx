@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import { api, getUser } from '../lib/auth.js';
-import { formatTicketId, matchesTicketId } from '../lib/ticket.js';
+import { formatTicketId, matchesTicketId, truncateWords } from '../lib/ticket.js';
 
 const STATUSES = [
   { key: 'open', label: 'Open' },
@@ -23,7 +23,7 @@ const SORTS = [
 ];
 
 const PRIORITY_RANK = { urgent: 0, high: 1, normal: 2, low: 3 };
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 7;
 
 export default function AllTickets() {
   const location = useLocation();
@@ -34,6 +34,20 @@ export default function AllTickets() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [banner, setBanner] = useState(location.state?.banner || null);
+
+  // "New since you last looked": the timestamp of the previous visit is kept
+  // per-user in localStorage. Any work order created after it is flagged New.
+  // Captured once on mount (lazy init) so the badges stay put for this view;
+  // the stored mark is then bumped to now (below) once the list has loaded.
+  const seenKey = `mf_tickets_seen:${user?.id ?? 'anon'}`;
+  const [seenThreshold] = useState(() => {
+    const v = Number(localStorage.getItem(seenKey));
+    return Number.isFinite(v) && v > 0 ? v : Date.now();
+  });
+  const isNew = (t) => {
+    const c = new Date(t.created_at).getTime();
+    return Number.isFinite(c) && c > seenThreshold;
+  };
 
   useEffect(() => {
     if (location.state?.banner) {
@@ -48,6 +62,8 @@ export default function AllTickets() {
   const [statusFilter, setStatusFilter] = useState(new Set()); // empty = all
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [assigneeFilter, setAssigneeFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [overdueOnly, setOverdueOnly] = useState(false);
   const [sort, setSort] = useState('newest');
   const [page, setPage] = useState(1);
 
@@ -60,9 +76,23 @@ export default function AllTickets() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Once the list has loaded and the user has seen it, advance the "last viewed"
+  // mark so these same work orders aren't flagged New on the next visit.
+  useEffect(() => {
+    if (!loading) localStorage.setItem(seenKey, String(Date.now()));
+  }, [loading]);
+
+  const newCount = useMemo(() => tickets.filter(isNew).length, [tickets, seenThreshold]);
+
   const assignees = useMemo(() => {
     const set = new Set();
     tickets.forEach((t) => t.assignee && set.add(t.assignee));
+    return Array.from(set).sort();
+  }, [tickets]);
+
+  const categories = useMemo(() => {
+    const set = new Set();
+    tickets.forEach((t) => t.category && set.add(t.category));
     return Array.from(set).sort();
   }, [tickets]);
 
@@ -71,6 +101,8 @@ export default function AllTickets() {
     let rows = tickets.filter((t) => {
       if (statusFilter.size && !statusFilter.has(t.status)) return false;
       if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
+      if (categoryFilter !== 'all' && t.category !== categoryFilter) return false;
+      if (overdueOnly && !(t.sla?.overdue && !t.sla?.resolved)) return false;
       if (assigneeFilter === 'unassigned' && t.assignee) return false;
       if (assigneeFilter !== 'all' && assigneeFilter !== 'unassigned' && t.assignee !== assigneeFilter) return false;
       if (!q) return true;
@@ -92,7 +124,7 @@ export default function AllTickets() {
     });
 
     return rows;
-  }, [tickets, query, statusFilter, priorityFilter, assigneeFilter, sort]);
+  }, [tickets, query, statusFilter, priorityFilter, assigneeFilter, categoryFilter, overdueOnly, sort]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -101,7 +133,7 @@ export default function AllTickets() {
 
   useEffect(() => {
     setPage(1);
-  }, [query, statusFilter, priorityFilter, assigneeFilter, sort]);
+  }, [query, statusFilter, priorityFilter, assigneeFilter, categoryFilter, overdueOnly, sort]);
 
   const toggleStatus = (key) => {
     const next = new Set(statusFilter);
@@ -116,6 +148,8 @@ export default function AllTickets() {
     setStatusFilter(new Set());
     setPriorityFilter('all');
     setAssigneeFilter('all');
+    setCategoryFilter('all');
+    setOverdueOnly(false);
     setSort('newest');
   };
 
@@ -126,7 +160,8 @@ export default function AllTickets() {
   }, [tickets]);
 
   const hasActiveFilters =
-    query || statusFilter.size > 0 || priorityFilter !== 'all' || assigneeFilter !== 'all';
+    query || statusFilter.size > 0 || priorityFilter !== 'all' || assigneeFilter !== 'all' ||
+    categoryFilter !== 'all' || overdueOnly;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -151,6 +186,11 @@ export default function AllTickets() {
               {loading
                 ? 'Loading work orders…'
                 : `${filtered.length} of ${tickets.length} ${tickets.length === 1 ? 'work order' : 'work orders'} shown`}
+              {!loading && newCount > 0 && (
+                <span className="ml-2 inline-flex items-center rounded-full bg-accent-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white align-middle">
+                  {newCount} new
+                </span>
+              )}
               {!isStaff && !loading && (
                 <span className="block text-xs text-slate-500 mt-0.5">
                   Every work order across the organization — view-only unless it's yours or your department's.
@@ -249,6 +289,16 @@ export default function AllTickets() {
                   <option key={a} value={a}>{a}</option>
                 ))}
               </Select>
+              <Select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                label="Category"
+              >
+                <option value="all">All categories</option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </Select>
               <Select value={sort} onChange={(e) => setSort(e.target.value)} label="Sort">
                 {SORTS.map((s) => (
                   <option key={s.key} value={s.key}>{s.label}</option>
@@ -288,6 +338,21 @@ export default function AllTickets() {
                 Reset
               </button>
             )}
+            <span className="mx-1 h-4 w-px bg-slate-200" aria-hidden="true" />
+            <button
+              onClick={() => setOverdueOnly((v) => !v)}
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset transition-colors ${
+                overdueOnly
+                  ? 'bg-rose-600 text-white ring-rose-600'
+                  : 'bg-white text-rose-700 ring-rose-200 hover:bg-rose-50'
+              }`}
+            >
+              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 2" />
+              </svg>
+              Overdue
+            </button>
           </div>
 
           <div className="overflow-x-auto">
@@ -300,15 +365,16 @@ export default function AllTickets() {
                   <Th className="w-32">Assignee</Th>
                   <Th className="w-28">Priority</Th>
                   <Th className="w-32">Status</Th>
+                  <Th className="w-28">SLA</Th>
                   <Th className="w-32 text-right">Updated</Th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
-                  <tr><td colSpan={7} className="px-5 py-12 text-center text-sm text-slate-500">Loading work orders…</td></tr>
+                  <tr><td colSpan={8} className="px-5 py-12 text-center text-sm text-slate-500">Loading work orders…</td></tr>
                 ) : pageRows.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-5 py-12 text-center">
+                    <td colSpan={8} className="px-5 py-12 text-center">
                       <p className="text-sm font-semibold text-slate-700">
                         {tickets.length === 0 ? 'No work orders yet' : 'No work orders match your filters'}
                       </p>
@@ -328,17 +394,24 @@ export default function AllTickets() {
                   </tr>
                 ) : (
                   pageRows.map((t) => (
-                    <tr key={t.id} className="hover:bg-slate-50/60">
-                      <td className="px-5 py-3">
+                    <tr key={t.id} className={isNew(t) ? 'bg-accent-50/50 hover:bg-accent-50' : 'hover:bg-slate-50/60'}>
+                      <td className={`px-5 py-3 ${isNew(t) ? 'border-l-2 border-accent-500' : ''}`}>
                         <Link to={`/tickets/${t.id}`} className="font-mono text-xs text-accent-700 hover:text-accent-800">
                           {formatTicketId(t.id)}
                         </Link>
                       </td>
                       <td className="px-5 py-3 max-w-md">
                         <Link to={`/tickets/${t.id}`} className="block">
-                          <span className="font-medium text-slate-800 line-clamp-1">{t.title}</span>
+                          <span className="flex items-center gap-2">
+                            {isNew(t) && (
+                              <span className="inline-flex flex-none items-center rounded-full bg-accent-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                                New
+                              </span>
+                            )}
+                            <span className="font-medium text-slate-800 line-clamp-1">{t.title}</span>
+                          </span>
                           {t.description && (
-                            <span className="block text-xs text-slate-500 line-clamp-1 mt-0.5">{t.description}</span>
+                            <span className="text-xs text-slate-500 line-clamp-1 mt-0.5">{truncateWords(t.description)}</span>
                           )}
                         </Link>
                       </td>
@@ -352,6 +425,7 @@ export default function AllTickets() {
                       </td>
                       <td className="px-5 py-3"><PriorityPill priority={t.priority} /></td>
                       <td className="px-5 py-3"><StatusPill status={t.status} /></td>
+                      <td className="px-5 py-3"><SlaPill sla={t.sla} /></td>
                       <td className="px-5 py-3 text-right text-xs text-slate-500">{relativeTime(t.updated_at)}</td>
                     </tr>
                   ))
@@ -454,6 +528,38 @@ function PriorityPill({ priority }) {
       {priority}
     </span>
   );
+}
+
+// Compact, human duration from a millisecond span (used for SLA remaining/overdue).
+function shortDuration(ms) {
+  const m = Math.max(0, Math.round(ms / 60000));
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  return `${d}d`;
+}
+
+// SLA standing chip. `sla` is the server-computed object on each ticket
+// ({ overdue, resolved, remaining, ... }) or null when the ticket has no target.
+function SlaPill({ sla }) {
+  if (!sla) return <span className="text-xs text-slate-300">—</span>;
+  const { overdue, resolved, remaining } = sla;
+  const base = 'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset';
+
+  // Finished work: report whether it beat the clock, kept muted (not actionable).
+  if (resolved) {
+    return overdue
+      ? <span className={`${base} bg-slate-50 text-slate-500 ring-slate-200`}>Breached</span>
+      : <span className={`${base} bg-slate-50 text-slate-500 ring-slate-200`}>Met</span>;
+  }
+  if (overdue) {
+    return <span className={`${base} bg-rose-50 text-rose-700 ring-rose-200`}>Overdue {shortDuration(Math.abs(remaining))}</span>;
+  }
+  if (remaining <= 86400000) { // due within a day
+    return <span className={`${base} bg-amber-50 text-amber-700 ring-amber-200`}>Due in {shortDuration(remaining)}</span>;
+  }
+  return <span className="text-xs text-slate-500">{shortDuration(remaining)} left</span>;
 }
 
 function StatusPill({ status }) {

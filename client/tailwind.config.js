@@ -5,7 +5,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Eljin Corp navy (logo shield + wordmark)
+        // Hubly navy (logo shield + wordmark)
         brand: {
           50: '#f2f5fb',
           100: '#e0e7f3',
@@ -19,7 +19,7 @@ export default {
           900: '#0e1c3d',
           950: '#061029'
         },
-        // Eljin Corp green (logo checkmark + "Corp." accent)
+        // Hubly green (logo checkmark + "Corp." accent)
         accent: {
           50: '#ecfbef',
           100: '#d1f5d8',

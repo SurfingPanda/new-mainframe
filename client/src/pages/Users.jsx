@@ -209,7 +209,7 @@ export default function Users() {
             <span className="eyebrow">Administration</span>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-brand-900 dark:text-white">Users</h1>
             <p className="mt-1 text-slate-600 dark:text-slate-300">
-              Manage Hubly accounts, roles, and access for the Eljin Corp directory.
+              Manage Hubly accounts, roles, and access for your organization.
             </p>
           </div>
           <div className="flex items-center gap-2 self-start md:self-auto">

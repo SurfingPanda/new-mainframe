@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import Avatar from './Avatar.jsx';
 import { api } from '../lib/auth.js';
+import { isPasswordValid } from '../lib/passwordPolicy.js';
+import PasswordChecklist from './PasswordChecklist.jsx';
 
 // Shared account cards used by both the Profile page (identity + access) and the
 // Settings page (security). Extracted from the original Settings page so the two
@@ -416,8 +418,8 @@ export function PasswordCard() {
       setError('All fields are required.');
       return;
     }
-    if (next.length < 8) {
-      setError('New password must be at least 8 characters.');
+    if (!isPasswordValid(next)) {
+      setError('New password does not meet the security requirements below.');
       return;
     }
     if (next !== confirm) {
@@ -450,11 +452,16 @@ export function PasswordCard() {
     <section className="rounded-lg border border-slate-200 bg-white shadow-card">
       <header className="border-b border-slate-100 px-5 py-3">
         <h2 className="text-sm font-semibold text-slate-800">Change password</h2>
-        <p className="text-xs text-slate-500 mt-0.5">Use at least 8 characters. You'll stay signed in on this device.</p>
+        <p className="text-xs text-slate-500 mt-0.5">Meet all the requirements below. You'll stay signed in on this device.</p>
       </header>
       <form onSubmit={submit} className="px-5 py-4 space-y-3">
         <PwField label="Current password" value={current} onChange={setCurrent} autoComplete="current-password" />
         <PwField label="New password" value={next} onChange={setNext} autoComplete="new-password" />
+        {next && (
+          <div className="rounded-md bg-slate-50 ring-1 ring-slate-200 px-3 py-2.5">
+            <PasswordChecklist password={next} />
+          </div>
+        )}
         <PwField label="Confirm new password" value={confirm} onChange={setConfirm} autoComplete="new-password" />
 
         {error && (
@@ -475,7 +482,7 @@ export function PasswordCard() {
           </button>
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || !current || !isPasswordValid(next) || next !== confirm}
             className="btn-primary !px-3.5 !py-2 text-xs disabled:opacity-50"
           >
             {submitting ? 'Updating…' : 'Update password'}

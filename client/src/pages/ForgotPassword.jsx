@@ -39,41 +39,53 @@ export default function ForgotPassword() {
 
   return (
     <div className="h-screen flex overflow-hidden">
-      <aside className="relative hidden lg:flex lg:w-5/12 flex-col justify-between bg-brand-950 text-slate-100 p-12 overflow-hidden">
-        <div className="absolute inset-0 bg-grid-dark mask-fade-radial opacity-80" />
-        <div className="absolute -top-32 -left-24 h-[420px] w-[420px] rounded-full bg-brand-700/40 blur-3xl" />
-        <div className="absolute -bottom-32 -right-24 h-[420px] w-[420px] rounded-full bg-accent-700/30 blur-3xl" />
-        <div className="absolute inset-y-0 right-0 w-px bg-gradient-to-b from-transparent via-accent-500/40 to-transparent" />
+      <aside className="relative hidden lg:flex lg:w-5/12 flex-col justify-between overflow-hidden p-12 text-slate-800 bg-gradient-to-br from-white via-sky-50 to-blue-100">
+        <div className="absolute inset-0 bg-grid mask-fade-radial opacity-70" />
+        <div className="signin-blob-1 absolute -top-28 -left-24 h-[420px] w-[420px] rounded-full bg-sky-300/40 blur-3xl" />
+        <div className="signin-blob-2 absolute -bottom-32 -right-24 h-[460px] w-[460px] rounded-full bg-blue-400/30 blur-3xl" />
+        <div className="absolute -bottom-12 -left-10 h-[300px] w-[300px] rounded-full bg-cyan-300/30 blur-3xl" />
+        <div className="absolute inset-y-0 right-0 w-px bg-gradient-to-b from-transparent via-blue-300/70 to-transparent" />
+
+        <svg className="pointer-events-none absolute -right-4 top-8 h-64 w-64 text-blue-400/25" viewBox="0 0 200 200" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M8 44h54a12 12 0 0 1 12 12v34a12 12 0 0 0 12 12h106" />
+          <path d="M22 128h36a12 12 0 0 0 12-12V72" />
+          <path d="M120 8v40a12 12 0 0 0 12 12h60" />
+          <circle cx="8" cy="44" r="3.5" fill="currentColor" />
+          <circle cx="74" cy="72" r="3.5" fill="currentColor" />
+          <circle cx="22" cy="128" r="3.5" fill="currentColor" />
+          <circle cx="120" cy="8" r="3.5" fill="currentColor" />
+        </svg>
 
         <div className="relative">
-          <Link to="/" className="inline-flex items-center gap-3">
-            <img src="/images/logo.png" alt="Eljin Corp" className="h-9 w-auto" />
+          <Link to="/" className="inline-flex">
+            <img src="/12a-removebg-preview.png" alt="Hubly" className="h-28 w-auto" />
           </Link>
         </div>
 
         <div className="relative max-w-md">
-          <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-accent-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent-400" />
-            Eljin Corp · Internal Portal
+          <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">
+            <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+            Hubly · Internal Portal
           </span>
-          <h1 className="mt-3 text-4xl font-bold tracking-tight text-white leading-tight">
-            Locked out of <span className="text-accent-400">Hubly</span>?
+          <h1 className="mt-3 text-4xl font-bold tracking-tight text-brand-900 leading-tight">
+            Locked out of{' '}
+            <span className="bg-gradient-to-r from-sky-500 to-blue-600 bg-clip-text text-transparent">Hubly</span>?
           </h1>
-          <p className="mt-4 text-slate-300 leading-relaxed">
+          <p className="mt-4 text-slate-600 leading-relaxed">
             Enter your work email and we'll send a secure link to reset your password. The link works once
             and expires after an hour. IT is also notified so they can help if you get stuck.
           </p>
 
-          <ul className="mt-8 space-y-3 text-sm text-slate-200">
+          <ul className="mt-8 space-y-3 text-sm text-slate-700">
             <Bullet>A reset link is emailed if an account exists</Bullet>
             <Bullet>The link is single-use and expires in 1 hour</Bullet>
             <Bullet>IT is notified as a fallback if you need a hand</Bullet>
           </ul>
         </div>
 
-        <div className="relative flex items-center gap-3 text-xs text-slate-400">
-          <span>© {new Date().getFullYear()} Eljin Corp</span>
-          <span className="text-slate-600">·</span>
+        <div className="relative flex items-center gap-3 text-xs text-slate-500">
+          <span>© {new Date().getFullYear()} Hubly</span>
+          <span className="text-slate-300">·</span>
           <span className="font-mono">Hubly v1.0.0</span>
         </div>
       </aside>
@@ -81,13 +93,13 @@ export default function ForgotPassword() {
       <main className="relative flex-1 bg-slate-50 overflow-y-auto overflow-x-hidden">
         <div className="pointer-events-none absolute inset-0 -z-10 bg-grid mask-fade-radial opacity-60" />
         <div className="pointer-events-none absolute -z-10 -top-20 -right-20 h-[300px] w-[300px] rounded-full bg-brand-100/70 blur-3xl" />
-        <div className="pointer-events-none absolute -z-10 -bottom-20 -left-20 h-[260px] w-[260px] rounded-full bg-accent-100/60 blur-3xl" />
+        <div className="pointer-events-none absolute -z-10 -bottom-20 -left-20 h-[260px] w-[260px] rounded-full bg-sky-100/60 blur-3xl" />
 
         <div className="min-h-full flex items-center justify-center px-6 py-10 sm:px-10">
           <div className="w-full max-w-md">
             <div className="lg:hidden mb-8 flex items-center justify-between">
               <Link to="/" className="inline-flex items-center gap-3">
-                <img src="/images/logo.png" alt="Eljin Corp" className="h-9 w-auto" />
+                <img src="/12a-removebg-preview.png" alt="Hubly" className="h-10 w-auto" />
               </Link>
               <Link to="/signin" className="text-sm font-semibold text-slate-600 hover:text-slate-900">
                 ← Sign in
@@ -110,12 +122,12 @@ export default function ForgotPassword() {
                   <h2 className="mt-2 text-2xl sm:text-3xl font-bold text-brand-900 tracking-tight">
                     Check your inbox
                   </h2>
-                  <div className="mt-5 flex items-start gap-3 rounded-md bg-accent-50 ring-1 ring-accent-200 px-3 py-3">
-                    <svg className="h-5 w-5 flex-none text-accent-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <div className="mt-5 flex items-start gap-3 rounded-md bg-blue-50 ring-1 ring-blue-200 px-3 py-3">
+                    <svg className="h-5 w-5 flex-none text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <circle cx="12" cy="12" r="10" />
                       <path d="M8 12l3 3 5-6" />
                     </svg>
-                    <p className="text-sm text-accent-800 leading-relaxed">
+                    <p className="text-sm text-blue-800 leading-relaxed">
                       If an account exists for <span className="font-mono">{email.trim()}</span>, we've
                       emailed a password reset link. It's single-use and expires in an hour.
                     </p>
@@ -127,14 +139,14 @@ export default function ForgotPassword() {
                       helpdesk directly — they can confirm your identity and issue a reset on the spot.
                     </p>
                     <a
-                      href="mailto:it-helpdesk@eljin.corp"
-                      className="inline-flex items-center gap-1.5 text-sm font-semibold text-accent-700 hover:text-accent-800"
+                      href="mailto:it-helpdesk@hubly.app"
+                      className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-700 hover:text-blue-800"
                     >
                       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M4 4h16v16H4z" />
                         <path d="M4 4l8 8 8-8" />
                       </svg>
-                      it-helpdesk@eljin.corp
+                      it-helpdesk@hubly.app
                     </a>
                   </div>
 
@@ -186,8 +198,8 @@ export default function ForgotPassword() {
                         required
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        placeholder="you@eljin.corp"
-                        className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
+                        placeholder="you@company.com"
+                        className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                       <p className="mt-1.5 text-[11px] text-slate-500">
                         We'll never reveal whether an account exists — every request gets the same response.
@@ -216,7 +228,7 @@ export default function ForgotPassword() {
                   <div className="mt-6 pt-5 border-t border-slate-100 text-center">
                     <Link
                       to="/signin"
-                      className="text-sm font-semibold text-accent-700 hover:text-accent-800"
+                      className="text-sm font-semibold text-blue-700 hover:text-blue-800"
                     >
                       Remembered it? Sign in →
                     </Link>
@@ -239,8 +251,8 @@ export default function ForgotPassword() {
 function Bullet({ children }) {
   return (
     <li className="flex items-start gap-3">
-      <span className="mt-0.5 inline-flex h-5 w-5 flex-none items-center justify-center rounded-full bg-accent-500/20 ring-1 ring-inset ring-accent-400/40">
-        <svg className="h-3 w-3 text-accent-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+      <span className="mt-0.5 inline-flex h-5 w-5 flex-none items-center justify-center rounded-full bg-blue-500/15 ring-1 ring-inset ring-blue-500/30">
+        <svg className="h-3 w-3 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
           <path d="M5 12l5 5L20 7" />
         </svg>
       </span>

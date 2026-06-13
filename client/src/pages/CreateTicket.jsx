@@ -134,6 +134,14 @@ export default function CreateTicket() {
   const onSubcategoryChange = (val) => { setSubcategory(val); setSubcategory2(''); };
   const leaveDatesInvalid = !!(leaveStart && leaveEnd && leaveEnd < leaveStart);
   const leaveIncomplete = !leaveType || !leaveStart || !leaveEnd || leaveDatesInvalid;
+  // Auto-derived from the dates (inclusive calendar days) — shown read-only and
+  // recorded on the work order so HR sees the span at a glance.
+  const leaveDayCount = leaveStart && leaveEnd && !leaveDatesInvalid
+    ? Math.round((new Date(`${leaveEnd}T00:00:00Z`) - new Date(`${leaveStart}T00:00:00Z`)) / 86400000) + 1
+    : null;
+  const leaveInclusiveText = leaveStart && leaveEnd && !leaveDatesInvalid
+    ? formatInclusiveDates(leaveStart, leaveEnd)
+    : '';
 
   // The overtime form takes precedence over the leave form when its specific
   // sub-subcategory is selected.
@@ -219,6 +227,8 @@ export default function CreateTicket() {
       `Start Date: ${leaveStart}`,
       `End Date: ${leaveEnd}`
     ];
+    if (leaveDayCount != null) lines.push(`Number of Day(s): ${leaveDayCount}`);
+    if (leaveInclusiveText) lines.push(`Inclusive Date(s): ${leaveInclusiveText}`);
     if (leaveReason.trim()) lines.push('', `Reason / Details: ${leaveReason.trim()}`);
     return lines.join('\n');
   };
@@ -541,6 +551,18 @@ export default function CreateTicket() {
                       />
                     </Field>
                   </div>
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <Field label="Number of Day(s)" hint="Auto-calculated from the dates (inclusive).">
+                      <div className="block w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                        {leaveDayCount != null ? `${leaveDayCount} ${leaveDayCount === 1 ? 'day' : 'days'}` : <span className="text-slate-400">Set the dates above</span>}
+                      </div>
+                    </Field>
+                    <Field label="Inclusive Date(s)" hint="The leave period covered.">
+                      <div className="block w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                        {leaveInclusiveText || <span className="text-slate-400">Set the dates above</span>}
+                      </div>
+                    </Field>
+                  </div>
                   <Field
                     label="Reason / Details"
                     htmlFor={descId}
@@ -555,6 +577,10 @@ export default function CreateTicket() {
                       className={`${inputCls(false)} resize-y leading-relaxed`}
                     />
                   </Field>
+                  <div className="rounded-md bg-amber-50 ring-1 ring-amber-200 px-3 py-2.5 text-[11px] leading-relaxed text-amber-800">
+                    <p>Please note that scheduled leave must be filed one (1) week prior to the intended date of leave.</p>
+                    <p className="mt-1">*Sick leave must be supported with medical certificate.</p>
+                  </div>
                 </div>
               ) : (
                 <Field
@@ -714,6 +740,27 @@ Steps to reproduce:
 2. ...
 
 Any error messages?`;
+
+// Human-readable inclusive date range from two YYYY-MM-DD strings (UTC-parsed to
+// avoid an off-by-one). e.g. "June 12, 2026", "June 12–15, 2026",
+// "June 28 – July 2, 2026", or "Dec 30, 2025 – Jan 2, 2026".
+function formatInclusiveDates(startStr, endStr) {
+  const s = new Date(`${startStr}T00:00:00Z`);
+  const e = new Date(`${endStr}T00:00:00Z`);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return '';
+  const part = (d, opts) => d.toLocaleDateString('en-US', { timeZone: 'UTC', ...opts });
+  const full = (d) => part(d, { month: 'long', day: 'numeric', year: 'numeric' });
+  if (s.getTime() === e.getTime()) return full(s);
+  const sameYear = part(s, { year: 'numeric' }) === part(e, { year: 'numeric' });
+  const sameMonth = sameYear && part(s, { month: 'long' }) === part(e, { month: 'long' });
+  if (sameMonth) {
+    return `${part(s, { month: 'long', day: 'numeric' })}–${part(e, { day: 'numeric' })}, ${part(s, { year: 'numeric' })}`;
+  }
+  if (sameYear) {
+    return `${part(s, { month: 'long', day: 'numeric' })} – ${part(e, { month: 'long', day: 'numeric' })}, ${part(s, { year: 'numeric' })}`;
+  }
+  return `${full(s)} – ${full(e)}`;
+}
 
 function inputCls(invalid) {
   return `block w-full rounded-md border px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus:outline-none focus:ring-1 ${

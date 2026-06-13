@@ -9,28 +9,20 @@ export default function Hero() {
 
       <div className="container-page py-16 sm:py-24 grid lg:grid-cols-12 gap-12 items-center">
         <div className="lg:col-span-6">
-          <span className="inline-flex items-center gap-2 rounded-full border border-accent-200 bg-accent-50/80 px-3 py-1 text-xs font-semibold text-accent-700 shadow-sm backdrop-blur">
-            <span className="relative flex h-1.5 w-1.5 items-center justify-center">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-500/70" />
-              <span className="relative h-1.5 w-1.5 rounded-full bg-accent-500" />
-            </span>
-            New · Spaces for team collaboration
-          </span>
-
-          <h1 className="mt-5 text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-brand-900">
-            <span className="bg-gradient-to-br from-brand-900 via-brand-700 to-accent-600 bg-clip-text text-transparent">Hubly</span>
+          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-tighter text-brand-900">
+            <span className="bg-gradient-to-br from-sky-400 via-blue-600 to-brand-900 bg-clip-text text-transparent">Hubly</span>
           </h1>
           <p className="mt-3 text-xl sm:text-2xl font-semibold text-slate-700">
             All your team's work, in one hub.
           </p>
           <p className="mt-4 text-lg text-slate-600 max-w-xl leading-relaxed">
-            The internal portal for every team at Eljin Corp. Submit and track requests, collaborate in
+            The internal portal for every team at Hubly. Submit and track requests, collaborate in
             project spaces, and reference shared documentation — together in one place.
           </p>
 
           <div className="mt-8 flex flex-wrap items-center gap-3">
-            <SignInButton className="btn-primary !px-5 !py-3 text-base">
-              Sign in with Eljin account
+            <SignInButton className="btn-signin !px-5 !py-3 text-base">
+              Sign in with Hubly account
               <svg className="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M5 12h14M13 5l7 7-7 7" />
               </svg>

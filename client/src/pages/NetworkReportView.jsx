@@ -213,7 +213,7 @@ function ReportDocument({ report }) {
       </Section>
 
       <footer className="border-t border-slate-200 bg-slate-50 px-6 py-3 text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400 print:bg-white print:text-slate-600">
-        Generated from Hubly · {report.savedAt ? new Date(report.savedAt).toLocaleString() : 'Draft'} · Eljin Corp Internal
+        Generated from Hubly · {report.savedAt ? new Date(report.savedAt).toLocaleString() : 'Draft'} · Hubly Internal
       </footer>
     </article>
   );

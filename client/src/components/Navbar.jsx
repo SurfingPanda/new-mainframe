@@ -15,7 +15,7 @@ export default function Navbar() {
     <header className="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-200">
       <nav className="container-page flex items-center justify-between h-16">
         <Link to="/" className="flex items-center gap-3">
-          <img src="/images/logo.png" alt="Eljin Corp" className="h-9 w-auto" />
+          <img src="/GEM.png" alt="Hubly" className="h-9 w-auto" />
           <span className="hidden sm:inline-flex items-center gap-2 pl-3 border-l border-slate-200">
             <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Hubly</span>
           </span>
@@ -30,7 +30,7 @@ export default function Navbar() {
         </div>
 
         <div className="hidden md:flex items-center gap-2">
-          <SignInButton className="btn-primary">Sign in</SignInButton>
+          <SignInButton className="btn-signin">Sign in</SignInButton>
         </div>
 
         <button
@@ -56,7 +56,7 @@ export default function Navbar() {
                 {l.label}
               </a>
             ))}
-            <SignInButton beforeNavigate={() => setOpen(false)} className="btn-primary mt-3 self-start">Sign in</SignInButton>
+            <SignInButton beforeNavigate={() => setOpen(false)} className="btn-signin mt-3 self-start">Sign in</SignInButton>
           </div>
         </div>
       )}

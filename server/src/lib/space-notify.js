@@ -6,6 +6,8 @@
 // fire-and-forget and guaranteed not to throw (callers don't await).
 
 import { pool } from '../config/db.js';
+import { sendMailSafe, appUrl } from './mailer.js';
+import { spaceItemAssigned, spaceJoinRequest } from './email-templates.js';
 
 // System sender marker for Mailbox messages (no real user account).
 // messages.shape never treats sender_id 0 as "mine" since real ids are positive.
@@ -40,7 +42,7 @@ async function activeUser(userId) {
   const id = Number(userId);
   if (!Number.isInteger(id) || id <= 0) return null;
   const [[row]] = await pool.query(
-    'SELECT id, name FROM users WHERE id = ? AND is_active = 1 LIMIT 1',
+    'SELECT id, name, email FROM users WHERE id = ? AND is_active = 1 LIMIT 1',
     [id]
   );
   return row || null;
@@ -64,6 +66,9 @@ export async function notifyItemAssigned({ space, item, assigneeId, actor }) {
       itemLink(space, item),
       'View item'
     );
+    if (recipient.email) {
+      sendMailSafe({ to: recipient.email, ...spaceItemAssigned(item, space, appUrl(itemLink(space, item))) });
+    }
   } catch (err) {
     console.error('[space-notify] item-assigned failed:', err.message);
   }
@@ -110,6 +115,9 @@ export async function notifyJoinRequested({ space, requester }) {
         `/spaces/${space.id}?view=members`,
         'Review request'
       );
+      if (recipient.email) {
+        sendMailSafe({ to: recipient.email, ...spaceJoinRequest(space, requester, appUrl(`/spaces/${space.id}?view=members`)) });
+      }
     }
   } catch (err) {
     console.error('[space-notify] join-requested failed:', err.message);

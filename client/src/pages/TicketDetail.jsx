@@ -678,9 +678,9 @@ function PrintableTicket({ ticket, me, directory }) {
       <div className="pt-accent" />
       <header className="pt-header">
         <div className="pt-brand">
-          <img src="/images/logo.png" alt="Eljin Corp" className="pt-logo" />
+          <img src="/GEM.png" alt="Hubly" className="pt-logo" />
           <div className="pt-brand-text">
-            <div className="pt-brand-name">Eljin Corp</div>
+            <div className="pt-brand-name">Hubly</div>
             <div className="pt-brand-sub">Service Work Order</div>
           </div>
         </div>
@@ -777,7 +777,7 @@ function PrintableTicket({ ticket, me, directory }) {
       </div>
 
       <div className="pt-footer">
-        <span>Eljin Corp · Service Work Order Form</span>
+        <span>Hubly · Service Work Order Form</span>
         <span>{formatTicketId(ticket.id)} · Printed {formatDateTime(new Date())}</span>
       </div>
     </article>

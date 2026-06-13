@@ -104,7 +104,7 @@ export default function DashboardHeader() {
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200 print:hidden dark:bg-slate-900/95 dark:border-slate-800">
       <div className="container-app flex items-center justify-between h-16">
         <Link to="/dashboard" className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <img src="/images/logo.png" alt="Eljin Corp" className="h-8 sm:h-9 w-auto" />
+          <img src="/GEM.png" alt="Hubly" className="h-8 sm:h-9 w-auto" />
           <span className="hidden sm:inline-flex items-center gap-2 pl-3 border-l border-slate-200 dark:border-slate-700">
             <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Hubly</span>
             <span className="rounded-full bg-accent-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent-700 ring-1 ring-inset ring-accent-200">

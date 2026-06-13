@@ -2,7 +2,7 @@ const services = [
   { name: 'Work order service', state: 'Operational', detail: 'Last incident: none in 30 days' },
   { name: 'Spaces', state: 'Operational', detail: '18 active project spaces' },
   { name: 'Knowledge Base', state: 'Operational', detail: '317 published articles' },
-  { name: 'Authentication (SSO)', state: 'Operational', detail: 'Eljin directory sync active' }
+  { name: 'Authentication (SSO)', state: 'Operational', detail: 'Hubly directory sync active' }
 ];
 
 export default function SystemStatus() {
@@ -17,7 +17,7 @@ export default function SystemStatus() {
             Live system overview
           </h2>
           <p className="mt-3 text-slate-600">
-            Hubly is hosted on Eljin Corp's internal infrastructure. Status is monitored 24/7 by the
+            Hubly is hosted on internal infrastructure. Status is monitored 24/7 by the
             IT operations team.
           </p>
           <a href="/api/health" className="mt-5 inline-flex items-center text-sm font-semibold text-accent-700 hover:text-accent-800">
