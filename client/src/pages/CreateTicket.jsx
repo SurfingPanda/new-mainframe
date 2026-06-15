@@ -26,6 +26,7 @@ const CATEGORIES = [
   'Email & Communication',
   'Security',
   'Printing & Peripherals',
+  'ERP Access',
   'HR Concerns',
   'Other'
 ];
@@ -35,6 +36,13 @@ const CATEGORIES = [
 const HR_CONCERNS = 'HR Concerns';
 // Selecting this sub-subcategory swaps the Description for an overtime table.
 const OVERTIME_FORM = 'Overtime and Accomplishment Report Form';
+// Selecting this sub-subcategory swaps the Description for a manpower-request form.
+const MANPOWER_FORM = 'Request for Manpower Personnel';
+// Selecting this sub-subcategory swaps the Description for a schedule/rest-day change form.
+const CHANGE_SCHED_FORM = 'Change Time Schedule / Cancel Restday / Change Restday';
+// Picking this category swaps the Description for the EAM-ERP user access form.
+// The request type comes from the cascade's sub-subcategory (Access Request Type).
+const ERP_ACCESS = 'ERP Access';
 const emptyOtRow = () => ({ name: '', otIn: '', otOut: '', hours: '', signature: '' });
 const LEAVE_TYPES = [
   'Vacation Leave',
@@ -76,6 +84,24 @@ export default function CreateTicket() {
   const leaveTypeId = useId();
   const leaveStartId = useId();
   const leaveEndId = useId();
+  const mpDateId = useId();
+  const mpDurationFromId = useId();
+  const mpDurationToId = useId();
+  const mpQualificationId = useId();
+  const csDateFiledId = useId();
+  const csNameId = useId();
+  const csSectionId = useId();
+  const csCurrentScheduleId = useId();
+  const csNewScheduleId = useId();
+  const csScheduledRestDayId = useId();
+  const csNewRestDayId = useId();
+  const csEffectiveDateId = useId();
+  const csParticularDateId = useId();
+  const erpDateId = useId();
+  const erpNameId = useId();
+  const erpEmployeeIdId = useId();
+  const erpDeptId = useId();
+  const erpPositionId = useId();
   const requesterId = useId();
   const departmentId = useId();
   const assigneeId = useId();
@@ -97,6 +123,40 @@ export default function CreateTicket() {
   const [leaveStart, setLeaveStart] = useState('');
   const [leaveEnd, setLeaveEnd] = useState('');
   const [leaveReason, setLeaveReason] = useState('');
+
+  // Manpower-request fields (used when the 'Request for Manpower Personnel' sub-subcategory is picked).
+  const [mpDateRequested, setMpDateRequested] = useState('');
+  const [mpType, setMpType] = useState(''); // 'replacement' | 'additional'
+  const [mpReplacementFor, setMpReplacementFor] = useState('');
+  const [mpSection, setMpSection] = useState('');
+  const [mpDurationFrom, setMpDurationFrom] = useState('');
+  const [mpDurationTo, setMpDurationTo] = useState('');
+  const [mpQualification, setMpQualification] = useState('');
+  const [mpReason, setMpReason] = useState('');
+
+  // Schedule / rest-day change fields (used when that sub-subcategory is picked).
+  // Name + section are prefilled from the signed-in user but stay editable.
+  const [csDateFiled, setCsDateFiled] = useState('');
+  const [csName, setCsName] = useState(user?.name || '');
+  const [csSection, setCsSection] = useState(user?.department || '');
+  const [csKind, setCsKind] = useState(''); // 'time_schedule' | 'change_rest_day' | 'cancel_rest_day'
+  const [csCurrentSchedule, setCsCurrentSchedule] = useState('');
+  const [csNewSchedule, setCsNewSchedule] = useState('');
+  const [csDuration, setCsDuration] = useState(''); // 'temporary' | 'permanent'
+  const [csScheduledRestDay, setCsScheduledRestDay] = useState('');
+  const [csNewRestDay, setCsNewRestDay] = useState('');
+  const [csReason, setCsReason] = useState('');
+  const [csEffectiveDate, setCsEffectiveDate] = useState('');
+  const [csParticularDate, setCsParticularDate] = useState('');
+
+  // EAM-ERP user access form fields (used when category === 'ERP Access').
+  // Name / department / position are prefilled from the signed-in user but editable.
+  const [erpDate, setErpDate] = useState('');
+  const [erpName, setErpName] = useState(user?.name || '');
+  const [erpEmployeeId, setErpEmployeeId] = useState('');
+  const [erpDept, setErpDept] = useState(user?.department || '');
+  const [erpPosition, setErpPosition] = useState(user?.job_title || '');
+  const [erpAccessDetails, setErpAccessDetails] = useState('');
 
   // Overtime & Accomplishment Report rows (used when that form sub-subcategory is picked).
   const [otRows, setOtRows] = useState([emptyOtRow()]);
@@ -143,11 +203,44 @@ export default function CreateTicket() {
     ? formatInclusiveDates(leaveStart, leaveEnd)
     : '';
 
-  // The overtime form takes precedence over the leave form when its specific
-  // sub-subcategory is selected.
+  // The overtime and manpower forms take precedence over the leave form when
+  // their specific sub-subcategory is selected.
   const isOvertimeForm = subcategory2 === OVERTIME_FORM;
-  const showLeaveForm = isLeaveRequest && !isOvertimeForm;
+  const isManpowerForm = isLeaveRequest && subcategory2 === MANPOWER_FORM;
+  const isChangeSchedForm = isLeaveRequest && subcategory2 === CHANGE_SCHED_FORM;
+  const showLeaveForm = isLeaveRequest && !isOvertimeForm && !isManpowerForm && !isChangeSchedForm;
   const overtimeIncomplete = isOvertimeForm && !otRows.some((r) => r.name.trim());
+  const mpDurationInvalid = !!(mpDurationFrom && mpDurationTo && mpDurationTo < mpDurationFrom);
+  const manpowerIncomplete = isManpowerForm && (
+    !mpDateRequested ||
+    !mpType ||
+    (mpType === 'replacement' && !mpReplacementFor.trim()) ||
+    (mpType === 'additional' && !mpSection.trim()) ||
+    !mpQualification.trim() ||
+    !mpReason.trim() ||
+    mpDurationInvalid
+  );
+  const changeSchedIncomplete = isChangeSchedForm && (
+    !csDateFiled ||
+    !csName.trim() ||
+    !csKind ||
+    (csKind === 'time_schedule' && (!csNewSchedule.trim() || !csDuration)) ||
+    (csKind === 'change_rest_day' && !csNewRestDay.trim()) ||
+    (csKind === 'cancel_rest_day' && !csScheduledRestDay.trim()) ||
+    !csReason.trim()
+  );
+
+  // The ERP access form replaces the free-text Description for the whole 'ERP Access'
+  // category. The request type is the sub-subcategory (Access Request Type) chosen in
+  // the cascade; access requirements are required for new/movement requests only.
+  const isErpForm = category === ERP_ACCESS;
+  const erpNeedsDetails = subcategory2 === 'New access request' || subcategory2 === 'Modify access / role';
+  const erpIncomplete = isErpForm && (
+    !erpDate ||
+    !erpName.trim() ||
+    !subcategory2 ||
+    (erpNeedsDetails && !erpAccessDetails.trim())
+  );
 
   // Departments that have at least one assignable user — picking one filters
   // the assignee list to that department's people.
@@ -180,8 +273,11 @@ export default function CreateTicket() {
       !descTooLong &&
       !(showLeaveForm && leaveIncomplete) &&
       !overtimeIncomplete &&
+      !manpowerIncomplete &&
+      !changeSchedIncomplete &&
+      !erpIncomplete &&
       !submitting,
-    [title, requester, department, isLeaveRequest, titleTooLong, descTooLong, showLeaveForm, leaveIncomplete, overtimeIncomplete, submitting]
+    [title, requester, department, isLeaveRequest, titleTooLong, descTooLong, showLeaveForm, leaveIncomplete, overtimeIncomplete, manpowerIncomplete, changeSchedIncomplete, erpIncomplete, submitting]
   );
 
   const isDirty = useMemo(
@@ -201,8 +297,34 @@ export default function CreateTicket() {
       leaveEnd !== '' ||
       leaveReason.trim() !== '' ||
       otRows.some((r) => r.name || r.otIn || r.otOut || r.hours || r.signature) ||
+      mpDateRequested !== '' ||
+      mpType !== '' ||
+      mpReplacementFor.trim() !== '' ||
+      mpSection.trim() !== '' ||
+      mpDurationFrom !== '' ||
+      mpDurationTo !== '' ||
+      mpQualification.trim() !== '' ||
+      mpReason.trim() !== '' ||
+      csDateFiled !== '' ||
+      csName.trim() !== (user?.name || '').trim() ||
+      csSection.trim() !== (user?.department || '').trim() ||
+      csKind !== '' ||
+      csCurrentSchedule.trim() !== '' ||
+      csNewSchedule.trim() !== '' ||
+      csDuration !== '' ||
+      csScheduledRestDay.trim() !== '' ||
+      csNewRestDay.trim() !== '' ||
+      csReason.trim() !== '' ||
+      csEffectiveDate !== '' ||
+      csParticularDate !== '' ||
+      erpDate !== '' ||
+      erpName.trim() !== (user?.name || '').trim() ||
+      erpEmployeeId.trim() !== '' ||
+      erpDept.trim() !== (user?.department || '').trim() ||
+      erpPosition.trim() !== (user?.job_title || '').trim() ||
+      erpAccessDetails.trim() !== '' ||
       requester.trim() !== (user?.email || '').trim(),
-    [title, description, category, subcategory, subcategory2, department, assignee, requestType, priority, files, leaveType, leaveStart, leaveEnd, leaveReason, otRows, requester, user?.email]
+    [title, description, category, subcategory, subcategory2, department, assignee, requestType, priority, files, leaveType, leaveStart, leaveEnd, leaveReason, otRows, mpDateRequested, mpType, mpReplacementFor, mpSection, mpDurationFrom, mpDurationTo, mpQualification, mpReason, csDateFiled, csName, csSection, csKind, csCurrentSchedule, csNewSchedule, csDuration, csScheduledRestDay, csNewRestDay, csReason, csEffectiveDate, csParticularDate, erpDate, erpName, erpEmployeeId, erpDept, erpPosition, erpAccessDetails, requester, user?.email, user?.name, user?.department, user?.job_title]
   );
 
   // Warn before a full-page unload (refresh / close / external link) when the
@@ -230,6 +352,64 @@ export default function CreateTicket() {
     if (leaveDayCount != null) lines.push(`Number of Day(s): ${leaveDayCount}`);
     if (leaveInclusiveText) lines.push(`Inclusive Date(s): ${leaveInclusiveText}`);
     if (leaveReason.trim()) lines.push('', `Reason / Details: ${leaveReason.trim()}`);
+    return lines.join('\n');
+  };
+
+  // Flatten the manpower-request form into the ticket description text.
+  const buildManpowerDescription = () => {
+    const lines = ['Request for Manpower Personnel'];
+    if (mpDateRequested) lines.push(`Date Requested: ${mpDateRequested}`);
+    if (mpType === 'replacement') {
+      lines.push(`As a Replacement to: ${mpReplacementFor.trim()}`);
+    } else if (mpType === 'additional') {
+      lines.push(`As Additional Manpower in (section/department): ${mpSection.trim()}`);
+      if (mpDurationFrom || mpDurationTo) {
+        lines.push(`Duration: ${mpDurationFrom || '—'} to ${mpDurationTo || '—'}`);
+      }
+    }
+    if (mpQualification.trim()) lines.push('', `Qualification: ${mpQualification.trim()}`);
+    if (mpReason.trim()) lines.push('', `Reason for request: ${mpReason.trim()}`);
+    return lines.join('\n');
+  };
+
+  // Flatten the schedule / rest-day change form into the ticket description text.
+  const buildChangeScheduleDescription = () => {
+    const lines = ['Change Time Schedule / Rest Day Request'];
+    if (csDateFiled) lines.push(`Date Filed: ${csDateFiled}`);
+    if (csName.trim()) lines.push(`Name: ${csName.trim()}`);
+    if (csSection.trim()) lines.push(`Section/Department: ${csSection.trim()}`);
+    lines.push('');
+    if (csKind === 'time_schedule') {
+      lines.push('Change of Working Time Schedule');
+      if (csCurrentSchedule.trim()) lines.push(`Working Time Schedule: ${csCurrentSchedule.trim()}`);
+      lines.push(`New Working Time Schedule: ${csNewSchedule.trim()}`);
+      if (csDuration) lines.push(`Type: ${csDuration === 'permanent' ? 'Permanently' : 'Temporary'}`);
+    } else if (csKind === 'change_rest_day') {
+      lines.push('Change of Rest Day');
+      if (csScheduledRestDay.trim()) lines.push(`Scheduled Rest Day: ${csScheduledRestDay.trim()}`);
+      lines.push(`New Rest Day: ${csNewRestDay.trim()}`);
+    } else if (csKind === 'cancel_rest_day') {
+      lines.push('Cancellation of Rest Day');
+      if (csScheduledRestDay.trim()) lines.push(`Rest Day to Cancel: ${csScheduledRestDay.trim()}`);
+    }
+    if (csReason.trim()) lines.push('', `Reason: ${csReason.trim()}`);
+    if (csEffectiveDate) lines.push('', `Effectivity Date (if permanently): ${csEffectiveDate}`);
+    if (csParticularDate) lines.push(`Particular Date (if temporarily): ${csParticularDate}`);
+    return lines.join('\n');
+  };
+
+  // Flatten the EAM-ERP user access form into the ticket description text.
+  const buildErpDescription = () => {
+    const lines = ['EAM-ERP User Access / Deactivation Request'];
+    if (erpDate) lines.push(`Date: ${erpDate}`);
+    if (subcategory2) lines.push(`Request Type: ${subcategory2}`);
+    if (subcategory) lines.push(`ERP Module: ${subcategory}`);
+    lines.push('', 'Employee Information');
+    if (erpName.trim()) lines.push(`Name: ${erpName.trim()}`);
+    if (erpEmployeeId.trim()) lines.push(`Employee ID: ${erpEmployeeId.trim()}`);
+    if (erpDept.trim()) lines.push(`Department: ${erpDept.trim()}`);
+    if (erpPosition.trim()) lines.push(`Position: ${erpPosition.trim()}`);
+    if (erpAccessDetails.trim()) lines.push('', `Access Requirements / Changes: ${erpAccessDetails.trim()}`);
     return lines.join('\n');
   };
 
@@ -270,6 +450,10 @@ export default function CreateTicket() {
       else if (!requester.trim()) setError('Please confirm the requester before submitting.');
       else if (!isLeaveRequest && !department) setError('Please select a department before submitting.');
       else if (overtimeIncomplete) setError('Add at least one employee name to the overtime report.');
+      else if (isManpowerForm && mpDurationInvalid) setError('Duration end date must be on or after the start date.');
+      else if (manpowerIncomplete) setError('Please complete the manpower request details before submitting.');
+      else if (changeSchedIncomplete) setError('Please complete the schedule change details before submitting.');
+      else if (erpIncomplete) setError('Please complete the ERP access request details before submitting.');
       else if (showLeaveForm && leaveDatesInvalid) setError('End date must be on or after the start date.');
       else if (showLeaveForm && leaveIncomplete) setError('Please fill in the leave type and dates before submitting.');
       else setError('Please fix the highlighted fields before submitting.');
@@ -281,9 +465,15 @@ export default function CreateTicket() {
       fd.append('title', title.trim());
       const finalDescription = isOvertimeForm
         ? buildOvertimeDescription()
-        : showLeaveForm
-          ? buildLeaveDescription()
-          : description.trim();
+        : isManpowerForm
+          ? buildManpowerDescription()
+          : isChangeSchedForm
+            ? buildChangeScheduleDescription()
+            : isErpForm
+              ? buildErpDescription()
+              : showLeaveForm
+                ? buildLeaveDescription()
+                : description.trim();
       if (finalDescription) fd.append('description', finalDescription);
       fd.append('priority', priority);
       fd.append('request_type', requestType);
@@ -419,14 +609,20 @@ export default function CreateTicket() {
                   </Field>
 
                   {sub2Options.length > 0 && (
-                    <Field label="Sub-subcategory" htmlFor={subcategory2Id} hint={`Narrow down within ${subcategory}.`}>
+                    <Field
+                      label={isErpForm ? 'Access Request Type' : 'Sub-subcategory'}
+                      htmlFor={subcategory2Id}
+                      required={isErpForm}
+                      hint={isErpForm ? 'The kind of ERP access request.' : `Narrow down within ${subcategory}.`}
+                    >
                       <select
                         id={subcategory2Id}
                         value={subcategory2}
                         onChange={(e) => setSubcategory2(e.target.value)}
                         className={inputCls(false)}
+                        aria-required={isErpForm}
                       >
-                        <option value="">Select a sub-subcategory…</option>
+                        <option value="">{isErpForm ? 'Select a request type…' : 'Select a sub-subcategory…'}</option>
                         {sub2Options.map((s) => (
                           <option key={s} value={s}>{s}</option>
                         ))}
@@ -502,6 +698,371 @@ export default function CreateTicket() {
                     <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
                     Add row
                   </button>
+                </div>
+              ) : isManpowerForm ? (
+                <div className="space-y-5">
+                  <div className="rounded-md bg-brand-50 ring-1 ring-brand-100 px-3 py-2 text-[11px] text-brand-800">
+                    Requesting manpower personnel. Complete the details below — they'll be recorded on the work order.
+                  </div>
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <Field label="Date Requested" htmlFor={mpDateId} required>
+                      <input
+                        id={mpDateId}
+                        type="date"
+                        value={mpDateRequested}
+                        onChange={(e) => setMpDateRequested(e.target.value)}
+                        className={inputCls(false)}
+                        aria-required="true"
+                      />
+                    </Field>
+                  </div>
+                  <Field label="Request Type" required>
+                    <div className="space-y-3">
+                      <label className="flex items-start gap-2.5">
+                        <input
+                          type="radio"
+                          name="mpType"
+                          checked={mpType === 'replacement'}
+                          onChange={() => setMpType('replacement')}
+                          className="mt-2.5 h-4 w-4 shrink-0 accent-brand-600"
+                        />
+                        <div className="flex-1">
+                          <span className="text-sm text-slate-700">As a Replacement to</span>
+                          <input
+                            value={mpReplacementFor}
+                            onFocus={() => setMpType('replacement')}
+                            onChange={(e) => setMpReplacementFor(e.target.value)}
+                            placeholder="Name of person being replaced"
+                            className={`mt-1 ${inputCls(false)}`}
+                          />
+                        </div>
+                      </label>
+                      <label className="flex items-start gap-2.5">
+                        <input
+                          type="radio"
+                          name="mpType"
+                          checked={mpType === 'additional'}
+                          onChange={() => setMpType('additional')}
+                          className="mt-2.5 h-4 w-4 shrink-0 accent-brand-600"
+                        />
+                        <div className="flex-1">
+                          <span className="text-sm text-slate-700">As Additional Manpower in (section / department)</span>
+                          <input
+                            value={mpSection}
+                            onFocus={() => setMpType('additional')}
+                            onChange={(e) => setMpSection(e.target.value)}
+                            placeholder="Section / department"
+                            className={`mt-1 ${inputCls(false)}`}
+                          />
+                        </div>
+                      </label>
+                    </div>
+                  </Field>
+                  {mpType === 'additional' && (
+                    <div className="grid gap-5 sm:grid-cols-2">
+                      <Field label="Duration From" htmlFor={mpDurationFromId} hint="For additional manpower only.">
+                        <input
+                          id={mpDurationFromId}
+                          type="date"
+                          value={mpDurationFrom}
+                          onChange={(e) => setMpDurationFrom(e.target.value)}
+                          className={inputCls(false)}
+                        />
+                      </Field>
+                      <Field
+                        label="Duration To"
+                        htmlFor={mpDurationToId}
+                        error={mpDurationInvalid ? 'End date must be on or after the start date.' : ''}
+                      >
+                        <input
+                          id={mpDurationToId}
+                          type="date"
+                          min={mpDurationFrom || undefined}
+                          value={mpDurationTo}
+                          onChange={(e) => setMpDurationTo(e.target.value)}
+                          className={inputCls(mpDurationInvalid)}
+                          aria-invalid={mpDurationInvalid}
+                        />
+                      </Field>
+                    </div>
+                  )}
+                  <Field
+                    label="Qualification"
+                    htmlFor={mpQualificationId}
+                    required
+                    hint="Skills, experience, or requirements for the role."
+                  >
+                    <textarea
+                      id={mpQualificationId}
+                      rows={3}
+                      value={mpQualification}
+                      onChange={(e) => setMpQualification(e.target.value)}
+                      placeholder="Required qualifications for the position."
+                      className={`${inputCls(false)} resize-y leading-relaxed`}
+                      aria-required="true"
+                    />
+                  </Field>
+                  <Field label="Reason for Request" htmlFor={descId} required>
+                    <textarea
+                      id={descId}
+                      rows={4}
+                      value={mpReason}
+                      onChange={(e) => setMpReason(e.target.value)}
+                      placeholder="State the reason for your manpower request."
+                      className={`${inputCls(false)} resize-y leading-relaxed`}
+                      aria-required="true"
+                    />
+                  </Field>
+                </div>
+              ) : isChangeSchedForm ? (
+                <div className="space-y-5">
+                  <div className="rounded-md bg-brand-50 ring-1 ring-brand-100 px-3 py-2 text-[11px] text-brand-800">
+                    Requesting a change of time schedule or rest day. Complete the details below — they'll be recorded on the work order.
+                  </div>
+                  <div className="grid gap-5 sm:grid-cols-3">
+                    <Field label="Date Filed" htmlFor={csDateFiledId} required>
+                      <input
+                        id={csDateFiledId}
+                        type="date"
+                        value={csDateFiled}
+                        onChange={(e) => setCsDateFiled(e.target.value)}
+                        className={inputCls(false)}
+                        aria-required="true"
+                      />
+                    </Field>
+                    <Field label="Name" htmlFor={csNameId} required>
+                      <input
+                        id={csNameId}
+                        value={csName}
+                        onChange={(e) => setCsName(e.target.value)}
+                        placeholder="Employee name"
+                        className={inputCls(false)}
+                        aria-required="true"
+                      />
+                    </Field>
+                    <Field label="Section / Department" htmlFor={csSectionId}>
+                      <input
+                        id={csSectionId}
+                        value={csSection}
+                        onChange={(e) => setCsSection(e.target.value)}
+                        placeholder="Section / department"
+                        className={inputCls(false)}
+                      />
+                    </Field>
+                  </div>
+                  <Field label="Request Type" required>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {[
+                        { key: 'time_schedule', label: 'Change Time Schedule' },
+                        { key: 'change_rest_day', label: 'Change Rest Day' },
+                        { key: 'cancel_rest_day', label: 'Cancel Rest Day' }
+                      ].map((opt) => (
+                        <label
+                          key={opt.key}
+                          className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer ${
+                            csKind === opt.key ? 'border-brand-400 bg-brand-50 text-brand-800' : 'border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="csKind"
+                            checked={csKind === opt.key}
+                            onChange={() => setCsKind(opt.key)}
+                            className="h-4 w-4 accent-brand-600"
+                          />
+                          {opt.label}
+                        </label>
+                      ))}
+                    </div>
+                  </Field>
+                  {csKind === 'time_schedule' && (
+                    <div className="space-y-5 rounded-md border border-slate-200 px-4 py-4">
+                      <div className="grid gap-5 sm:grid-cols-2">
+                        <Field label="Working Time Schedule" htmlFor={csCurrentScheduleId} hint="Current schedule.">
+                          <input
+                            id={csCurrentScheduleId}
+                            value={csCurrentSchedule}
+                            onChange={(e) => setCsCurrentSchedule(e.target.value)}
+                            placeholder="e.g. 8:00 AM – 5:00 PM"
+                            className={inputCls(false)}
+                          />
+                        </Field>
+                        <Field label="New Working Time Schedule" htmlFor={csNewScheduleId} required>
+                          <input
+                            id={csNewScheduleId}
+                            value={csNewSchedule}
+                            onChange={(e) => setCsNewSchedule(e.target.value)}
+                            placeholder="e.g. 10:00 AM – 7:00 PM"
+                            className={inputCls(false)}
+                            aria-required="true"
+                          />
+                        </Field>
+                      </div>
+                      <Field label="Duration" required>
+                        <div className="flex gap-4">
+                          {[
+                            { key: 'temporary', label: 'Temporary' },
+                            { key: 'permanent', label: 'Permanently' }
+                          ].map((opt) => (
+                            <label key={opt.key} className="flex items-center gap-2 text-sm text-slate-700">
+                              <input
+                                type="radio"
+                                name="csDuration"
+                                checked={csDuration === opt.key}
+                                onChange={() => setCsDuration(opt.key)}
+                                className="h-4 w-4 accent-brand-600"
+                              />
+                              {opt.label}
+                            </label>
+                          ))}
+                        </div>
+                      </Field>
+                    </div>
+                  )}
+                  {csKind === 'change_rest_day' && (
+                    <div className="grid gap-5 sm:grid-cols-2 rounded-md border border-slate-200 px-4 py-4">
+                      <Field label="Scheduled Rest Day" htmlFor={csScheduledRestDayId} hint="Current rest day.">
+                        <input
+                          id={csScheduledRestDayId}
+                          value={csScheduledRestDay}
+                          onChange={(e) => setCsScheduledRestDay(e.target.value)}
+                          placeholder="e.g. Sunday"
+                          className={inputCls(false)}
+                        />
+                      </Field>
+                      <Field label="New Rest Day" htmlFor={csNewRestDayId} required>
+                        <input
+                          id={csNewRestDayId}
+                          value={csNewRestDay}
+                          onChange={(e) => setCsNewRestDay(e.target.value)}
+                          placeholder="e.g. Wednesday"
+                          className={inputCls(false)}
+                          aria-required="true"
+                        />
+                      </Field>
+                    </div>
+                  )}
+                  {csKind === 'cancel_rest_day' && (
+                    <div className="rounded-md border border-slate-200 px-4 py-4">
+                      <Field label="Rest Day to Cancel" htmlFor={csScheduledRestDayId} required>
+                        <input
+                          id={csScheduledRestDayId}
+                          value={csScheduledRestDay}
+                          onChange={(e) => setCsScheduledRestDay(e.target.value)}
+                          placeholder="e.g. Sunday"
+                          className={inputCls(false)}
+                          aria-required="true"
+                        />
+                      </Field>
+                    </div>
+                  )}
+                  <Field label="Reason" htmlFor={descId} required>
+                    <textarea
+                      id={descId}
+                      rows={4}
+                      value={csReason}
+                      onChange={(e) => setCsReason(e.target.value)}
+                      placeholder="Please indicate the reason for your request."
+                      className={`${inputCls(false)} resize-y leading-relaxed`}
+                      aria-required="true"
+                    />
+                  </Field>
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <Field label="Effectivity Date" htmlFor={csEffectiveDateId} hint="If permanently.">
+                      <input
+                        id={csEffectiveDateId}
+                        type="date"
+                        value={csEffectiveDate}
+                        onChange={(e) => setCsEffectiveDate(e.target.value)}
+                        className={inputCls(false)}
+                      />
+                    </Field>
+                    <Field label="Particular Date" htmlFor={csParticularDateId} hint="If temporarily.">
+                      <input
+                        id={csParticularDateId}
+                        type="date"
+                        value={csParticularDate}
+                        onChange={(e) => setCsParticularDate(e.target.value)}
+                        className={inputCls(false)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              ) : isErpForm ? (
+                <div className="space-y-5">
+                  <div className="rounded-md bg-brand-50 ring-1 ring-brand-100 px-3 py-2 text-[11px] text-brand-800">
+                    EAM-ERP User Access / Deactivation Form. Complete the details below — they'll be recorded on the work order.
+                  </div>
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <Field label="Date" htmlFor={erpDateId} required>
+                      <input
+                        id={erpDateId}
+                        type="date"
+                        value={erpDate}
+                        onChange={(e) => setErpDate(e.target.value)}
+                        className={inputCls(false)}
+                        aria-required="true"
+                      />
+                    </Field>
+                  </div>
+                  <div className="rounded-md border border-slate-200 px-4 py-4 space-y-5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Employee Information</p>
+                    <div className="grid gap-5 sm:grid-cols-2">
+                      <Field label="Name" htmlFor={erpNameId} required>
+                        <input
+                          id={erpNameId}
+                          value={erpName}
+                          onChange={(e) => setErpName(e.target.value)}
+                          placeholder="Employee name"
+                          className={inputCls(false)}
+                          aria-required="true"
+                        />
+                      </Field>
+                      <Field label="Employee ID" htmlFor={erpEmployeeIdId}>
+                        <input
+                          id={erpEmployeeIdId}
+                          value={erpEmployeeId}
+                          onChange={(e) => setErpEmployeeId(e.target.value)}
+                          placeholder="e.g. EMP-00123"
+                          className={inputCls(false)}
+                        />
+                      </Field>
+                      <Field label="Department" htmlFor={erpDeptId}>
+                        <input
+                          id={erpDeptId}
+                          value={erpDept}
+                          onChange={(e) => setErpDept(e.target.value)}
+                          placeholder="Department"
+                          className={inputCls(false)}
+                        />
+                      </Field>
+                      <Field label="Position" htmlFor={erpPositionId}>
+                        <input
+                          id={erpPositionId}
+                          value={erpPosition}
+                          onChange={(e) => setErpPosition(e.target.value)}
+                          placeholder="Job title / position"
+                          className={inputCls(false)}
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                  <Field
+                    label="Access Requirements / Changes"
+                    htmlFor={descId}
+                    required={erpNeedsDetails}
+                    hint="For new or movement requests, specify the access needed or change."
+                  >
+                    <textarea
+                      id={descId}
+                      rows={4}
+                      value={erpAccessDetails}
+                      onChange={(e) => setErpAccessDetails(e.target.value)}
+                      placeholder="Specify the ERP access needed, role, or change required."
+                      className={`${inputCls(false)} resize-y leading-relaxed`}
+                      aria-required={erpNeedsDetails}
+                    />
+                  </Field>
                 </div>
               ) : showLeaveForm ? (
                 <div className="space-y-5">

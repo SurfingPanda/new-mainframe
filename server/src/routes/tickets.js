@@ -71,6 +71,7 @@ const ALLOWED_CATEGORIES = [
   'Email & Communication',
   'Security',
   'Printing & Peripherals',
+  'ERP Access',
   'HR Concerns',
   'Other'
 ];

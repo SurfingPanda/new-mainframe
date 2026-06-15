@@ -6,6 +6,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 
 import { pingDb, ensureSchema } from './config/db.js';
+import { loadSlaDays } from './lib/sla-config.js';
 import { startMaintenanceScheduler } from './lib/maintenance-scheduler.js';
 import { startSpaceDueReminders } from './lib/space-notify.js';
 import { startSlaBreachReminders } from './lib/sla-reminders.js';
@@ -32,6 +33,7 @@ import notifications from './routes/notifications.js';
 import spaces from './routes/spaces.js';
 import announcements from './routes/announcements.js';
 import search from './routes/search.js';
+import settings from './routes/settings.js';
 
 // Fail fast on a missing JWT secret — without it tokens can't be verified safely.
 if (!process.env.JWT_SECRET) {
@@ -143,6 +145,7 @@ app.use('/api/notifications', notifications);
 app.use('/api/spaces', spaces);
 app.use('/api/announcements', announcements);
 app.use('/api/search', search);
+app.use('/api/settings', settings);
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
@@ -152,6 +155,7 @@ app.use((err, req, res, _next) => {
 });
 
 ensureSchema()
+  .then(() => loadSlaDays())
   .then(() => { startMaintenanceScheduler(); startSpaceDueReminders(); startSlaBreachReminders(); startAutoClose(); })
   .catch((err) => console.error('schema bootstrap failed:', err));
 

@@ -483,6 +483,15 @@ CREATE TABLE IF NOT EXISTS space_goals (
   FOREIGN KEY (space_id) REFERENCES spaces(id) ON DELETE CASCADE
 );
 
+-- App-wide, admin-managed settings (key/value, value is JSON). e.g. configurable
+-- SLA targets per priority under the 'sla_days' key.
+CREATE TABLE IF NOT EXISTS app_settings (
+  setting_key   VARCHAR(64) NOT NULL PRIMARY KEY,
+  setting_value JSON NOT NULL,
+  updated_by    INT UNSIGNED NULL,
+  updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
 -- Seed admin user (password: admin123)
 INSERT INTO users (email, password_hash, name, role, department, is_active) VALUES
   ('admin@mainframe.local',

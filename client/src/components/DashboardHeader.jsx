@@ -57,6 +57,7 @@ function usersMenu(pendingResets = 0) {
         { to: '/users/reports', label: 'Reports', desc: 'Account monitoring & charts', icon: 'chart' },
         { to: '/users/surveys', label: 'Survey Reports', desc: 'Technician feedback & ratings', icon: 'star' },
         { to: '/users/departments', label: 'Departments', desc: 'Create and edit departments', icon: 'building' },
+        { to: '/users/sla', label: 'SLA Settings', desc: 'Resolution time targets per priority', icon: 'clock' },
         { to: '/users/password-resets', label: 'Password Resets', desc: 'Review and resolve reset requests', icon: 'key', badge: pendingResets }
       ]
     }

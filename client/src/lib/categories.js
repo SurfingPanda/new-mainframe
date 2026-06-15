@@ -30,6 +30,14 @@ export const CATEGORY_TREE = {
     'Printers': ['Not printing', 'Paper jam', 'Toner / ink'],
     'Scanners & Copiers': ['Scan to email', 'Hardware fault', 'Driver issue']
   },
+  'ERP Access': {
+    'Finance & Accounting': ['New access request', 'Modify access / role', 'Revoke access'],
+    'Sales & POS': ['New access request', 'Modify access / role', 'Revoke access'],
+    'Inventory & Warehouse': ['New access request', 'Modify access / role', 'Revoke access'],
+    'Purchasing & Procurement': ['New access request', 'Modify access / role', 'Revoke access'],
+    'Production / Manufacturing': ['New access request', 'Modify access / role', 'Revoke access'],
+    'HR & Payroll': ['New access request', 'Modify access / role', 'Revoke access']
+  },
   'HR Concerns': {
     'Leave & Attendance': [
       'Overtime and Accomplishment Report Form',

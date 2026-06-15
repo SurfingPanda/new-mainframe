@@ -9,6 +9,9 @@
 // The returned shape matches the client's `slaInfo()` so client/src/lib/sla.js can
 // surface it verbatim.
 
+import { getSlaDays } from './sla-config.js';
+
+// Default targets; the live, admin-configurable values come from getSlaDays().
 export const SLA_DAYS = { low: 7, normal: 3, high: 2, urgent: 1 };
 export const RESOLVED_STATUSES = new Set(['resolved', 'closed']);
 // Statuses during which the SLA clock pauses — waiting on the customer (pending),
@@ -64,7 +67,7 @@ function pausedDurationMs(ticket, changes, opened, until) {
 // when the ticket has no priority target or a missing/invalid created date — same
 // contract as the client's `slaInfo`.
 export function slaStanding(ticket, changeRows) {
-  const days = SLA_DAYS[ticket?.priority];
+  const days = getSlaDays()[ticket?.priority];
   const opened = ticket?.created_at ? new Date(ticket.created_at).getTime() : NaN;
   if (!days || Number.isNaN(opened)) return null;
 

@@ -723,4 +723,16 @@ export async function ensureSchema() {
       if (err.code !== 'ER_DUP_FIELDNAME') throw err;
     }
   }
+
+  // app_settings — app-wide, admin-managed key/value settings (value is JSON),
+  // e.g. configurable SLA targets per priority. Distinct from users.preferences,
+  // which is per-user.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      setting_key   VARCHAR(64) NOT NULL PRIMARY KEY,
+      setting_value JSON NOT NULL,
+      updated_by    INT UNSIGNED NULL,
+      updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
 }

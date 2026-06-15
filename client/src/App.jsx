@@ -18,6 +18,7 @@ import Users from './pages/Users.jsx';
 import UserReports from './pages/UserReports.jsx';
 import SurveyReports from './pages/SurveyReports.jsx';
 import Departments from './pages/Departments.jsx';
+import SlaSettings from './pages/SlaSettings.jsx';
 import PasswordResetRequests from './pages/PasswordResetRequests.jsx';
 import Settings from './pages/Settings.jsx';
 import Profile from './pages/Profile.jsx';
@@ -252,6 +253,14 @@ export default function App() {
         element={
           <ProtectedRoute permission={['users', 'manage']}>
             <Departments />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/users/sla"
+        element={
+          <ProtectedRoute permission={['users', 'manage']}>
+            <SlaSettings />
           </ProtectedRoute>
         }
       />

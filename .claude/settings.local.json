@@ -82,7 +82,8 @@
       "Read(//tmp/**)",
       "Bash(\"/c/Program Files/Google/Chrome/Application/chrome.exe\" --headless --disable-gpu --no-pdf-header-footer --print-to-pdf=\"work-order-template.pdf\" \"work-order-template.html\")",
       "Bash(echo \"exit=$?\")",
-      "PowerShell(Move-Item *)"
+      "PowerShell(Move-Item *)",
+      "PowerShell(npm install *)"
     ]
   }
 }

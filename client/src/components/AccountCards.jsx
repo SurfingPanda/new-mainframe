@@ -185,6 +185,7 @@ const SIG_ACCEPT = 'image/png,image/jpeg,image/webp,image/heic,image/avif';
 
 export function SignatureCard({ me, onUpdated }) {
   const [mode, setMode] = useState('draw'); // 'draw' | 'upload'
+  const [editing, setEditing] = useState(false); // the draw/upload editor is hidden until "Add signature"
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   // Strokes are kept as point lists so we can undo the last one by redrawing.
@@ -290,6 +291,7 @@ export function SignatureCard({ me, onUpdated }) {
       const { signature_url } = await api('/api/auth/me/signature', { method: 'POST', body: fd });
       onUpdated({ ...me, signature_url });
       clearCanvas();
+      setEditing(false); // collapse the editor; the saved signature now shows as a preview
     } catch (e) {
       setError(e.message || 'Could not save the signature.');
     } finally {
@@ -331,26 +333,42 @@ export function SignatureCard({ me, onUpdated }) {
       </header>
 
       <div className="px-5 py-4 space-y-4">
-        {me?.signature_url && (
+        {me?.signature_url ? (
+          // A user has exactly one signature. While one exists, show only the preview
+          // and Remove — to change it they must remove the current one first.
           <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-[linear-gradient(45deg,#f1f5f9_25%,transparent_25%,transparent_75%,#f1f5f9_75%),linear-gradient(45deg,#f1f5f9_25%,#fff_25%,#fff_75%,#f1f5f9_75%)] [background-size:14px_14px] [background-position:0_0,7px_7px] p-3">
             <img src={me.signature_url} alt="Your signature" className="max-h-16 max-w-[220px] object-contain" />
             <button type="button" onClick={remove} disabled={busy} className="ml-auto text-xs font-semibold text-rose-600 hover:underline disabled:opacity-50">
               Remove
             </button>
           </div>
-        )}
-
-        <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-xs font-semibold">
-          {['draw', 'upload'].map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => { setMode(m); setError(''); }}
-              className={`rounded-md px-3 py-1 capitalize transition-colors ${mode === m ? 'bg-white text-brand-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              {m}
-            </button>
-          ))}
+        ) : !editing ? (
+          <button
+            type="button"
+            onClick={() => { setEditing(true); setMode('draw'); setError(''); clearCanvas(); }}
+            className="inline-flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:border-accent-300 hover:bg-accent-50/30"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+            Add signature
+          </button>
+        ) : (
+          <>
+        <div className="flex items-center justify-between">
+          <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-xs font-semibold">
+            {['draw', 'upload'].map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => { setMode(m); setError(''); }}
+                className={`rounded-md px-3 py-1 capitalize transition-colors ${mode === m ? 'bg-white text-brand-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={() => { setEditing(false); clearCanvas(); setError(''); }} disabled={busy} className="text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50">
+            Cancel
+          </button>
         </div>
 
         {mode === 'draw' ? (
@@ -388,6 +406,8 @@ export function SignatureCard({ me, onUpdated }) {
             <span className="text-[11px] text-slate-500">PNG with transparent background works best · up to 5 MB</span>
             <input ref={fileRef} type="file" accept={SIG_ACCEPT} onChange={onPickFile} className="hidden" />
           </label>
+        )}
+          </>
         )}
 
         {error && <p className="text-xs text-rose-600">{error}</p>}
