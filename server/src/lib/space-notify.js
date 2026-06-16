@@ -8,32 +8,12 @@
 import { pool } from '../config/db.js';
 import { sendMailSafe, appUrl } from './mailer.js';
 import { spaceItemAssigned, spaceJoinRequest } from './email-templates.js';
+import { sendSystemMessage } from './system-message.js';
 
-// System sender marker for Mailbox messages (no real user account).
-// messages.shape never treats sender_id 0 as "mine" since real ids are positive.
-const SYSTEM_SENDER_ID = 0;
-const SYSTEM_SENDER_NAME = 'Hubly';
-
-const SUBJECT_MAX = 200;
-const BODY_MAX = 5000;
-
-// Insert one system Mailbox message.
+// Thin positional wrapper over the shared system-message helper (which owns the
+// INSERT, length clamping, and the real-time 'mail' push).
 async function sendSystem(recipientId, recipientName, subject, body, linkUrl, linkLabel) {
-  await pool.query(
-    `INSERT INTO messages
-       (sender_id, sender_name, recipient_id, recipient_name, subject, body, link_url, link_label)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      SYSTEM_SENDER_ID,
-      SYSTEM_SENDER_NAME,
-      recipientId,
-      recipientName,
-      String(subject).slice(0, SUBJECT_MAX),
-      String(body).slice(0, BODY_MAX),
-      linkUrl || null,
-      linkLabel || null
-    ]
-  );
+  await sendSystemMessage({ recipientId, recipientName, subject, body, linkUrl, linkLabel });
 }
 
 // Resolve a user id to an active user row (or null) so we never message a

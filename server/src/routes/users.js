@@ -5,6 +5,7 @@ import { pool } from '../config/db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { rateLimit, userWriteLimit } from '../middleware/rateLimit.js';
 import { effectivePermissions, sanitizePermissions } from '../lib/permissions.js';
+import { passwordPolicyError, BCRYPT_ROUNDS } from '../lib/password-policy.js';
 import { avatarUpload, saveAvatar, removeAvatarFile, InvalidImageError } from '../lib/avatar-upload.js';
 
 const router = Router();
@@ -93,11 +94,12 @@ router.post('/', async (req, res, next) => {
     if (!ROLES.includes(role)) {
       return res.status(400).json({ error: 'invalid role' });
     }
-    if (String(password).length < 8) {
-      return res.status(400).json({ error: 'password must be at least 8 characters' });
+    const createPolicyError = passwordPolicyError(password);
+    if (createPolicyError) {
+      return res.status(400).json({ error: createPolicyError });
     }
     const cleanPerms = permissions === undefined ? null : sanitizePermissions(permissions);
-    const hash = await bcrypt.hash(String(password), 10);
+    const hash = await bcrypt.hash(String(password), BCRYPT_ROUNDS);
     const [result] = await pool.query(
       `INSERT INTO users (email, password_hash, name, role, department, job_title, is_active, permissions)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -176,7 +178,7 @@ router.post('/import', importLimiter, async (req, res, next) => {
 
       const password = generatePassword();
       try {
-        const hash = await bcrypt.hash(password, 10);
+        const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
         await pool.query(
           `INSERT INTO users (email, password_hash, name, role, department, is_active)
            VALUES (?, ?, ?, ?, ?, 1)`,
@@ -305,10 +307,11 @@ router.post('/:id/reset-password', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const { password } = req.body || {};
-    if (!password || String(password).length < 8) {
-      return res.status(400).json({ error: 'password must be at least 8 characters' });
+    const resetPolicyError = passwordPolicyError(password);
+    if (resetPolicyError) {
+      return res.status(400).json({ error: resetPolicyError });
     }
-    const hash = await bcrypt.hash(String(password), 10);
+    const hash = await bcrypt.hash(String(password), BCRYPT_ROUNDS);
     // Bump token_version so the user's existing sessions are invalidated by the reset.
     const [r] = await pool.query('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?', [hash, id]);
     if (r.affectedRows === 0) return res.status(404).json({ error: 'User not found' });

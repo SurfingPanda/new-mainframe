@@ -5,6 +5,10 @@
 
 export const MIN_LENGTH = 8;
 
+// bcrypt work factor for every password hash in the app. Centralized so the cost
+// is consistent and easy to raise as hardware improves.
+export const BCRYPT_ROUNDS = 12;
+
 export const PASSWORD_RULES = [
   { id: 'length', label: `At least ${MIN_LENGTH} characters`, test: (pw) => pw.length >= MIN_LENGTH },
   { id: 'upper', label: 'An uppercase letter (A–Z)', test: (pw) => /[A-Z]/.test(pw) },

@@ -4,14 +4,10 @@
 // throw — callers fire-and-forget, like the email notifiers.
 
 import { pool } from '../config/db.js';
+import { sendSystemMessage } from './system-message.js';
 
 // Work-order display id, matching the rest of the app (e.g. 22 -> "WO00000022").
 const formatTicketId = (id) => `WO${String(id ?? 0).padStart(8, '0')}`;
-
-// System sender marker for Mailbox messages (no real user account). messages.shape
-// never treats sender_id 0 as "mine" since real user ids are positive.
-const SYSTEM_SENDER_ID = 0;
-const SYSTEM_SENDER_NAME = 'Hubly';
 
 // tickets.requester / assignee are free-text (a display name OR an email).
 // Resolve to a real, active user row so we can deliver to their Mailbox.
@@ -62,21 +58,14 @@ export async function maybeSendResolutionSurvey(ticket, previousStatus) {
       `${ticket.assignee}.\n\nWe'd love your feedback. Please take a moment to rate your ` +
       `technician — it only takes a few seconds.`;
 
-    await pool.query(
-      `INSERT INTO messages
-         (sender_id, sender_name, recipient_id, recipient_name, subject, body, link_url, link_label)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        SYSTEM_SENDER_ID,
-        SYSTEM_SENDER_NAME,
-        respondent.id,
-        respondent.name,
-        subject,
-        body,
-        `/survey/${ticket.id}`,
-        'Rate your technician'
-      ]
-    );
+    await sendSystemMessage({
+      recipientId: respondent.id,
+      recipientName: respondent.name,
+      subject,
+      body,
+      linkUrl: `/survey/${ticket.id}`,
+      linkLabel: 'Rate your technician'
+    });
 
     // Record it on the work order's timeline so staff can see the survey went out.
     await pool.query(

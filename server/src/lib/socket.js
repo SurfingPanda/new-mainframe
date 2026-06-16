@@ -125,6 +125,15 @@ export function emitNotification(userId) {
 }
 
 /**
+ * Internal mail (Mailbox) arrived for a specific user — nudge them to refetch
+ * the unread-inbox badge. Used for both user-to-user mail and system messages.
+ */
+export function emitMailUpdate(userId) {
+  if (!io) return;
+  io.to(`user:${userId}`).emit('mail');
+}
+
+/**
  * Ticket changed — notify relevant users so they can refetch.
  * @param {number[]} userIds - Users who should be notified
  */

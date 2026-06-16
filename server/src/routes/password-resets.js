@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { pool } from '../config/db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { passwordPolicyError, BCRYPT_ROUNDS } from '../lib/password-policy.js';
 
 const router = Router();
 
@@ -55,10 +56,11 @@ router.patch('/:id', async (req, res, next) => {
 
     // Optional: rotate the user's password as part of resolving the request.
     if (new_password !== undefined && new_password !== null && new_password !== '') {
-      if (String(new_password).length < 8) {
-        return res.status(400).json({ error: 'password must be at least 8 characters' });
+      const policyError = passwordPolicyError(new_password);
+      if (policyError) {
+        return res.status(400).json({ error: policyError });
       }
-      const hash = await bcrypt.hash(String(new_password), 10);
+      const hash = await bcrypt.hash(String(new_password), BCRYPT_ROUNDS);
       // Bump token_version so any sessions the user had open are invalidated.
       await pool.query('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?', [hash, request.user_id]);
     }

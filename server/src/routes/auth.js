@@ -8,7 +8,7 @@ import { rateLimit } from '../middleware/rateLimit.js';
 import { effectivePermissions } from '../lib/permissions.js';
 import { sendMailSafe, appUrl } from '../lib/mailer.js';
 import { passwordResetLink } from '../lib/email-templates.js';
-import { passwordPolicyError } from '../lib/password-policy.js';
+import { passwordPolicyError, BCRYPT_ROUNDS } from '../lib/password-policy.js';
 import { avatarUpload, saveAvatar, removeAvatarFile, InvalidImageError } from '../lib/avatar-upload.js';
 import { signatureUpload, saveSignature, removeSignatureFile } from '../lib/signature-upload.js';
 import { slaStanding } from '../lib/sla.js';
@@ -210,7 +210,7 @@ router.post('/reset-password', forgotLimiter, async (req, res, next) => {
       return res.status(400).json({ error: 'This reset link is invalid or has expired. Please request a new one.' });
     }
 
-    const hash = await bcrypt.hash(String(newPassword), 10);
+    const hash = await bcrypt.hash(String(newPassword), BCRYPT_ROUNDS);
     // Bump token_version so any sessions opened before the reset are invalidated.
     await pool.query('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?', [hash, row.user_id]);
     await pool.query('UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?', [row.id]);
@@ -507,7 +507,7 @@ router.post('/change-password', requireAuth, changePasswordLimiter, async (req, 
     const ok = await bcrypt.compare(String(current_password), rows[0].password_hash);
     if (!ok) return res.status(401).json({ error: 'Current password is incorrect' });
 
-    const hash = await bcrypt.hash(String(new_password), 10);
+    const hash = await bcrypt.hash(String(new_password), BCRYPT_ROUNDS);
     // Bump token_version to invalidate sessions on other devices, then re-issue a
     // fresh token for THIS device so the user stays signed in here (per the UI).
     await pool.query(

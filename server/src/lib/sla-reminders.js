@@ -7,34 +7,18 @@
 
 import { pool } from '../config/db.js';
 import { slaStanding } from './sla.js';
+import { sendSystemMessage } from './system-message.js';
 
-// System sender marker for Mailbox messages (no real user account).
-const SYSTEM_SENDER_ID = 0;
-const SYSTEM_SENDER_NAME = 'Hubly';
-const SUBJECT_MAX = 200;
-const BODY_MAX = 5000;
 const DAY = 86400000;
 const REMINDER_INTERVAL_MS = 60 * 60 * 1000; // hourly; the per-ticket guard keeps it to once/day
 
 // Work-order display id (e.g. 22 -> "WO00000022"), matching the rest of the app.
 const fmtWo = (id) => `WO${String(id ?? 0).padStart(8, '0')}`;
 
+// Thin positional wrapper over the shared system-message helper (which owns the
+// INSERT, length clamping, and the real-time 'mail' push).
 async function sendSystem(recipientId, recipientName, subject, body, linkUrl, linkLabel) {
-  await pool.query(
-    `INSERT INTO messages
-       (sender_id, sender_name, recipient_id, recipient_name, subject, body, link_url, link_label)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      SYSTEM_SENDER_ID,
-      SYSTEM_SENDER_NAME,
-      recipientId,
-      recipientName,
-      String(subject).slice(0, SUBJECT_MAX),
-      String(body).slice(0, BODY_MAX),
-      linkUrl || null,
-      linkLabel || null
-    ]
-  );
+  await sendSystemMessage({ recipientId, recipientName, subject, body, linkUrl, linkLabel });
 }
 
 // tickets.assignee is free text (a display name OR an email). Resolve it to a

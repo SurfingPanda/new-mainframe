@@ -43,6 +43,21 @@ if (!process.env.JWT_SECRET) {
 if (process.env.JWT_SECRET.length < 32) {
   console.warn('WARNING: JWT_SECRET is shorter than 32 characters. Use a longer random value for production.');
 }
+// Reject obvious placeholder secrets (including the value shipped in
+// .env.example). These are public — a token signed with one can be forged by
+// anyone — so a real secret is non-negotiable even though the length check passes.
+const PLACEHOLDER_SECRETS = new Set([
+  'change-me-to-a-long-random-string',
+  'change-me',
+  'changeme',
+  'your-secret-key',
+  'your-jwt-secret',
+  'secret'
+]);
+if (PLACEHOLDER_SECRETS.has(process.env.JWT_SECRET.trim().toLowerCase())) {
+  console.error('FATAL: JWT_SECRET is set to a known placeholder value. Generate a unique random secret (e.g. `node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'base64url\'))"`). Refusing to start.');
+  process.exit(1);
+}
 
 const app = express();
 const server = createServer(app);
@@ -72,6 +87,8 @@ if (corsAllowlist.length) {
     cors({
       // credentials: true so the browser sends/accepts the httpOnly auth cookie.
       credentials: true,
+      // Custom headers JS needs to read off responses (e.g. the list-cap signal).
+      exposedHeaders: ['X-Result-Capped'],
       origin: (origin, cb) => {
         // Allow same-origin/non-browser requests (no Origin header) and allowlisted origins.
         if (!origin || corsAllowlist.includes(origin)) return cb(null, true);
@@ -83,7 +100,7 @@ if (corsAllowlist.length) {
   console.warn('WARNING: CORS_ORIGINS is not set — allowing all origins. Set it to lock down the API in production.');
   // `origin: true` reflects the request origin (not `*`), which is required for
   // credentialed requests — the auth cookie won't be sent with a wildcard origin.
-  app.use(cors({ origin: true, credentials: true }));
+  app.use(cors({ origin: true, credentials: true, exposedHeaders: ['X-Result-Capped'] }));
 }
 
 // Attach Socket.IO to the same HTTP server with matching CORS settings.

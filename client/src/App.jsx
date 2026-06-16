@@ -1,48 +1,70 @@
 import { Routes, Route } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
+import ProtectedRoute from './components/ProtectedRoute.jsx';
+
+// Public/unauthenticated pages stay eager — they're on the cold-start critical
+// path (and small), so we don't want a chunk round-trip before first paint.
 import Landing from './pages/Landing.jsx';
 import SignIn from './pages/SignIn.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
-import Dashboard from './pages/Dashboard.jsx';
-import ModulePlaceholder from './pages/ModulePlaceholder.jsx';
-import AllTickets from './pages/AllTickets.jsx';
-import MyQueue from './pages/MyQueue.jsx';
-import SubmittedTickets from './pages/SubmittedTickets.jsx';
-import CreateTicket from './pages/CreateTicket.jsx';
-import CreateIncident from './pages/CreateIncident.jsx';
-import TicketDetail from './pages/TicketDetail.jsx';
-import WorkOrderReports from './pages/WorkOrderReports.jsx';
-import MaintenanceSchedules from './pages/MaintenanceSchedules.jsx';
-import MaintenanceScheduleEditor from './pages/MaintenanceScheduleEditor.jsx';
-import Users from './pages/Users.jsx';
-import UserReports from './pages/UserReports.jsx';
-import SurveyReports from './pages/SurveyReports.jsx';
-import Departments from './pages/Departments.jsx';
-import SlaSettings from './pages/SlaSettings.jsx';
-import PasswordResetRequests from './pages/PasswordResetRequests.jsx';
-import Settings from './pages/Settings.jsx';
-import Profile from './pages/Profile.jsx';
-import Mailbox from './pages/Mailbox.jsx';
-import Survey from './pages/Survey.jsx';
-import AllAssets from './pages/AllAssets.jsx';
-import AssignedAssets from './pages/AssignedAssets.jsx';
-import AddAsset from './pages/AddAsset.jsx';
-import AllArticles from './pages/AllArticles.jsx';
-import KbArticle from './pages/KbArticle.jsx';
-import KbCategory from './pages/KbCategory.jsx';
-import ArticleEditor from './pages/ArticleEditor.jsx';
-import AssetRequest from './pages/AssetRequest.jsx';
-import NetworkMonitoring from './pages/NetworkMonitoring.jsx';
-import NetworkReports from './pages/NetworkReports.jsx';
-import NetworkReportEditor from './pages/NetworkReportEditor.jsx';
-import NetworkReportView from './pages/NetworkReportView.jsx';
-import ChatRoom from './pages/ChatRoom.jsx';
-import Spaces from './pages/Spaces.jsx';
-import SpaceDetail from './pages/SpaceDetail.jsx';
-import ProtectedRoute from './components/ProtectedRoute.jsx';
+
+// Everything behind auth is code-split: each page (and the libs only it uses,
+// e.g. chart.js) becomes its own chunk loaded on navigation, so the initial
+// bundle is just the shell + sign-in instead of all 40 pages.
+const Dashboard = lazy(() => import('./pages/Dashboard.jsx'));
+const ModulePlaceholder = lazy(() => import('./pages/ModulePlaceholder.jsx'));
+const AllTickets = lazy(() => import('./pages/AllTickets.jsx'));
+const MyQueue = lazy(() => import('./pages/MyQueue.jsx'));
+const SubmittedTickets = lazy(() => import('./pages/SubmittedTickets.jsx'));
+const CreateTicket = lazy(() => import('./pages/CreateTicket.jsx'));
+const CreateIncident = lazy(() => import('./pages/CreateIncident.jsx'));
+const TicketDetail = lazy(() => import('./pages/TicketDetail.jsx'));
+const WorkOrderReports = lazy(() => import('./pages/WorkOrderReports.jsx'));
+const MaintenanceSchedules = lazy(() => import('./pages/MaintenanceSchedules.jsx'));
+const MaintenanceScheduleEditor = lazy(() => import('./pages/MaintenanceScheduleEditor.jsx'));
+const Users = lazy(() => import('./pages/Users.jsx'));
+const UserReports = lazy(() => import('./pages/UserReports.jsx'));
+const SurveyReports = lazy(() => import('./pages/SurveyReports.jsx'));
+const Departments = lazy(() => import('./pages/Departments.jsx'));
+const SlaSettings = lazy(() => import('./pages/SlaSettings.jsx'));
+const PasswordResetRequests = lazy(() => import('./pages/PasswordResetRequests.jsx'));
+const Settings = lazy(() => import('./pages/Settings.jsx'));
+const Profile = lazy(() => import('./pages/Profile.jsx'));
+const Mailbox = lazy(() => import('./pages/Mailbox.jsx'));
+const Survey = lazy(() => import('./pages/Survey.jsx'));
+const AllAssets = lazy(() => import('./pages/AllAssets.jsx'));
+const AssignedAssets = lazy(() => import('./pages/AssignedAssets.jsx'));
+const AddAsset = lazy(() => import('./pages/AddAsset.jsx'));
+const AllArticles = lazy(() => import('./pages/AllArticles.jsx'));
+const KbArticle = lazy(() => import('./pages/KbArticle.jsx'));
+const KbCategory = lazy(() => import('./pages/KbCategory.jsx'));
+const ArticleEditor = lazy(() => import('./pages/ArticleEditor.jsx'));
+const AssetRequest = lazy(() => import('./pages/AssetRequest.jsx'));
+const NetworkMonitoring = lazy(() => import('./pages/NetworkMonitoring.jsx'));
+const NetworkReports = lazy(() => import('./pages/NetworkReports.jsx'));
+const NetworkReportEditor = lazy(() => import('./pages/NetworkReportEditor.jsx'));
+const NetworkReportView = lazy(() => import('./pages/NetworkReportView.jsx'));
+const ChatRoom = lazy(() => import('./pages/ChatRoom.jsx'));
+const Spaces = lazy(() => import('./pages/Spaces.jsx'));
+const SpaceDetail = lazy(() => import('./pages/SpaceDetail.jsx'));
+
+// Shown while a route's chunk is fetched (usually a few hundred ms on first hit).
+function RouteFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950">
+      <div
+        className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-accent-600 dark:border-slate-700 dark:border-t-accent-500"
+        role="status"
+        aria-label="Loading"
+      />
+    </div>
+  );
+}
 
 export default function App() {
   return (
+    <Suspense fallback={<RouteFallback />}>
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/signin" element={<SignIn />} />
@@ -416,5 +438,6 @@ export default function App() {
         }
       />
     </Routes>
+    </Suspense>
   );
 }

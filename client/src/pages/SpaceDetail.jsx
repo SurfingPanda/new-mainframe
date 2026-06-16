@@ -713,7 +713,11 @@ function BoardCard({ item, canEdit, dragging, onPointerDown, onPointerMove, onPo
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
       onClick={onOpen}
-      className={`cursor-pointer select-none rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition hover:border-accent-300 hover:shadow dark:border-slate-700 dark:bg-slate-800 ${dragging ? 'opacity-50 ring-2 ring-accent-400' : ''}`}
+      // Draggable cards use touch-pan-y so a vertical swipe still scrolls the
+      // (stacked, on mobile) board, while horizontal/drag gestures go to JS — the
+      // long-press pickup then blocks scroll for the rest of the drag. Cards the
+      // user can't move keep the default (fully scrollable).
+      className={`cursor-pointer select-none rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition hover:border-accent-300 hover:shadow dark:border-slate-700 dark:bg-slate-800 ${canEdit ? 'touch-pan-y' : ''} ${dragging ? 'opacity-50 ring-2 ring-accent-400' : ''}`}
     >
       <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{item.title}</p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">

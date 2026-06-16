@@ -100,5 +100,11 @@ export async function api(path, options = {}) {
   if (!res.ok) {
     throw new Error(data.error || `Request failed with ${res.status}`);
   }
+  // Opt-in: large list views pass { withMeta: true } to also learn whether the
+  // server capped the result set (X-Result-Capped). Default callers are
+  // unaffected — they still get just the parsed body.
+  if (options.withMeta) {
+    return { data, capped: res.headers.get('X-Result-Capped') === '1' };
+  }
   return data;
 }

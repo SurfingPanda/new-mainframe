@@ -1,15 +1,21 @@
 import { useEffect, useState } from 'react';
 import { api } from './auth.js';
+import { useSocketEvent } from './useSocket.jsx';
 
-const POLL_MS = 45_000;
+const POLL_MS = 120_000; // Relaxed from 45s — socket pushes handle the fast path.
 const ZERO = { total: 0, byView: { myQueue: 0, submitted: 0, all: 0 } };
 
 // Unread work-order notifications, as a `total` plus a `byView` breakdown
 // (My Queue / Submitted / All) so the nav can badge both the Work Orders button
-// and each dropdown item. Polls in the background, on tab focus, and whenever
-// the notification bell is marked seen.
+// and each dropdown item. Real-time via Socket.IO ('notification' — the same
+// signal the bell uses, pushed to assignee/requester/department on any change),
+// with polling, tab focus, and the bell's "seen" event as fallbacks.
 export function useWorkOrderNotifications(enabled = true) {
   const [state, setState] = useState(ZERO);
+
+  // Refetch trigger — bumped by socket events as well as the polling interval.
+  const [tick, setTick] = useState(0);
+  useSocketEvent('notification', () => setTick((t) => t + 1));
 
   useEffect(() => {
     if (!enabled) {
@@ -46,7 +52,7 @@ export function useWorkOrderNotifications(enabled = true) {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('notifications-seen', onSeen);
     };
-  }, [enabled]);
+  }, [enabled, tick]);
 
   return state;
 }

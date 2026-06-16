@@ -34,6 +34,7 @@ export default function AllTickets() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [banner, setBanner] = useState(location.state?.banner || null);
+  const [capped, setCapped] = useState(false); // server truncated the queue (see X-Result-Capped)
 
   // "New since you last looked": the timestamp of the previous visit is kept
   // per-user in localStorage. Any work order created after it is flagged New.
@@ -69,9 +70,14 @@ export default function AllTickets() {
 
   useEffect(() => {
     // scope=all returns every work order (not just the caller's own/department)
-    // so any user can browse and search the full queue here.
-    api('/api/tickets?scope=all')
-      .then(setTickets)
+    // so any user can browse and search the full queue here. withMeta surfaces
+    // the server's cap signal so we can warn the user instead of silently
+    // filtering/searching a truncated set.
+    api('/api/tickets?scope=all', { withMeta: true })
+      .then(({ data, capped }) => {
+        setTickets(Array.isArray(data) ? data : []);
+        setCapped(capped);
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -234,6 +240,18 @@ export default function AllTickets() {
             <button onClick={() => setBanner(null)} className="text-accent-700 hover:text-accent-900 font-semibold text-xs">
               Dismiss
             </button>
+          </div>
+        )}
+
+        {capped && !loading && (
+          <div className="flex items-start gap-2 rounded-md bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-sm text-amber-800">
+            <svg className="h-4 w-4 mt-0.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+            </svg>
+            <span className="flex-1">
+              Showing the most recent {tickets.length.toLocaleString()} work orders — the full queue is larger.
+              Use search or filters to find older ones.
+            </span>
           </div>
         )}
 

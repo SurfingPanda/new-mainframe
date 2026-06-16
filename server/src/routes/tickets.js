@@ -12,9 +12,15 @@ import { maybeSendResolutionSurvey } from '../lib/resolution-survey.js';
 import { managesDepartment, managedDepartments, hrDepartmentName, managerOfDepartment } from '../lib/department-managers.js';
 import { notifyApprovalRequested, notifyApprovalDecision, notifyHrRoutedToTeam } from '../lib/hr-approval.js';
 import { emitNotification } from '../lib/socket.js';
-
-// Category that triggers the manager-approval workflow.
-const HR_CONCERNS = 'HR Concerns';
+import {
+  HR_CONCERNS,
+  isStaff,
+  userIdentities,
+  ownsTicket,
+  sameDepartment,
+  canViewTicket,
+  hrConcernVisibleToList
+} from '../lib/ticket-visibility.js';
 
 const router = Router();
 
@@ -77,26 +83,10 @@ const ALLOWED_CATEGORIES = [
 ];
 
 // --- Per-record access -----------------------------------------------------
-// Admins and agents work the whole queue; a plain `user` is limited to tickets
-// they requested or are assigned to. Identities are matched by display name,
-// with email as a fallback for legacy rows.
-function isStaff(user) {
-  return user?.role === 'admin' || user?.role === 'agent';
-}
-
-function userIdentities(user) {
-  return [user?.name, user?.email].filter(Boolean);
-}
-
-function ownsTicket(ticket, identities) {
-  return identities.includes(ticket.requester) || identities.includes(ticket.assignee);
-}
-
-// A work order is routed to a department; everyone in that department can see it
-// (and claim it) even if they didn't open it.
-function sameDepartment(user, ticket) {
-  return !!(user?.department && ticket?.department && user.department === ticket.department);
-}
+// The pure (DB-free) visibility helpers — isStaff, userIdentities, ownsTicket,
+// sameDepartment, canViewTicket, hrConcernVisibleToList, and the HR_CONCERNS
+// constant — are imported from lib/ticket-visibility.js (unit-tested there).
+// The async wrappers below add the departments-table checks.
 
 // Read policy: any signed-in user may VIEW any *ordinary* work order (so everyone
 // can browse and search the full queue from "All Work Orders"). 'HR Concerns' are
@@ -117,24 +107,6 @@ async function canReadTicket(user, ticket) {
   if (ticket.department) {
     if (sameDepartment(user, ticket)) return true;
     if (await managesDepartment(user.sub, ticket.department)) return true;
-  }
-  return false;
-}
-
-function canViewTicket(user, ticket) {
-  return isStaff(user) || ownsTicket(ticket, userIdentities(user)) || sameDepartment(user, ticket);
-}
-
-// Sync need-to-know test for an 'HR Concerns' row in a LIST result (the async
-// per-record rules are precomputed into `ctx`: the caller's identities, home
-// department, and the Set of departments they manage). Non-HR rows always pass.
-function hrConcernVisibleToList(row, ctx) {
-  if (row.category !== HR_CONCERNS) return true;
-  if (ctx.identities.includes(row.requester) || ctx.identities.includes(row.assignee)) return true;
-  if (ctx.managedDepts.has(row.approval_dept)) return true;   // requester's dept manager
-  if (row.department) {
-    if (ctx.myDept && row.department === ctx.myDept) return true;   // HR staff (after routing)
-    if (ctx.managedDepts.has(row.department)) return true;          // manager of where it sits
   }
   return false;
 }
@@ -191,15 +163,23 @@ router.get('/', requireAuth, requirePermission('tickets', 'view'), async (req, r
       scope = `WHERE ${clauses.join(' OR ')}`;
     }
 
+    // The list is filtered/sorted/paginated client-side, so we ship the whole
+    // (visible) queue rather than a server page. Cap it so a runaway queue can't
+    // blow up the payload, and signal via a header when we hit the cap so the
+    // client can tell the user results were truncated instead of silently
+    // dropping rows. Raise LIST_CAP (or move to server-side paging) if real
+    // volume ever approaches it.
+    const LIST_CAP = 2000;
     const [rows0] = await pool.query(
       `SELECT id, title, description, status, priority, request_type, category, subcategory, subcategory2, department,
               requester, assignee, asset_id, approval_status, approval_dept, created_at, updated_at
          FROM tickets
         ${scope}
         ORDER BY created_at DESC
-        LIMIT 500`,
+        LIMIT ${LIST_CAP}`,
       params
     );
+    if (rows0.length >= LIST_CAP) res.set('X-Result-Capped', '1');
 
     // Need-to-know guard for 'HR Concerns': drop any the caller may not see. This
     // backstops `?scope=all` (which fetches the whole queue) and never affects

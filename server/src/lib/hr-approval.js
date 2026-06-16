@@ -5,9 +5,7 @@
 import { pool } from '../config/db.js';
 import { sendMailSafe, appUrl } from './mailer.js';
 import { hrConcernRouted } from './email-templates.js';
-
-const SYSTEM_SENDER_ID = 0;
-const SYSTEM_SENDER_NAME = 'Hubly';
+import { sendSystemMessage } from './system-message.js';
 
 const formatTicketId = (id) => `WO${String(id ?? 0).padStart(8, '0')}`;
 
@@ -21,15 +19,6 @@ async function resolveUser(identity) {
     [value.toLowerCase(), value]
   );
   return rows[0] || null;
-}
-
-async function sendSystemMessage({ recipientId, recipientName, subject, body, linkUrl, linkLabel }) {
-  await pool.query(
-    `INSERT INTO messages
-       (sender_id, sender_name, recipient_id, recipient_name, subject, body, link_url, link_label)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [SYSTEM_SENDER_ID, SYSTEM_SENDER_NAME, recipientId, recipientName, subject, body, linkUrl, linkLabel]
-  );
 }
 
 // Tell a department manager a request is waiting for their approval.

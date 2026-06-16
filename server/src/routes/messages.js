@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { userWriteLimit } from '../middleware/rateLimit.js';
+import { emitMailUpdate } from '../lib/socket.js';
 
 const router = Router();
 
@@ -178,6 +179,7 @@ router.post('/', requireAuth, sendLimiter, attachmentMiddleware, async (req, res
          FROM messages WHERE id = ?`,
       [result.insertId]
     );
+    emitMailUpdate(recipientId); // real-time nudge for the recipient's inbox badge
     res.status(201).json(shape(row, req.user.sub));
   } catch (err) {
     cleanup();
