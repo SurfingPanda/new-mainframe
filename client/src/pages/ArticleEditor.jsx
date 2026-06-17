@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import MarkdownEditor from '../components/MarkdownEditor.jsx';
+import Modal from '../components/Modal.jsx';
 import { api, getUser } from '../lib/auth.js';
 
 const CATEGORIES = [
@@ -36,6 +37,8 @@ export default function ArticleEditor() {
   const [author, setAuthor]     = useState(me?.name || '');
   const [body, setBody]         = useState('');
   const [published, setPublished] = useState(true);
+  const [changeNote, setChangeNote] = useState(''); // optional "what changed" on edit
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // Load existing article when editing
   useEffect(() => {
@@ -73,6 +76,7 @@ export default function ArticleEditor() {
         author: author.trim() || null,
         published: publishOverride ?? published
       };
+      if (!isNew && changeNote.trim()) payload.change_note = changeNote.trim();
       if (isNew) {
         const created = await api('/api/kb', { method: 'POST', body: JSON.stringify(payload) });
         navigate(`/kb/${created.slug}`, { state: { banner: `"${created.title}" published.` } });
@@ -135,6 +139,17 @@ export default function ArticleEditor() {
                 Change
               </button>
             </div>
+
+            {!isNew && (
+              <button
+                type="button"
+                onClick={() => setHistoryOpen(true)}
+                className="btn-ghost !px-3 !py-1.5 text-xs inline-flex items-center gap-1.5"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v5h5" /><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" /><path d="M12 7v5l4 2" /></svg>
+                History
+              </button>
+            )}
 
             <Link to="/kb/all" className="btn-ghost !px-3 !py-1.5 text-xs">
               Discard
@@ -261,6 +276,23 @@ export default function ArticleEditor() {
               </p>
             </div>
 
+            {/* Revision note (edit only) */}
+            {!isNew && (
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3 dark:text-slate-400">Revision note</h3>
+                <input
+                  value={changeNote}
+                  onChange={(e) => setChangeNote(e.target.value)}
+                  maxLength={255}
+                  placeholder="What changed? (optional)"
+                  className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                />
+                <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+                  Saved to the version history when the content changes.
+                </p>
+              </div>
+            )}
+
             {/* Stats */}
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3 dark:text-slate-400">Document</h3>
@@ -300,6 +332,163 @@ export default function ArticleEditor() {
           </aside>
         </div>
       </main>
+
+      {historyOpen && (
+        <VersionHistory
+          slug={editSlug}
+          currentBody={body}
+          onClose={() => setHistoryOpen(false)}
+          onRestored={(art) => {
+            setTitle(art.title || '');
+            setCategory(art.category || '');
+            setBody(art.body || '');
+            setPublished(!!art.published);
+            setHistoryOpen(false);
+          }}
+        />
+      )}
     </div>
   );
+}
+
+// Version history browser: lists snapshots, diffs a chosen version against the
+// current draft, and restores (which writes a new version — non-destructive).
+function VersionHistory({ slug, currentBody, onClose, onRestored }) {
+  const [list, setList] = useState(null); // null = loading
+  const [error, setError] = useState('');
+  const [selected, setSelected] = useState(null); // { version, body, ... }
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api(`/api/kb/${slug}/versions`)
+      .then((rows) => setList(Array.isArray(rows) ? rows : []))
+      .catch((e) => { setError(e.message); setList([]); });
+  }, [slug]);
+
+  const view = async (version) => {
+    setError('');
+    try {
+      setSelected(await api(`/api/kb/${slug}/versions/${version}`));
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const restore = async (version) => {
+    setBusy(true); setError('');
+    try {
+      const art = await api(`/api/kb/${slug}/versions/${version}/restore`, { method: 'POST' });
+      onRestored(art);
+    } catch (e) {
+      setError(e.message || 'Could not restore.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const diff = selected ? lineDiff(selected.body, currentBody) : [];
+
+  return (
+    <Modal open onClose={onClose} title="Version history" size="lg">
+      {error && <div className="mb-3 rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>}
+      <div className="grid gap-4 sm:grid-cols-[220px_1fr]">
+        <div className="max-h-[28rem] overflow-y-auto pr-1 border-r border-slate-100">
+          {list === null ? (
+            <p className="text-sm text-slate-500 py-6 text-center">Loading…</p>
+          ) : list.length === 0 ? (
+            <p className="text-sm text-slate-500 py-6 text-center">No prior versions yet.</p>
+          ) : (
+            <ul className="space-y-1">
+              {list.map((v, idx) => (
+                <li key={v.version}>
+                  <button
+                    type="button"
+                    onClick={() => view(v.version)}
+                    className={`w-full text-left rounded-md px-2.5 py-2 transition-colors ${
+                      selected?.version === v.version ? 'bg-accent-50 ring-1 ring-accent-200' : 'hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-800">v{v.version}</span>
+                      {idx === 0 && <span className="rounded-full bg-accent-100 text-accent-700 px-1.5 py-0.5 text-[9px] font-bold uppercase">Current</span>}
+                    </div>
+                    {v.change_note && <div className="text-[11px] text-slate-600 truncate">{v.change_note}</div>}
+                    <div className="text-[10px] text-slate-400">
+                      {v.edited_by || '—'} · {new Date(v.created_at).toLocaleDateString()}
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="min-w-0">
+          {!selected ? (
+            <p className="text-sm text-slate-500 py-10 text-center">Select a version to see what changed since.</p>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="text-xs text-slate-500">
+                  <span className="font-semibold text-slate-700">v{selected.version}</span> → current
+                  <span className="ml-2 text-slate-400">(removed since · added since)</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => restore(selected.version)}
+                  disabled={busy}
+                  className="btn-primary !px-3 !py-1.5 text-xs disabled:opacity-60"
+                >
+                  {busy ? 'Restoring…' : `Restore v${selected.version}`}
+                </button>
+              </div>
+              <div className="max-h-[24rem] overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs leading-relaxed">
+                {diff.every((d) => d.t === 'same') ? (
+                  <p className="text-slate-400 italic font-sans">Identical to the current content.</p>
+                ) : (
+                  diff.map((d, i) => (
+                    <div
+                      key={i}
+                      className={
+                        d.t === 'del' ? 'bg-rose-100 text-rose-800 whitespace-pre-wrap'
+                        : d.t === 'add' ? 'bg-emerald-100 text-emerald-800 whitespace-pre-wrap'
+                        : 'text-slate-600 whitespace-pre-wrap'
+                      }
+                    >
+                      <span className="select-none text-slate-400">{d.t === 'del' ? '- ' : d.t === 'add' ? '+ ' : '  '}</span>
+                      {d.text || ' '}
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// Minimal LCS line diff (no dependency). Returns [{ t:'same'|'del'|'add', text }],
+// where 'del' = in oldText only, 'add' = in newText only.
+function lineDiff(oldText, newText) {
+  const a = (oldText || '').split('\n');
+  const b = (newText || '').split('\n');
+  const n = a.length, m = b.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const out = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({ t: 'same', text: a[i] }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ t: 'del', text: a[i] }); i++; }
+    else { out.push({ t: 'add', text: b[j] }); j++; }
+  }
+  while (i < n) out.push({ t: 'del', text: a[i++] });
+  while (j < m) out.push({ t: 'add', text: b[j++] });
+  return out;
 }

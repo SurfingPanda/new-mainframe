@@ -735,4 +735,160 @@ export async function ensureSchema() {
       updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
+
+  // automation_rules / automation_runs — the work-order automation engine
+  // (lib/automation.js). Rules are WHEN/IF/THEN triples evaluated on ticket
+  // create/update; runs are the per-fire audit log.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS automation_rules (
+      id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      name          VARCHAR(160) NOT NULL,
+      description   TEXT,
+      trigger_event ENUM('ticket.created','ticket.updated','ticket.idle') NOT NULL,
+      conditions    JSON NOT NULL,
+      actions       JSON NOT NULL,
+      is_active     TINYINT(1) NOT NULL DEFAULT 1,
+      priority      INT NOT NULL DEFAULT 0,
+      stop_on_match TINYINT(1) NOT NULL DEFAULT 0,
+      idle_minutes  INT UNSIGNED NULL,
+      created_by    VARCHAR(120),
+      created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_ar_trigger_active (trigger_event, is_active)
+    )
+  `);
+  // Widen the trigger enum to include SLA-breach triggers (idempotent MODIFY).
+  await pool.query(
+    `ALTER TABLE automation_rules MODIFY COLUMN trigger_event
+       ENUM('ticket.created','ticket.updated','ticket.idle','sla.response_breached','sla.resolution_breached') NOT NULL`
+  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS automation_runs (
+      id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      rule_id         INT UNSIGNED NOT NULL,
+      ticket_id       INT UNSIGNED NOT NULL,
+      actions_applied JSON,
+      created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_arun_ticket (ticket_id),
+      INDEX idx_arun_rule (rule_id)
+    )
+  `);
+
+  // kb_feedback — one revisable helpful/not vote per user per article.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS kb_feedback (
+      id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      article_id INT UNSIGNED NOT NULL,
+      user_id    INT UNSIGNED NOT NULL,
+      helpful    TINYINT(1) NOT NULL,
+      comment    VARCHAR(1000) NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uk_kbf_user (article_id, user_id),
+      INDEX idx_kbf_article (article_id),
+      FOREIGN KEY (article_id) REFERENCES kb_articles(id) ON DELETE CASCADE
+    )
+  `);
+
+  // KB versioning: a version counter on the article + a snapshot history table.
+  try {
+    await pool.query(`ALTER TABLE kb_articles ADD COLUMN version INT UNSIGNED NOT NULL DEFAULT 1 AFTER published`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS kb_article_versions (
+      id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      article_id  INT UNSIGNED NOT NULL,
+      version     INT UNSIGNED NOT NULL,
+      title       VARCHAR(200) NOT NULL,
+      category    VARCHAR(80),
+      body        MEDIUMTEXT NOT NULL,
+      published   TINYINT(1) NOT NULL DEFAULT 1,
+      edited_by   VARCHAR(120),
+      change_note VARCHAR(255) NULL,
+      created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uk_kbv (article_id, version),
+      INDEX idx_kbv_article (article_id),
+      FOREIGN KEY (article_id) REFERENCES kb_articles(id) ON DELETE CASCADE
+    )
+  `);
+
+  // SLA policy layer + per-ticket snapshot columns (lib/sla-policies.js).
+  for (const stmt of [
+    `ALTER TABLE tickets ADD COLUMN first_responded_at     TIMESTAMP NULL`,
+    `ALTER TABLE tickets ADD COLUMN sla_response_minutes   INT UNSIGNED NULL`,
+    `ALTER TABLE tickets ADD COLUMN sla_resolution_minutes INT UNSIGNED NULL`,
+    `ALTER TABLE tickets ADD COLUMN sla_calendar_id        INT UNSIGNED NULL`,
+    `ALTER TABLE tickets ADD COLUMN sla_response_breached_at   TIMESTAMP NULL`,
+    `ALTER TABLE tickets ADD COLUMN sla_resolution_breached_at TIMESTAMP NULL`
+  ]) {
+    try {
+      await pool.query(stmt);
+    } catch (err) {
+      if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+    }
+  }
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sla_policies (
+      id                 INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      name               VARCHAR(120) NOT NULL,
+      priority           ENUM('low','normal','high','urgent') NULL,
+      request_type       ENUM('incident','service_request','question','change') NULL,
+      category           VARCHAR(80) NULL,
+      department         VARCHAR(80) NULL,
+      response_minutes   INT UNSIGNED NULL,
+      resolution_minutes INT UNSIGNED NOT NULL,
+      calendar_id        INT UNSIGNED NULL,
+      is_active          TINYINT(1) NOT NULL DEFAULT 1,
+      rank               INT NOT NULL DEFAULT 0,
+      created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_sla_pol_active (is_active)
+    )
+  `);
+
+  // Business-hours calendars + holidays for SLA clocks (lib/business-hours.js).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sla_calendars (
+      id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      name       VARCHAR(120) NOT NULL,
+      timezone   VARCHAR(64) NOT NULL DEFAULT 'Asia/Manila',
+      hours      JSON NOT NULL,
+      is_default TINYINT(1) NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sla_holidays (
+      id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      calendar_id  INT UNSIGNED NOT NULL,
+      holiday_date DATE NOT NULL,
+      label        VARCHAR(120),
+      UNIQUE KEY uk_sla_hol (calendar_id, holiday_date),
+      FOREIGN KEY (calendar_id) REFERENCES sla_calendars(id) ON DELETE CASCADE
+    )
+  `);
+
+  // audit_log — app-wide admin audit trail (lib/audit.js). Denormalized labels,
+  // no FKs so rows survive deletes of the actor/target.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      actor_id     INT UNSIGNED NULL,
+      actor_name   VARCHAR(120) NULL,
+      action       VARCHAR(64) NOT NULL,
+      entity_type  VARCHAR(40) NULL,
+      entity_id    VARCHAR(64) NULL,
+      entity_label VARCHAR(160) NULL,
+      changes      JSON NULL,
+      ip           VARCHAR(45) NULL,
+      created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_audit_created (created_at),
+      INDEX idx_audit_actor (actor_id),
+      INDEX idx_audit_entity (entity_type, entity_id),
+      INDEX idx_audit_action (action)
+    )
+  `);
 }

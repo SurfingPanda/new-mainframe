@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../config/db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { recordAudit, diffChanges } from '../lib/audit.js';
 
 const router = Router();
 
@@ -76,6 +77,10 @@ router.post('/', async (req, res, next) => {
     );
     if (is_hr) await clearOtherHrFlags(result.insertId);
     const [rows] = await pool.query(`${DEPT_SELECT} WHERE d.id = ?`, [result.insertId]);
+    recordAudit(req, {
+      action: 'dept.create', entityType: 'department', entityId: result.insertId, entityLabel: rows[0].name,
+      changes: { manager_id: rows[0].manager_id ?? null, is_hr: !!rows[0].is_hr, is_active: !!rows[0].is_active }
+    });
     res.status(201).json(rows[0]);
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') {
@@ -92,7 +97,9 @@ router.patch('/:id', async (req, res, next) => {
 
     // The manager's department label must match this department's (possibly new)
     // name, so resolve the effective name first when validating manager_id.
-    const [[current]] = await pool.query('SELECT name FROM departments WHERE id = ? LIMIT 1', [id]);
+    const [[current]] = await pool.query(
+      'SELECT name, description, is_active, manager_id, is_hr FROM departments WHERE id = ? LIMIT 1', [id]
+    );
     if (!current) return res.status(404).json({ error: 'Department not found' });
     const effectiveName = name !== undefined && String(name).trim()
       ? String(name).trim().slice(0, 80)
@@ -134,6 +141,20 @@ router.patch('/:id', async (req, res, next) => {
     if (is_hr) await clearOtherHrFlags(id);
 
     const [rows] = await pool.query(`${DEPT_SELECT} WHERE d.id = ?`, [id]);
+    const after = {
+      name: rows[0].name, description: rows[0].description,
+      is_active: rows[0].is_active ? 1 : 0, manager_id: rows[0].manager_id ?? null,
+      is_hr: rows[0].is_hr ? 1 : 0
+    };
+    const changes = diffChanges(
+      { ...current, is_active: current.is_active ? 1 : 0, is_hr: current.is_hr ? 1 : 0 },
+      after, ['name', 'description', 'is_active', 'manager_id', 'is_hr']
+    );
+    if (changes) {
+      recordAudit(req, {
+        action: 'dept.update', entityType: 'department', entityId: id, entityLabel: rows[0].name, changes
+      });
+    }
     res.json(rows[0]);
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') {
@@ -146,8 +167,10 @@ router.patch('/:id', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
+    const [[existing]] = await pool.query('SELECT name FROM departments WHERE id = ? LIMIT 1', [id]);
     const [r] = await pool.query('DELETE FROM departments WHERE id = ?', [id]);
     if (r.affectedRows === 0) return res.status(404).json({ error: 'Department not found' });
+    recordAudit(req, { action: 'dept.delete', entityType: 'department', entityId: id, entityLabel: existing?.name });
     res.json({ ok: true });
   } catch (err) {
     next(err);

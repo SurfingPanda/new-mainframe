@@ -7,10 +7,14 @@ import morgan from 'morgan';
 
 import { pingDb, ensureSchema } from './config/db.js';
 import { loadSlaDays } from './lib/sla-config.js';
+import { seedDefaultPoliciesIfEmpty, loadSlaPolicies } from './lib/sla-policies.js';
+import { seedDefaultCalendarIfEmpty, loadSlaCalendars } from './lib/business-hours.js';
 import { startMaintenanceScheduler } from './lib/maintenance-scheduler.js';
 import { startSpaceDueReminders } from './lib/space-notify.js';
 import { startSlaBreachReminders } from './lib/sla-reminders.js';
 import { startAutoClose } from './lib/auto-close.js';
+import { startIdleAutomations } from './lib/automation-idle.js';
+import { startSlaMonitor } from './lib/sla-monitor.js';
 import { logMailerStatus } from './lib/mailer.js';
 import { securityHeaders } from './middleware/securityHeaders.js';
 import { requireAuth } from './middleware/auth.js';
@@ -34,6 +38,9 @@ import spaces from './routes/spaces.js';
 import announcements from './routes/announcements.js';
 import search from './routes/search.js';
 import settings from './routes/settings.js';
+import automation from './routes/automation.js';
+import audit from './routes/audit.js';
+import sla from './routes/sla.js';
 
 // Fail fast on a missing JWT secret — without it tokens can't be verified safely.
 if (!process.env.JWT_SECRET) {
@@ -163,6 +170,9 @@ app.use('/api/spaces', spaces);
 app.use('/api/announcements', announcements);
 app.use('/api/search', search);
 app.use('/api/settings', settings);
+app.use('/api/automation', automation);
+app.use('/api/audit', audit);
+app.use('/api/sla', sla);
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
@@ -173,7 +183,11 @@ app.use((err, req, res, _next) => {
 
 ensureSchema()
   .then(() => loadSlaDays())
-  .then(() => { startMaintenanceScheduler(); startSpaceDueReminders(); startSlaBreachReminders(); startAutoClose(); })
+  .then(() => seedDefaultPoliciesIfEmpty())
+  .then(() => loadSlaPolicies())
+  .then(() => seedDefaultCalendarIfEmpty())
+  .then(() => loadSlaCalendars())
+  .then(() => { startMaintenanceScheduler(); startSpaceDueReminders(); startSlaBreachReminders(); startAutoClose(); startIdleAutomations(); startSlaMonitor(); })
   .catch((err) => console.error('schema bootstrap failed:', err));
 
 server.listen(PORT, () => {

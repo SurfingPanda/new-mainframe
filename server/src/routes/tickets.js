@@ -8,10 +8,12 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { userWriteLimit } from '../middleware/rateLimit.js';
 import { notifyTicketCreated, notifyTicketChanges } from '../lib/ticket-emails.js';
 import { slaStanding } from '../lib/sla.js';
+import { effectiveTargets } from '../lib/sla-policies.js';
 import { maybeSendResolutionSurvey } from '../lib/resolution-survey.js';
 import { managesDepartment, managedDepartments, hrDepartmentName, managerOfDepartment } from '../lib/department-managers.js';
 import { notifyApprovalRequested, notifyApprovalDecision, notifyHrRoutedToTeam } from '../lib/hr-approval.js';
 import { emitNotification } from '../lib/socket.js';
+import { runAutomations } from '../lib/automation.js';
 import {
   HR_CONCERNS,
   isStaff,
@@ -172,7 +174,8 @@ router.get('/', requireAuth, requirePermission('tickets', 'view'), async (req, r
     const LIST_CAP = 2000;
     const [rows0] = await pool.query(
       `SELECT id, title, description, status, priority, request_type, category, subcategory, subcategory2, department,
-              requester, assignee, asset_id, approval_status, approval_dept, created_at, updated_at
+              requester, assignee, asset_id, approval_status, approval_dept, created_at, updated_at,
+              first_responded_at, sla_response_minutes, sla_resolution_minutes, sla_calendar_id
          FROM tickets
         ${scope}
         ORDER BY created_at DESC
@@ -442,6 +445,13 @@ router.patch('/:id', requireAuth, requirePermission('tickets', 'view'), async (r
 
     // Real-time: notify involved users (requester + assignee + old assignee).
     emitTicketNotifications(updatedRows[0], changes);
+
+    // Automation rules (fire-and-forget). The engine writes via a direct UPDATE,
+    // not back through this route, so a 'ticket.updated' action can't recurse.
+    // HR Concerns are excluded (see the create hook).
+    if (updatedRows[0].category !== HR_CONCERNS) {
+      runAutomations('ticket.updated', updatedRows[0], { actor });
+    }
   } catch (err) {
     next(err);
   }
@@ -729,14 +739,18 @@ router.post(
       }
       // The requester/assignee, staff, or the manager of the department it's
       // routed to (or, while pending approval, its approval_dept) may post notes.
-      const canNote = isStaff(req.user)
-        || ownsTicket(exists[0], userIdentities(req.user))
-        || (await managesDepartment(req.user?.sub, exists[0].department))
-        || (await managesDepartment(req.user?.sub, exists[0].approval_dept));
+      const ids = userIdentities(req.user);
+      const staff = isStaff(req.user);
+      const managesDept = await managesDepartment(req.user?.sub, exists[0].department);
+      const managesApprovalDept = await managesDepartment(req.user?.sub, exists[0].approval_dept);
+      const canNote = staff || ownsTicket(exists[0], ids) || managesDept || managesApprovalDept;
       if (!canNote) {
         cleanupFile();
         return res.status(404).json({ error: 'Ticket not found' });
       }
+      // "Support side" = anyone but the requester replying — drives first-response SLA.
+      const isResponder = staff || managesDept || managesApprovalDept
+        || (exists[0].assignee && ids.includes(exists[0].assignee));
 
       const actor = req.user?.name || req.user?.email || 'system';
 
@@ -763,6 +777,14 @@ router.post(
          VALUES (?, 'note', ?, ?, ?)`,
         [id, actor, body ? body.slice(0, 4000) : null, attachmentId]
       );
+
+      // First reply from the support side stamps the response-SLA clock (once).
+      if (isResponder) {
+        await pool.query(
+          'UPDATE tickets SET first_responded_at = NOW() WHERE id = ? AND first_responded_at IS NULL',
+          [id]
+        );
+      }
 
       const [rows] = await pool.query(
         `SELECT a.id, a.type, a.actor, a.field, a.old_value, a.new_value, a.body,
@@ -1118,11 +1140,16 @@ router.post(
         }
       }
 
+      // Resolve + snapshot the SLA targets from the matching policy so later
+      // policy edits never move this work order's targets.
+      const sla = effectiveTargets({ priority, request_type, category: category || null, department: departmentValue });
+
       const [result] = await pool.query(
         `INSERT INTO tickets
            (title, description, priority, status, request_type, category, subcategory, subcategory2, overtime_report, department, requester, assignee, asset_id,
-            approval_status, approval_dept, approver_name, approval_decided_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            approval_status, approval_dept, approver_name, approval_decided_at,
+            sla_response_minutes, sla_resolution_minutes, sla_calendar_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           String(title).trim().slice(0, 200),
           description ? String(description).trim() : null,
@@ -1140,7 +1167,10 @@ router.post(
           approvalStatus,
           approvalDept,
           approverName,
-          approvalDecidedAt
+          approvalDecidedAt,
+          sla.responseMinutes,
+          sla.resolutionMinutes,
+          sla.calendarId
         ]
       );
       const ticketId = result.insertId;
@@ -1226,6 +1256,12 @@ router.post(
 
       // Real-time: notify assignee + department members.
       emitTicketNotifications(ticket, []);
+
+      // Automation rules (fire-and-forget). HR Concerns are excluded — they have
+      // their own intake/approval routing and must stay UNROUTED until decided.
+      if (ticket.category !== HR_CONCERNS) {
+        runAutomations('ticket.created', ticket, { actor: creator });
+      }
     } catch (err) {
       cleanup();
       next(err);

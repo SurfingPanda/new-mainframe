@@ -12,7 +12,8 @@ const ROLE_DEFAULTS = {
     kb:       { view: true,  manage: true  },
     users:    { manage: true },
     network:  { view: true,  manage: true  },
-    spaces:   { view: true,  manage: true  }
+    spaces:   { view: true,  manage: true  },
+    automation: { manage: true }
   },
   agent: {
     tickets:  { view: true,  create: true  },
@@ -20,7 +21,8 @@ const ROLE_DEFAULTS = {
     kb:       { view: true,  manage: true  },
     users:    { manage: false },
     network:  { view: true,  manage: true  },
-    spaces:   { view: true,  manage: false }
+    spaces:   { view: true,  manage: false },
+    automation: { manage: false }
   },
   user: {
     tickets:  { view: true,  create: true  },
@@ -28,7 +30,8 @@ const ROLE_DEFAULTS = {
     kb:       { view: true,  manage: false },
     users:    { manage: false },
     network:  { view: false, manage: false },
-    spaces:   { view: true,  manage: false }
+    spaces:   { view: true,  manage: false },
+    automation: { manage: false }
   }
 };
 

@@ -7,6 +7,7 @@ import { rateLimit, userWriteLimit } from '../middleware/rateLimit.js';
 import { effectivePermissions, sanitizePermissions } from '../lib/permissions.js';
 import { passwordPolicyError, BCRYPT_ROUNDS } from '../lib/password-policy.js';
 import { avatarUpload, saveAvatar, removeAvatarFile, InvalidImageError } from '../lib/avatar-upload.js';
+import { recordAudit, diffChanges } from '../lib/audit.js';
 
 const router = Router();
 const ROLES = ['admin', 'agent', 'user'];
@@ -118,6 +119,10 @@ router.post('/', async (req, res, next) => {
       `SELECT ${USER_COLUMNS} FROM users WHERE id = ?`,
       [result.insertId]
     );
+    recordAudit(req, {
+      action: 'user.create', entityType: 'user', entityId: result.insertId, entityLabel: rows[0].name,
+      changes: { email: rows[0].email, role: rows[0].role, department: rows[0].department, is_active: !!rows[0].is_active }
+    });
     res.status(201).json(decoratePermissions(rows[0]));
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') {
@@ -194,12 +199,15 @@ router.post('/import', importLimiter, async (req, res, next) => {
       }
     }
 
-    res.json({
+    const summary = {
       created: results.filter((r) => r.status === 'created').length,
       skipped: results.filter((r) => r.status === 'skipped').length,
-      failed: results.filter((r) => r.status === 'error').length,
-      results
-    });
+      failed: results.filter((r) => r.status === 'error').length
+    };
+    if (summary.created > 0) {
+      recordAudit(req, { action: 'user.import', entityType: 'user', changes: summary });
+    }
+    res.json({ ...summary, results });
   } catch (err) {
     next(err);
   }
@@ -209,6 +217,12 @@ router.patch('/:id', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const { name, role, department, job_title, is_active, permissions } = req.body || {};
+
+    const [beforeRows] = await pool.query(
+      'SELECT name, role, department, job_title, is_active, permissions FROM users WHERE id = ? LIMIT 1',
+      [id]
+    );
+    const before = beforeRows[0] || null;
 
     const fields = [];
     const values = [];
@@ -258,6 +272,17 @@ router.patch('/:id', async (req, res, next) => {
       `SELECT ${USER_COLUMNS} FROM users WHERE id = ?`,
       [id]
     );
+    const after = {
+      name: rows[0].name, role: rows[0].role, department: rows[0].department,
+      job_title: rows[0].job_title, is_active: rows[0].is_active ? 1 : 0,
+      permissions: rows[0].permissions ?? null
+    };
+    const changes = diffChanges(before, after, ['name', 'role', 'department', 'job_title', 'is_active', 'permissions']);
+    if (changes) {
+      recordAudit(req, {
+        action: 'user.update', entityType: 'user', entityId: id, entityLabel: rows[0].name, changes
+      });
+    }
     res.json(decoratePermissions(rows[0]));
   } catch (err) {
     next(err);
@@ -315,6 +340,8 @@ router.post('/:id/reset-password', async (req, res, next) => {
     // Bump token_version so the user's existing sessions are invalidated by the reset.
     const [r] = await pool.query('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?', [hash, id]);
     if (r.affectedRows === 0) return res.status(404).json({ error: 'User not found' });
+    const [[u]] = await pool.query('SELECT name FROM users WHERE id = ? LIMIT 1', [id]);
+    recordAudit(req, { action: 'user.reset_password', entityType: 'user', entityId: id, entityLabel: u?.name });
     res.json({ ok: true });
   } catch (err) {
     next(err);

@@ -48,20 +48,20 @@ function ticketsMenu(user, byView = {}) {
   return sections;
 }
 
-function usersMenu(pendingResets = 0) {
-  return [
-    {
-      heading: 'Manage',
-      items: [
-        { to: '/users', label: 'Directory', desc: 'All Hubly accounts and roles', icon: 'users' },
-        { to: '/users/reports', label: 'Reports', desc: 'Account monitoring & charts', icon: 'chart' },
-        { to: '/users/surveys', label: 'Survey Reports', desc: 'Technician feedback & ratings', icon: 'star' },
-        { to: '/users/departments', label: 'Departments', desc: 'Create and edit departments', icon: 'building' },
-        { to: '/users/sla', label: 'SLA Settings', desc: 'Resolution time targets per priority', icon: 'clock' },
-        { to: '/users/password-resets', label: 'Password Resets', desc: 'Review and resolve reset requests', icon: 'key', badge: pendingResets }
-      ]
-    }
+function usersMenu(pendingResets = 0, isAdmin = false) {
+  const items = [
+    { to: '/users', label: 'Directory', desc: 'All Hubly accounts and roles', icon: 'users' },
+    { to: '/users/reports', label: 'Reports', desc: 'Account monitoring & charts', icon: 'chart' },
+    { to: '/users/surveys', label: 'Survey Reports', desc: 'Technician feedback & ratings', icon: 'star' },
+    { to: '/users/departments', label: 'Departments', desc: 'Create and edit departments', icon: 'building' },
+    { to: '/users/sla', label: 'SLA Settings', desc: 'Resolution time targets per priority', icon: 'clock' },
+    { to: '/users/automation', label: 'Automation Rules', desc: 'Auto-route and triage work orders', icon: 'bolt' },
+    { to: '/users/password-resets', label: 'Password Resets', desc: 'Review and resolve reset requests', icon: 'key', badge: pendingResets }
   ];
+  if (isAdmin) {
+    items.push({ to: '/users/audit', label: 'Audit Log', desc: 'Admin action history', icon: 'shield' });
+  }
+  return [{ heading: 'Manage', items }];
 }
 
 const KB_MENU = [
@@ -82,7 +82,7 @@ export default function DashboardHeader() {
   const user = getUser();
   const canManageUsers = hasPermission('users', 'manage', user);
   const pendingResets = usePendingResetCount(canManageUsers);
-  const usersSections = usersMenu(pendingResets);
+  const usersSections = usersMenu(pendingResets, user?.role === 'admin');
   const workOrderAlerts = useWorkOrderNotifications(hasPermission('tickets', 'view', user));
   const workOrderByView = workOrderAlerts.byView;
   const chatUnread = useChatUnread(!!user);

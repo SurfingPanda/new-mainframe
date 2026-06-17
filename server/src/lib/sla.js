@@ -10,6 +10,7 @@
 // surface it verbatim.
 
 import { getSlaDays } from './sla-config.js';
+import { getCalendarById, businessMsBetween } from './business-hours.js';
 
 // Default targets; the live, admin-configurable values come from getSlaDays().
 export const SLA_DAYS = { low: 7, normal: 3, high: 2, urgent: 1 };
@@ -43,16 +44,21 @@ function resolvedAtMs(ticket, changes) {
   return Number.isNaN(u) ? Date.now() : u;
 }
 
-// Total time the ticket spent paused, clamped to [opened, until].
-function pausedDurationMs(ticket, changes, opened, until) {
+const MINUTE = 60000;
+
+// Active (unpaused) elapsed ms between opened and `until`, walking the status
+// timeline and accruing only non-paused segments. When `cal` is a business-hours
+// calendar, each active segment counts only its working time; with cal = null it
+// counts wall-clock (24/7) — identical to the previous "elapsed minus paused".
+function activeElapsed(ticket, changes, opened, until, cal) {
   let segStart = opened;
   let segStatus = changes.length ? (changes[0].prev || 'open') : ticket.status;
-  let paused = 0;
+  let active = 0;
   const accrue = (from, to, status) => {
-    if (!PAUSED_STATUSES.has(status)) return;
+    if (PAUSED_STATUSES.has(status)) return;
     const lo = Math.max(from, opened);
     const hi = Math.min(to, until);
-    if (hi > lo) paused += hi - lo;
+    if (hi > lo) active += cal ? businessMsBetween(lo, hi, cal) : (hi - lo);
   };
   for (const c of changes) {
     accrue(segStart, c.at, segStatus);
@@ -60,23 +66,59 @@ function pausedDurationMs(ticket, changes, opened, until) {
     segStatus = c.status;
   }
   accrue(segStart, until, segStatus);
-  return paused;
+  return Math.max(0, active);
 }
 
 // Pause-aware SLA standing for a ticket given its status-change rows. Returns null
-// when the ticket has no priority target or a missing/invalid created date — same
-// contract as the client's `slaInfo`.
+// when the ticket has no resolution target or a missing/invalid created date.
+//
+// The legacy resolution fields (resolved, elapsed, totalMs, remaining, overdue,
+// days) are preserved for existing callers; `resolution` and `response` are the
+// two-clock view. The resolution target comes from the ticket's snapshotted
+// sla_resolution_minutes (pinned at creation), falling back to the per-priority
+// default for tickets created before the policy layer existed.
 export function slaStanding(ticket, changeRows) {
-  const days = getSlaDays()[ticket?.priority];
   const opened = ticket?.created_at ? new Date(ticket.created_at).getTime() : NaN;
-  if (!days || Number.isNaN(opened)) return null;
+  if (Number.isNaN(opened)) return null;
+
+  const slaDays = getSlaDays();
+  const resolutionMinutes = ticket?.sla_resolution_minutes != null
+    ? Number(ticket.sla_resolution_minutes)
+    : (slaDays[ticket?.priority] != null ? slaDays[ticket.priority] * 1440 : null);
+  if (!resolutionMinutes) return null;
 
   const changes = normalizeStatusChanges(changeRows);
+  const cal = getCalendarById(ticket?.sla_calendar_id); // null = 24/7
   const resolved = RESOLVED_STATUSES.has(ticket.status);
   const ref = resolved ? resolvedAtMs(ticket, changes) : Date.now();
-  const pausedMs = pausedDurationMs(ticket, changes, opened, ref);
+  const elapsed = activeElapsed(ticket, changes, opened, ref, cal);
+  const totalMs = resolutionMinutes * MINUTE;
 
-  const totalMs = days * DAY;
-  const elapsed = Math.max(0, ref - opened - pausedMs);
-  return { resolved, elapsed, totalMs, remaining: totalMs - elapsed, overdue: elapsed > totalMs, days };
+  const result = {
+    resolved, elapsed, totalMs,
+    remaining: totalMs - elapsed,
+    overdue: elapsed > totalMs,
+    days: Math.round(resolutionMinutes / 1440), // back-compat display
+    resolution: {
+      target: totalMs, elapsed, remaining: totalMs - elapsed,
+      breached: elapsed > totalMs, met: resolved && elapsed <= totalMs
+    },
+    response: null
+  };
+
+  // Response clock — only when a response target was snapshotted on the ticket.
+  const responseMinutes = ticket?.sla_response_minutes != null ? Number(ticket.sla_response_minutes) : null;
+  if (responseMinutes) {
+    const firstAt = ticket?.first_responded_at ? new Date(ticket.first_responded_at).getTime() : null;
+    const met = !!(firstAt && !Number.isNaN(firstAt));
+    const respRef = met ? firstAt : Date.now();
+    const respElapsed = activeElapsed(ticket, changes, opened, respRef, cal);
+    const respTarget = responseMinutes * MINUTE;
+    result.response = {
+      target: respTarget, elapsed: respElapsed, remaining: respTarget - respElapsed,
+      met, breached: !met && respElapsed > respTarget
+    };
+  }
+
+  return result;
 }

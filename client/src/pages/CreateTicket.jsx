@@ -560,6 +560,8 @@ export default function CreateTicket() {
                 />
               </Field>
 
+              <KbSuggestions query={title} category={category} />
+
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field label="Request Type" htmlFor={requestTypeId} hint="What kind of work order is this?" required>
                   <select
@@ -1329,6 +1331,70 @@ function inputCls(invalid) {
       ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-500'
       : 'border-slate-300 focus:border-accent-500 focus:ring-accent-500'
   } disabled:bg-slate-50 disabled:text-slate-400`;
+}
+
+// Deflection: as the requester types a title, surface relevant KB articles so
+// they can self-serve before filing. Debounced; dismissible; opens in a new tab
+// so the half-filled form is preserved.
+function KbSuggestions({ query, category }) {
+  const [items, setItems] = useState([]);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    const q = (query || '').trim();
+    if (q.length < 4) { setItems([]); return; }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ q });
+        if (category) params.set('category', category);
+        const list = await api(`/api/kb/suggest?${params.toString()}`);
+        if (!cancelled) setItems(Array.isArray(list) ? list : []);
+      } catch {
+        if (!cancelled) setItems([]);
+      }
+    }, 350);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [query, category]);
+
+  if (dismissed || items.length === 0) return null;
+
+  return (
+    <div className="mt-3 rounded-lg border border-accent-200 bg-accent-50/60 p-3">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-semibold text-accent-800">
+          Before you submit — these articles might already help:
+        </p>
+        <button
+          type="button"
+          onClick={() => setDismissed(true)}
+          className="text-accent-700 hover:text-accent-900 text-[11px] font-semibold"
+          aria-label="Dismiss suggestions"
+        >
+          Dismiss
+        </button>
+      </div>
+      <ul className="mt-2 space-y-1">
+        {items.map((a) => (
+          <li key={a.id}>
+            <Link
+              to={`/kb/${a.slug}`}
+              target="_blank"
+              rel="noreferrer"
+              className="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-white"
+            >
+              <svg className="h-4 w-4 flex-none text-accent-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+              </svg>
+              <span className="flex-1 font-medium text-slate-800 group-hover:text-accent-900">{a.title}</span>
+              {a.category && <span className="text-[10px] text-slate-400">{a.category}</span>}
+              <span className="text-[11px] text-accent-700 opacity-0 group-hover:opacity-100">Open ↗</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 // Compact cell input for the overtime report table.

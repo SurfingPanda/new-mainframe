@@ -102,6 +102,9 @@ export default function KbArticle() {
               </div>
             </article>
 
+            {/* Reader feedback */}
+            <ArticleFeedback key={article.id} slug={slug} article={article} />
+
             {/* Admin actions */}
             {canEdit && (
               <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -136,6 +139,105 @@ export default function KbArticle() {
         )}
       </main>
     </div>
+  );
+}
+
+// "Was this helpful?" widget. One revisable vote per user; a 👎 reveals an
+// optional comment box so editors learn what was missing.
+function ArticleFeedback({ slug, article }) {
+  const [vote, setVote] = useState(article.my_vote); // 1 | 0 | null
+  const [counts, setCounts] = useState({
+    helpful: article.helpful_count || 0,
+    notHelpful: article.not_helpful_count || 0
+  });
+  const [comment, setComment] = useState('');
+  const [showComment, setShowComment] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [commentSaved, setCommentSaved] = useState(false);
+
+  const send = async (helpful, withComment = false) => {
+    setBusy(true); setErr('');
+    try {
+      const body = { helpful };
+      if (withComment) body.comment = comment.trim();
+      const res = await api(`/api/kb/${slug}/feedback`, { method: 'POST', body: JSON.stringify(body) });
+      setCounts({ helpful: res.helpful_count, notHelpful: res.not_helpful_count });
+      setVote(res.my_vote);
+      if (withComment) { setCommentSaved(true); setShowComment(false); }
+      else setShowComment(helpful === false); // offer the comment box on a 👎
+    } catch (e) {
+      setErr(e.message || 'Could not save your feedback.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const voted = vote === 0 || vote === 1;
+
+  return (
+    <section className="mt-4 rounded-xl border border-slate-200 bg-white px-6 py-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="text-sm font-semibold text-brand-900 dark:text-white">
+          {voted ? 'Thanks for your feedback!' : 'Was this article helpful?'}
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => send(true)}
+            disabled={busy}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 ring-inset transition-colors disabled:opacity-50 ${
+              vote === 1
+                ? 'bg-emerald-50 text-emerald-700 ring-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300'
+                : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700'
+            }`}
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M7 10v12M15 5.88L14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H7a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L14 4a2.5 2.5 0 0 1 1 1.88z" /></svg>
+            Yes
+            {counts.helpful > 0 && <span className="tabular-nums opacity-70">{counts.helpful}</span>}
+          </button>
+          <button
+            type="button"
+            onClick={() => send(false)}
+            disabled={busy}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 ring-inset transition-colors disabled:opacity-50 ${
+              vote === 0
+                ? 'bg-rose-50 text-rose-700 ring-rose-300 dark:bg-rose-500/15 dark:text-rose-300'
+                : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700'
+            }`}
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 14V2M9 18.12L10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H17a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L10 20a2.5 2.5 0 0 1-1-1.88z" /></svg>
+            No
+            {counts.notHelpful > 0 && <span className="tabular-nums opacity-70">{counts.notHelpful}</span>}
+          </button>
+        </div>
+      </div>
+
+      {err && <p className="mt-2 text-xs text-rose-700 dark:text-rose-300">{err}</p>}
+
+      {showComment && !commentSaved && (
+        <div className="mt-3">
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            rows={2}
+            maxLength={1000}
+            placeholder="What was missing or unclear? (optional)"
+            className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+          />
+          <div className="mt-2 flex justify-end gap-2">
+            <button type="button" onClick={() => setShowComment(false)} className="btn-ghost !px-3 !py-1.5 text-xs">Skip</button>
+            <button type="button" onClick={() => send(false, true)} disabled={busy || !comment.trim()} className="btn-primary !px-3 !py-1.5 text-xs disabled:opacity-50">
+              {busy ? 'Sending…' : 'Send feedback'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {commentSaved && (
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Your note was sent to the team — thank you.</p>
+      )}
+    </section>
   );
 }
 

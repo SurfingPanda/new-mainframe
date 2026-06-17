@@ -28,6 +28,8 @@ const UserReports = lazy(() => import('./pages/UserReports.jsx'));
 const SurveyReports = lazy(() => import('./pages/SurveyReports.jsx'));
 const Departments = lazy(() => import('./pages/Departments.jsx'));
 const SlaSettings = lazy(() => import('./pages/SlaSettings.jsx'));
+const Automation = lazy(() => import('./pages/Automation.jsx'));
+const AuditLog = lazy(() => import('./pages/AuditLog.jsx'));
 const PasswordResetRequests = lazy(() => import('./pages/PasswordResetRequests.jsx'));
 const Settings = lazy(() => import('./pages/Settings.jsx'));
 const Profile = lazy(() => import('./pages/Profile.jsx'));
@@ -291,6 +293,22 @@ export default function App() {
         element={
           <ProtectedRoute permission={['users', 'manage']}>
             <PasswordResetRequests />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/users/automation"
+        element={
+          <ProtectedRoute permission={['automation', 'manage']}>
+            <Automation />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/users/audit"
+        element={
+          <ProtectedRoute role={['admin']}>
+            <AuditLog />
           </ProtectedRoute>
         }
       />

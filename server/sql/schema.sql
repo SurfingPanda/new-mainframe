@@ -43,6 +43,17 @@ CREATE TABLE IF NOT EXISTS tickets (
   asset_id      INT UNSIGNED NULL,
   schedule_id   INT UNSIGNED NULL,
   sla_reminded_at DATE NULL,
+  -- SLA snapshot, pinned at creation from the matching policy so later policy
+  -- edits never move an existing work order's targets. Minutes; NULL response =
+  -- no response target. first_responded_at is set once on the first staff reply.
+  first_responded_at     TIMESTAMP NULL,
+  sla_response_minutes   INT UNSIGNED NULL,
+  sla_resolution_minutes INT UNSIGNED NULL,
+  sla_calendar_id        INT UNSIGNED NULL,
+  -- Breach markers: set once when the SLA monitor first detects a breach, so the
+  -- escalation automation fires exactly once per clock.
+  sla_response_breached_at   TIMESTAMP NULL,
+  sla_resolution_breached_at TIMESTAMP NULL,
   -- Manager-approval workflow (used by 'HR Concerns'): a request is held
   -- 'pending' and routed to the requester's department manager (approval_dept)
   -- while UNROUTED (department NULL, so coworkers can't see it); on approval it
@@ -147,10 +158,44 @@ CREATE TABLE IF NOT EXISTS kb_articles (
   body          MEDIUMTEXT NOT NULL,
   author        VARCHAR(120),
   published     TINYINT(1) NOT NULL DEFAULT 1,
+  version       INT UNSIGNED NOT NULL DEFAULT 1,
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_kb_category (category),
   INDEX idx_kb_published (published)
+);
+
+-- Article version history: one snapshot per saved revision (content as it became
+-- current). Restoring a version writes a NEW version, so history is never lost.
+CREATE TABLE IF NOT EXISTS kb_article_versions (
+  id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  article_id  INT UNSIGNED NOT NULL,
+  version     INT UNSIGNED NOT NULL,
+  title       VARCHAR(200) NOT NULL,
+  category    VARCHAR(80),
+  body        MEDIUMTEXT NOT NULL,
+  published   TINYINT(1) NOT NULL DEFAULT 1,
+  edited_by   VARCHAR(120),
+  change_note VARCHAR(255) NULL,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_kbv (article_id, version),
+  INDEX idx_kbv_article (article_id),
+  FOREIGN KEY (article_id) REFERENCES kb_articles(id) ON DELETE CASCADE
+);
+
+-- Reader feedback on articles: one revisable 👍/👎 vote per user per article,
+-- with an optional comment (typically "what was missing?" on a 👎).
+CREATE TABLE IF NOT EXISTS kb_feedback (
+  id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  article_id INT UNSIGNED NOT NULL,
+  user_id    INT UNSIGNED NOT NULL,
+  helpful    TINYINT(1) NOT NULL,
+  comment    VARCHAR(1000) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_kbf_user (article_id, user_id),
+  INDEX idx_kbf_article (article_id),
+  FOREIGN KEY (article_id) REFERENCES kb_articles(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS chat_rooms (
@@ -490,6 +535,99 @@ CREATE TABLE IF NOT EXISTS app_settings (
   setting_value JSON NOT NULL,
   updated_by    INT UNSIGNED NULL,
   updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- SLA policies: scoped response/resolution targets (in minutes). The matcher
+-- columns are NULL = wildcard; the most specific active policy wins (ties broken
+-- by `rank`). `calendar_id` references a business-hours calendar (Phase 2; NULL =
+-- 24/7). Default per-priority targets are still seeded from app_settings.sla_days.
+CREATE TABLE IF NOT EXISTS sla_policies (
+  id                 INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name               VARCHAR(120) NOT NULL,
+  priority           ENUM('low','normal','high','urgent') NULL,
+  request_type       ENUM('incident','service_request','question','change') NULL,
+  category           VARCHAR(80) NULL,
+  department         VARCHAR(80) NULL,
+  response_minutes   INT UNSIGNED NULL,
+  resolution_minutes INT UNSIGNED NOT NULL,
+  calendar_id        INT UNSIGNED NULL,
+  is_active          TINYINT(1) NOT NULL DEFAULT 1,
+  rank               INT NOT NULL DEFAULT 0,
+  created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_sla_pol_active (is_active)
+);
+
+-- Business-hours calendars for SLA clocks (Phase 2). `hours` is a weekly map
+-- { mon:[["09:00","18:00"]], … }; a NULL calendar on a policy means 24/7.
+CREATE TABLE IF NOT EXISTS sla_calendars (
+  id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name       VARCHAR(120) NOT NULL,
+  timezone   VARCHAR(64) NOT NULL DEFAULT 'Asia/Manila',
+  hours      JSON NOT NULL,
+  is_default TINYINT(1) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sla_holidays (
+  id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  calendar_id  INT UNSIGNED NOT NULL,
+  holiday_date DATE NOT NULL,
+  label        VARCHAR(120),
+  UNIQUE KEY uk_sla_hol (calendar_id, holiday_date),
+  FOREIGN KEY (calendar_id) REFERENCES sla_calendars(id) ON DELETE CASCADE
+);
+
+-- App-wide admin audit trail (who did what, app-wide). Denormalized actor/entity
+-- labels survive renames/deletes; no FKs so rows persist after a target is gone.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  actor_id     INT UNSIGNED NULL,
+  actor_name   VARCHAR(120) NULL,
+  action       VARCHAR(64) NOT NULL,
+  entity_type  VARCHAR(40) NULL,
+  entity_id    VARCHAR(64) NULL,
+  entity_label VARCHAR(160) NULL,
+  changes      JSON NULL,
+  ip           VARCHAR(45) NULL,
+  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_audit_created (created_at),
+  INDEX idx_audit_actor (actor_id),
+  INDEX idx_audit_entity (entity_type, entity_id),
+  INDEX idx_audit_action (action)
+);
+
+-- Automation rules engine for work orders. A rule is a WHEN/IF/THEN triple:
+-- trigger_event (WHEN), conditions JSON (IF), actions JSON (THEN). Evaluated by
+-- lib/automation.js at ticket create/update. `priority` orders evaluation
+-- (lower first); `stop_on_match` short-circuits later rules.
+CREATE TABLE IF NOT EXISTS automation_rules (
+  id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name          VARCHAR(160) NOT NULL,
+  description   TEXT,
+  trigger_event ENUM('ticket.created','ticket.updated','ticket.idle','sla.response_breached','sla.resolution_breached') NOT NULL,
+  conditions    JSON NOT NULL,
+  actions       JSON NOT NULL,
+  is_active     TINYINT(1) NOT NULL DEFAULT 1,
+  priority      INT NOT NULL DEFAULT 0,
+  stop_on_match TINYINT(1) NOT NULL DEFAULT 0,
+  idle_minutes  INT UNSIGNED NULL,
+  created_by    VARCHAR(120),
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_ar_trigger_active (trigger_event, is_active)
+);
+
+-- Audit log: which rule fired on which ticket, and the actions it applied.
+CREATE TABLE IF NOT EXISTS automation_runs (
+  id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  rule_id         INT UNSIGNED NOT NULL,
+  ticket_id       INT UNSIGNED NOT NULL,
+  actions_applied JSON,
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_arun_ticket (ticket_id),
+  INDEX idx_arun_rule (rule_id)
 );
 
 -- Seed admin user (password: admin123)

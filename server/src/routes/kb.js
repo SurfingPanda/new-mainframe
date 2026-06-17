@@ -59,6 +59,25 @@ function slugify(text) {
     .slice(0, 200);
 }
 
+// Escape LIKE wildcards so a query containing % or _ doesn't behave as a pattern.
+const escapeLike = (s) => s.replace(/[%_\\]/g, '\\$&');
+
+// Write a version-history snapshot capturing an article's content as it stands
+// at `version` (its new current version). Used on create, edit, and restore.
+async function snapshotVersion(articleId, version, { title, category, body, published, edited_by, change_note = null }) {
+  await pool.query(
+    `INSERT INTO kb_article_versions (article_id, version, title, category, body, published, edited_by, change_note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      articleId, version,
+      String(title).slice(0, 200), category ?? null, body,
+      published ? 1 : 0,
+      edited_by ? String(edited_by).slice(0, 120) : null,
+      change_note ? String(change_note).slice(0, 255) : null
+    ]
+  );
+}
+
 router.get('/', requireAuth, requirePermission('kb', 'view'), async (req, res, next) => {
   try {
     const { category, q, published } = req.query;
@@ -109,6 +128,69 @@ router.get('/meta/categories', requireAuth, requirePermission('kb', 'view'), (_r
   res.json(CATEGORIES);
 });
 
+// Deflection: suggest published articles relevant to a draft work order
+// (typically the title the requester is typing on the Create form). Tokenizes
+// the query, matches any token in title/body, and ranks by title-token hits,
+// then helpful votes, then recency. An optional `category` floats same-category
+// articles to the top. Registered before `/:slug` so the path isn't shadowed.
+router.get('/suggest', requireAuth, requirePermission('kb', 'view'), async (req, res, next) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 3) return res.json([]);
+    const category = req.query.category ? String(req.query.category).trim() : '';
+
+    // Up to 6 meaningful tokens; fall back to the raw query if none qualify.
+    const tokens = q.split(/\s+/).map((t) => t.trim()).filter((t) => t.length >= 3).slice(0, 6);
+    const terms = tokens.length ? tokens : [q];
+    const likeOf = (t) => `%${escapeLike(t.toLowerCase())}%`;
+
+    const titleHits = terms.map(() => '(LOWER(a.title) LIKE ?)').join(' + ');
+    const titleParams = terms.map(likeOf);
+    const whereOr = terms.map(() => '(LOWER(a.title) LIKE ? OR LOWER(a.body) LIKE ?)').join(' OR ');
+    const whereParams = terms.flatMap((t) => [likeOf(t), likeOf(t)]);
+
+    const orderParts = [];
+    const orderParams = [];
+    if (category) { orderParts.push('(a.category = ?) DESC'); orderParams.push(category); }
+    orderParts.push('title_hits DESC', 'helpful_count DESC', 'a.updated_at DESC');
+
+    const [rows] = await pool.query(
+      `SELECT a.id, a.title, a.slug, a.category,
+              (${titleHits}) AS title_hits,
+              (SELECT COUNT(*) FROM kb_feedback f WHERE f.article_id = a.id AND f.helpful = 1) AS helpful_count
+         FROM kb_articles a
+        WHERE a.published = 1 AND (${whereOr})
+        ORDER BY ${orderParts.join(', ')}
+        LIMIT 5`,
+      [...titleParams, ...whereParams, ...orderParams]
+    );
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Feedback report for editors: per-article vote tallies (only articles that have
+// received feedback), worst-rated first so gaps surface. Registered before the
+// `/:slug` route so the literal path isn't shadowed by the slug param.
+router.get('/feedback/report', requireAuth, requirePermission('kb', 'manage'), async (_req, res, next) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT a.id, a.title, a.slug, a.category, a.published,
+              SUM(f.helpful = 1) AS helpful_count,
+              SUM(f.helpful = 0) AS not_helpful_count,
+              COUNT(*) AS total
+         FROM kb_feedback f
+         JOIN kb_articles a ON a.id = f.article_id
+        GROUP BY a.id
+        ORDER BY not_helpful_count DESC, total DESC`
+    );
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Upload an image/PDF to embed in an article. Authors only. Returns a URL the
 // editor inserts into the markdown body.
 router.post('/upload', requireAuth, requirePermission('kb', 'manage'), kbUploadMiddleware, (req, res) => {
@@ -124,11 +206,14 @@ router.post('/upload', requireAuth, requirePermission('kb', 'manage'), kbUploadM
 router.get('/:slug', requireAuth, requirePermission('kb', 'view'), async (req, res, next) => {
   try {
     const canManage = hasPermission(req.user, 'kb', 'manage');
-    const extra = canManage ? '' : 'AND published = 1';
+    const extra = canManage ? '' : 'AND a.published = 1';
     const [rows] = await pool.query(
-      `SELECT id, title, slug, category, body, author, published, created_at, updated_at
-         FROM kb_articles WHERE slug = ? ${extra} LIMIT 1`,
-      [req.params.slug]
+      `SELECT a.id, a.title, a.slug, a.category, a.body, a.author, a.published, a.created_at, a.updated_at,
+              (SELECT COUNT(*) FROM kb_feedback f WHERE f.article_id = a.id AND f.helpful = 1) AS helpful_count,
+              (SELECT COUNT(*) FROM kb_feedback f WHERE f.article_id = a.id AND f.helpful = 0) AS not_helpful_count,
+              (SELECT f.helpful FROM kb_feedback f WHERE f.article_id = a.id AND f.user_id = ? LIMIT 1) AS my_vote
+         FROM kb_articles a WHERE a.slug = ? ${extra} LIMIT 1`,
+      [req.user.sub, req.params.slug]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Article not found' });
     res.json(rows[0]);
@@ -153,6 +238,118 @@ router.get('/:slug/tickets', requireAuth, requirePermission('kb', 'view'), async
       [req.params.slug]
     );
     res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Submit (or change) the current user's helpful/not vote on an article. Upsert,
+// so re-voting overwrites the previous choice. Comment is optional.
+router.post('/:slug/feedback', requireAuth, requirePermission('kb', 'view'), async (req, res, next) => {
+  try {
+    const { helpful, comment } = req.body || {};
+    if (typeof helpful !== 'boolean') {
+      return res.status(400).json({ error: 'helpful (boolean) is required' });
+    }
+
+    // Only votable on articles the user can actually see (published, unless staff).
+    const canManage = hasPermission(req.user, 'kb', 'manage');
+    const extra = canManage ? '' : 'AND published = 1';
+    const [arts] = await pool.query(
+      `SELECT id FROM kb_articles WHERE slug = ? ${extra} LIMIT 1`,
+      [req.params.slug]
+    );
+    if (arts.length === 0) return res.status(404).json({ error: 'Article not found' });
+    const articleId = arts[0].id;
+    const note = comment ? String(comment).trim().slice(0, 1000) || null : null;
+
+    await pool.query(
+      `INSERT INTO kb_feedback (article_id, user_id, helpful, comment)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE helpful = VALUES(helpful), comment = VALUES(comment)`,
+      [articleId, req.user.sub, helpful ? 1 : 0, note]
+    );
+
+    const [[agg]] = await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM kb_feedback WHERE article_id = ? AND helpful = 1) AS helpful_count,
+         (SELECT COUNT(*) FROM kb_feedback WHERE article_id = ? AND helpful = 0) AS not_helpful_count`,
+      [articleId, articleId]
+    );
+    res.json({ ...agg, my_vote: helpful ? 1 : 0 });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Version history list (no bodies — keeps the payload small). Editors only.
+router.get('/:slug/versions', requireAuth, requirePermission('kb', 'manage'), async (req, res, next) => {
+  try {
+    const [arts] = await pool.query('SELECT id FROM kb_articles WHERE slug = ? LIMIT 1', [req.params.slug]);
+    if (arts.length === 0) return res.status(404).json({ error: 'Article not found' });
+    const [rows] = await pool.query(
+      `SELECT version, title, category, published, edited_by, change_note, created_at
+         FROM kb_article_versions WHERE article_id = ? ORDER BY version DESC`,
+      [arts[0].id]
+    );
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// A single version's full snapshot (incl. body) for viewing / diffing. Editors only.
+router.get('/:slug/versions/:version', requireAuth, requirePermission('kb', 'manage'), async (req, res, next) => {
+  try {
+    const version = Number(req.params.version);
+    if (!Number.isInteger(version) || version <= 0) return res.status(400).json({ error: 'invalid version' });
+    const [rows] = await pool.query(
+      `SELECT v.version, v.title, v.category, v.body, v.published, v.edited_by, v.change_note, v.created_at
+         FROM kb_article_versions v
+         JOIN kb_articles a ON a.id = v.article_id
+        WHERE a.slug = ? AND v.version = ? LIMIT 1`,
+      [req.params.slug, version]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Version not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Restore an old version: re-applies its content as a NEW version (non-destructive).
+// Leaves the current published state untouched.
+router.post('/:slug/versions/:version/restore', requireAuth, requirePermission('kb', 'manage'), async (req, res, next) => {
+  try {
+    const version = Number(req.params.version);
+    if (!Number.isInteger(version) || version <= 0) return res.status(400).json({ error: 'invalid version' });
+
+    const [arts] = await pool.query(
+      'SELECT id, version, published FROM kb_articles WHERE slug = ? LIMIT 1', [req.params.slug]
+    );
+    if (arts.length === 0) return res.status(404).json({ error: 'Article not found' });
+    const article = arts[0];
+
+    const [snaps] = await pool.query(
+      'SELECT title, category, body FROM kb_article_versions WHERE article_id = ? AND version = ? LIMIT 1',
+      [article.id, version]
+    );
+    if (snaps.length === 0) return res.status(404).json({ error: 'Version not found' });
+    const snap = snaps[0];
+
+    const newVersion = article.version + 1;
+    await pool.query(
+      'UPDATE kb_articles SET title = ?, category = ?, body = ?, version = ? WHERE id = ?',
+      [snap.title, snap.category ?? null, snap.body, newVersion, article.id]
+    );
+    await snapshotVersion(article.id, newVersion, {
+      title: snap.title, category: snap.category, body: snap.body,
+      published: article.published, edited_by: req.user?.name || req.user?.email,
+      change_note: `Restored from v${version}`
+    });
+
+    const [rows] = await pool.query('SELECT * FROM kb_articles WHERE id = ?', [article.id]);
+    res.json(rows[0]);
   } catch (err) {
     next(err);
   }
@@ -194,7 +391,13 @@ router.post('/', requireAuth, requirePermission('kb', 'manage'), async (req, res
       ]
     );
     const [rows] = await pool.query('SELECT * FROM kb_articles WHERE id = ?', [result.insertId]);
-    res.status(201).json(rows[0]);
+    const article = rows[0];
+    await snapshotVersion(article.id, 1, {
+      title: article.title, category: article.category, body: article.body,
+      published: article.published, edited_by: req.user?.name || req.user?.email,
+      change_note: 'Initial version'
+    });
+    res.status(201).json(article);
   } catch (err) {
     next(err);
   }
@@ -207,6 +410,13 @@ router.patch('/:slug', requireAuth, requirePermission('kb', 'manage'), async (re
     if (category && !CATEGORIES.includes(category)) {
       return res.status(400).json({ error: 'invalid category' });
     }
+
+    const [beforeRows] = await pool.query(
+      'SELECT id, title, category, body, published, author, version FROM kb_articles WHERE slug = ? LIMIT 1',
+      [req.params.slug]
+    );
+    if (beforeRows.length === 0) return res.status(404).json({ error: 'Article not found' });
+    const before = beforeRows[0];
 
     const fields = [];
     const values = [];
@@ -226,7 +436,37 @@ router.patch('/:slug', requireAuth, requirePermission('kb', 'manage'), async (re
     if (r.affectedRows === 0) return res.status(404).json({ error: 'Article not found' });
 
     const [rows] = await pool.query('SELECT * FROM kb_articles WHERE slug = ?', [req.params.slug]);
-    res.json(rows[0]);
+    const after = rows[0];
+
+    // Snapshot a new version only when the content (title/category/body) actually
+    // changed — a bare publish toggle doesn't warrant a revision.
+    const contentChanged =
+      after.title !== before.title ||
+      (after.category ?? null) !== (before.category ?? null) ||
+      after.body !== before.body;
+    if (contentChanged) {
+      // Backfill a baseline for articles created before versioning existed, so
+      // their history isn't missing the pre-edit starting point.
+      const [[{ c }]] = await pool.query(
+        'SELECT COUNT(*) AS c FROM kb_article_versions WHERE article_id = ?', [before.id]
+      );
+      if (c === 0) {
+        await snapshotVersion(before.id, before.version, {
+          title: before.title, category: before.category, body: before.body,
+          published: before.published, edited_by: before.author || 'system', change_note: 'Baseline'
+        });
+      }
+      const newVersion = before.version + 1;
+      await pool.query('UPDATE kb_articles SET version = ? WHERE id = ?', [newVersion, before.id]);
+      await snapshotVersion(before.id, newVersion, {
+        title: after.title, category: after.category, body: after.body,
+        published: after.published, edited_by: req.user?.name || req.user?.email,
+        change_note: req.body?.change_note
+      });
+      after.version = newVersion;
+    }
+
+    res.json(after);
   } catch (err) {
     next(err);
   }

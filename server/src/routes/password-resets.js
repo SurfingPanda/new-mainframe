@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { pool } from '../config/db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { passwordPolicyError, BCRYPT_ROUNDS } from '../lib/password-policy.js';
+import { recordAudit } from '../lib/audit.js';
 
 const router = Router();
 
@@ -97,6 +98,13 @@ router.patch('/:id', async (req, res, next) => {
         WHERE r.id = ?`,
       [id]
     );
+    if (status !== undefined || new_password) {
+      recordAudit(req, {
+        action: 'password_reset.decide', entityType: 'password_reset', entityId: id,
+        entityLabel: rows[0]?.email,
+        changes: { status: status ?? undefined, password_rotated: !!new_password }
+      });
+    }
     res.json(rows[0]);
   } catch (err) {
     next(err);
@@ -106,8 +114,10 @@ router.patch('/:id', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
+    const [[existing]] = await pool.query('SELECT email FROM password_reset_requests WHERE id = ? LIMIT 1', [id]);
     const [r] = await pool.query('DELETE FROM password_reset_requests WHERE id = ?', [id]);
     if (r.affectedRows === 0) return res.status(404).json({ error: 'Request not found' });
+    recordAudit(req, { action: 'password_reset.delete', entityType: 'password_reset', entityId: id, entityLabel: existing?.email });
     res.json({ ok: true });
   } catch (err) {
     next(err);
