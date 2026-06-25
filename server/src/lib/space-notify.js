@@ -9,6 +9,7 @@ import { pool } from '../config/db.js';
 import { sendMailSafe, appUrl } from './mailer.js';
 import { spaceItemAssigned, spaceJoinRequest } from './email-templates.js';
 import { sendSystemMessage } from './system-message.js';
+import { runWithLock } from './job-lock.js';
 
 // Thin positional wrapper over the shared system-message helper (which owns the
 // INSERT, length clamping, and the real-time 'mail' push).
@@ -177,11 +178,11 @@ export async function runSpaceDueReminders() {
 }
 
 // Run once on boot, then hourly (resolution is plenty for a daily digest).
+// Guarded by a MySQL advisory lock so only one instance sends the digest.
 export function startSpaceDueReminders() {
-  runSpaceDueReminders().catch((err) => console.error('[space-due] initial run failed:', err.message));
-  const timer = setInterval(() => {
-    runSpaceDueReminders().catch((err) => console.error('[space-due] scheduled run failed:', err.message));
-  }, REMINDER_INTERVAL_MS);
+  const tick = () => runWithLock('space-due-reminders', runSpaceDueReminders);
+  tick();
+  const timer = setInterval(tick, REMINDER_INTERVAL_MS);
   timer.unref?.();
   return timer;
 }

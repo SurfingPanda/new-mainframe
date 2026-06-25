@@ -13,6 +13,7 @@ import { pool } from '../config/db.js';
 import { slaStanding } from './sla.js';
 import { runAutomations } from './automation.js';
 import { HR_CONCERNS } from './ticket-visibility.js';
+import { runWithLock } from './job-lock.js';
 
 const CHECK_INTERVAL_MS = 10 * 60 * 1000; // every 10 minutes
 const SYSTEM_ACTOR = 'System';
@@ -88,11 +89,13 @@ export async function runSlaMonitor() {
   }
 }
 
+// Guarded by a MySQL advisory lock so only one instance scans per tick (the
+// per-breach claim already prevents double-firing; this just avoids the wasted
+// duplicate scan + compute across instances).
 export function startSlaMonitor() {
-  runSlaMonitor().catch((err) => console.error('[sla-monitor] initial run failed:', err.message));
-  const timer = setInterval(() => {
-    runSlaMonitor().catch((err) => console.error('[sla-monitor] scheduled run failed:', err.message));
-  }, CHECK_INTERVAL_MS);
+  const tick = () => runWithLock('sla-monitor', runSlaMonitor);
+  tick();
+  const timer = setInterval(tick, CHECK_INTERVAL_MS);
   timer.unref?.();
   return timer;
 }

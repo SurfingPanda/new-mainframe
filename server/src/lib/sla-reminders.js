@@ -8,6 +8,7 @@
 import { pool } from '../config/db.js';
 import { slaStanding } from './sla.js';
 import { sendSystemMessage } from './system-message.js';
+import { runWithLock } from './job-lock.js';
 
 const DAY = 86400000;
 const REMINDER_INTERVAL_MS = 60 * 60 * 1000; // hourly; the per-ticket guard keeps it to once/day
@@ -126,11 +127,11 @@ export async function runSlaBreachReminders() {
 }
 
 // Run once on boot, then hourly (resolution is plenty for a daily digest).
+// Guarded by a MySQL advisory lock so only one instance sends the digest.
 export function startSlaBreachReminders() {
-  runSlaBreachReminders().catch((err) => console.error('[sla-reminder] initial run failed:', err.message));
-  const timer = setInterval(() => {
-    runSlaBreachReminders().catch((err) => console.error('[sla-reminder] scheduled run failed:', err.message));
-  }, REMINDER_INTERVAL_MS);
+  const tick = () => runWithLock('sla-reminders', runSlaBreachReminders);
+  tick();
+  const timer = setInterval(tick, REMINDER_INTERVAL_MS);
   timer.unref?.();
   return timer;
 }

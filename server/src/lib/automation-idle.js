@@ -15,6 +15,7 @@
 import { pool } from '../config/db.js';
 import { runAutomations, matchesConditions } from './automation.js';
 import { HR_CONCERNS } from './ticket-visibility.js';
+import { runWithLock } from './job-lock.js';
 
 const CHECK_INTERVAL_MS = 15 * 60 * 1000; // every 15 minutes
 const CANDIDATE_LIMIT = 500;              // safety cap per rule per tick
@@ -73,12 +74,12 @@ export async function runIdleAutomations() {
   }
 }
 
-// Run once on boot, then on a fixed interval.
+// Run once on boot, then on a fixed interval. Guarded by a MySQL advisory lock so
+// two instances can't both fire idle rules and race the automation_runs dedupe.
 export function startIdleAutomations() {
-  runIdleAutomations().catch((err) => console.error('[automation-idle] initial run failed:', err.message));
-  const timer = setInterval(() => {
-    runIdleAutomations().catch((err) => console.error('[automation-idle] scheduled run failed:', err.message));
-  }, CHECK_INTERVAL_MS);
+  const tick = () => runWithLock('automation-idle', runIdleAutomations);
+  tick();
+  const timer = setInterval(tick, CHECK_INTERVAL_MS);
   timer.unref?.();
   return timer;
 }

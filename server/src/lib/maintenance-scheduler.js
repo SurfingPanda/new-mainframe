@@ -2,11 +2,13 @@
 //
 // A maintenance_schedules row is a work-order template plus a cadence. This
 // module generates a ticket from a schedule when it's due and advances the
-// schedule's next_run_at. It runs in-process (the server is single-process,
-// the same assumption the in-memory rate limiter already relies on).
+// schedule's next_run_at. It runs in-process on a timer; the timer tick is
+// wrapped in a MySQL advisory lock (lib/job-lock.js) so that with 2+ instances
+// only one generates work orders per tick (no duplicate WOs).
 
 import { pool } from '../config/db.js';
 import { notifyTicketCreated } from './ticket-emails.js';
+import { runWithLock } from './job-lock.js';
 
 const ACTOR = 'System (recurring)';
 const MONTHS_PER_CADENCE = { monthly: 1, quarterly: 3, yearly: 12 };
@@ -125,15 +127,11 @@ export async function runDueSchedules() {
 const RUN_INTERVAL_MS = 60 * 60 * 1000; // hourly
 
 // Run once on boot, then hourly. Hourly resolution is plenty for daily+ cadences.
+// Guarded by a MySQL advisory lock so only one instance generates WOs per tick.
 export function startMaintenanceScheduler() {
-  runDueSchedules().catch((err) =>
-    console.error('[maintenance] initial run failed:', err.message)
-  );
-  const timer = setInterval(() => {
-    runDueSchedules().catch((err) =>
-      console.error('[maintenance] scheduled run failed:', err.message)
-    );
-  }, RUN_INTERVAL_MS);
+  const tick = () => runWithLock('maintenance', runDueSchedules);
+  tick();
+  const timer = setInterval(tick, RUN_INTERVAL_MS);
   timer.unref?.();
   return timer;
 }

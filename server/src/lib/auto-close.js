@@ -11,6 +11,7 @@
 // actions are the only ones the notifications feed filters out).
 
 import { pool } from '../config/db.js';
+import { runWithLock } from './job-lock.js';
 
 const DAY = 86400000;
 // Days a work order may sit 'resolved' before it auto-closes. Env-overridable.
@@ -77,12 +78,12 @@ export async function runAutoClose() {
   }
 }
 
-// Run once on boot, then every few hours.
+// Run once on boot, then every few hours. Guarded by a MySQL advisory lock so
+// only one instance closes per tick.
 export function startAutoClose() {
-  runAutoClose().catch((err) => console.error('[auto-close] initial run failed:', err.message));
-  const timer = setInterval(() => {
-    runAutoClose().catch((err) => console.error('[auto-close] scheduled run failed:', err.message));
-  }, CHECK_INTERVAL_MS);
+  const tick = () => runWithLock('auto-close', runAutoClose);
+  tick();
+  const timer = setInterval(tick, CHECK_INTERVAL_MS);
   timer.unref?.();
   return timer;
 }
