@@ -6,3 +6,7 @@ node_modules
 dist
 .vite
 .claude/settings.local.json
+
+.client/public/
+.client/public/images
+.CLAUDE.md
