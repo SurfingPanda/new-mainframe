@@ -89,7 +89,8 @@
       "Bash(cp src/routes/spaces.js /tmp/spaces.bak.js)",
       "Bash(sed -i '93,104d; 126,138d; 144,145d; 169,286d; 300,353d' src/routes/spaces.js)",
       "Bash(JWT_SECRET=\"change-me-to-a-long-random-string\" node -e \"try{require\\('child_process'\\)}catch\\(e\\){}; import\\('./src/index.js'\\).catch\\(e=>{}\\)\")",
-      "Bash(sort -t'│' -k1)"
+      "Bash(sort -t'│' -k1)",
+      "WebSearch"
     ]
   }
 }
