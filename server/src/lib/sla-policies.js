@@ -104,7 +104,7 @@ export async function seedDefaultPoliciesIfEmpty() {
     ]);
     await pool.query(
       `INSERT INTO sla_policies
-         (name, priority, request_type, category, department, response_minutes, resolution_minutes, calendar_id, is_active, rank)
+         (name, priority, request_type, category, department, response_minutes, resolution_minutes, calendar_id, is_active, \`rank\`)
        VALUES ?`,
       [rows]
     );

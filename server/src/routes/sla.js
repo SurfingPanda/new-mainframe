@@ -30,7 +30,7 @@ function sanitizeHours(raw) {
 }
 
 const POLICY_COLUMNS = `id, name, priority, request_type, category, department,
-  response_minutes, resolution_minutes, calendar_id, is_active, rank, created_at, updated_at`;
+  response_minutes, resolution_minutes, calendar_id, is_active, \`rank\`, created_at, updated_at`;
 
 router.use(requireAuth, requirePermission('users', 'manage'));
 
@@ -55,7 +55,7 @@ router.get('/policies', async (_req, res, next) => {
     const [rows] = await pool.query(
       `SELECT ${POLICY_COLUMNS} FROM sla_policies
         ORDER BY (priority IS NOT NULL) + (request_type IS NOT NULL) + (category IS NOT NULL) + (department IS NOT NULL) DESC,
-                 rank DESC, id ASC`
+                 \`rank\` DESC, id ASC`
     );
     res.json(rows);
   } catch (err) {
@@ -69,7 +69,7 @@ router.post('/policies', async (req, res, next) => {
     if (error) return res.status(400).json({ error });
     const fields = Object.keys(value);
     const [result] = await pool.query(
-      `INSERT INTO sla_policies (${fields.join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`,
+      `INSERT INTO sla_policies (${fields.map((f) => `\`${f}\``).join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`,
       fields.map((f) => value[f])
     );
     await loadSlaPolicies();
@@ -91,7 +91,7 @@ router.patch('/policies/:id', async (req, res, next) => {
     const params = fields.map((f) => value[f]);
     params.push(id);
     const [r] = await pool.query(
-      `UPDATE sla_policies SET ${fields.map((f) => `${f} = ?`).join(', ')} WHERE id = ?`, params
+      `UPDATE sla_policies SET ${fields.map((f) => `\`${f}\` = ?`).join(', ')} WHERE id = ?`, params
     );
     if (r.affectedRows === 0) return res.status(404).json({ error: 'Policy not found' });
     await loadSlaPolicies();
