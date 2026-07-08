@@ -1,3 +1,5 @@
+import { apiUrl, rewriteUploadUrls } from './config.js';
+
 // The auth token now lives in an httpOnly cookie set by the server — it is
 // deliberately NOT readable from JS (XSS can't exfiltrate it). Only the
 // non-sensitive user profile is cached here to drive UI gating.
@@ -85,7 +87,8 @@ export function hasPermission(module, action, user = getUser()) {
 
 export async function api(path, options = {}) {
   const isFormData = options.body instanceof FormData;
-  const res = await fetch(path, {
+  // apiUrl() prefixes the backend origin in split deployments (no-op same-origin).
+  const res = await fetch(apiUrl(path), {
     ...options,
     // Send the httpOnly auth cookie with every request (and accept Set-Cookie).
     credentials: 'include',
@@ -103,6 +106,10 @@ export async function api(path, options = {}) {
   if (!res.ok) {
     throw new Error(data.error || `Request failed with ${res.status}`);
   }
+  // Rewrite any /uploads/... paths in the body to the backend origin so media
+  // (avatars, signatures, attachments) load from the API host, not the static
+  // frontend host. No-op in same-origin dev.
+  rewriteUploadUrls(data);
   // Opt-in: large list views pass { withMeta: true } to also learn whether the
   // server capped the result set (X-Result-Capped). Default callers are
   // unaffected — they still get just the parsed body.

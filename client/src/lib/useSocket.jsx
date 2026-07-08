@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import { isAuthenticated } from './auth.js';
+import { API_BASE } from './config.js';
 
 const SocketContext = createContext(null);
 
@@ -15,7 +16,9 @@ export function SocketProvider({ children }) {
   useEffect(() => {
     if (!isAuthenticated()) return;
 
-    const s = io(window.location.origin, {
+    // Connect to the backend origin (Railway) in split deployments; falls back
+    // to same-origin for local dev where the API is proxied.
+    const s = io(API_BASE || window.location.origin, {
       withCredentials: true,
       transports: ['websocket', 'polling'],
       reconnectionDelay: 2000,
