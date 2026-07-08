@@ -841,7 +841,7 @@ export async function ensureSchema() {
       resolution_minutes INT UNSIGNED NOT NULL,
       calendar_id        INT UNSIGNED NULL,
       is_active          TINYINT(1) NOT NULL DEFAULT 1,
-      `rank`             INT NOT NULL DEFAULT 0,
+      \`rank\`             INT NOT NULL DEFAULT 0,
       created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_sla_pol_active (is_active)
