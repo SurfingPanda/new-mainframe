@@ -1,36 +1,65 @@
-// Optional SMTP mailer. Mirrors lib/unifi.js: when SMTP_HOST is unset the
+// Optional mailer. Mirrors lib/unifi.js: when nothing is configured the
 // mailer is disabled and sends become logged no-ops, so the app runs fine
 // without a mail server. Sends must never block or fail a request — call
 // sendMailSafe() from request handlers (fire-and-forget, never throws).
+//
+// Two transports, tried in this order:
+//  1. Resend (RESEND_API_KEY) — sends over HTTPS. Preferred in production:
+//     many hosts (incl. Railway) block outbound SMTP ports entirely, which
+//     surfaces as a silent "Connection timeout" from nodemailer.
+//  2. SMTP (SMTP_HOST) — works fine for local dev (e.g. Gmail + app password)
+//     where outbound SMTP isn't blocked.
 
 import nodemailer from 'nodemailer';
 
 let cachedTransport = null;
 let warnedDisabled = false;
 
-// Dev mode: when MAIL_DEV=ethereal (and no real SMTP_HOST is set), send through
-// a throwaway Ethereal test inbox — no credentials, no real delivery. Each
-// message gets a preview URL logged to the console.
+// Dev mode: when MAIL_DEV=ethereal (and no real SMTP_HOST/RESEND_API_KEY is
+// set), send through a throwaway Ethereal test inbox — no credentials, no
+// real delivery. Each message gets a preview URL logged to the console.
 function devMode() {
   const v = String(process.env.MAIL_DEV || '').toLowerCase();
   return v === 'ethereal' || v === 'true';
 }
 
+function resendConfigured() {
+  return Boolean(process.env.RESEND_API_KEY);
+}
+
 export function isConfigured() {
-  return Boolean(process.env.SMTP_HOST) || devMode();
+  return resendConfigured() || Boolean(process.env.SMTP_HOST) || devMode();
 }
 
 // One-line status logged at boot so it's obvious whether outbound email is live.
 // (Without this the mailer only warns on the FIRST send attempt — easy to miss.)
 export function logMailerStatus() {
-  if (process.env.SMTP_HOST) {
+  if (resendConfigured()) {
+    console.log(`[mailer] Resend enabled (from: ${fromAddress()})`);
+  } else if (process.env.SMTP_HOST) {
     const port = Number(process.env.SMTP_PORT) || 587;
     console.log(`[mailer] SMTP enabled — ${process.env.SMTP_HOST}:${port} (from: ${fromAddress()})`);
   } else if (devMode()) {
     console.log('[mailer] MAIL_DEV mode — Ethereal test inbox, no real delivery.');
   } else {
-    console.warn('[mailer] SMTP disabled (SMTP_HOST empty) — emails are no-ops. Set SMTP_* in .env and restart to enable.');
+    console.warn('[mailer] Mail disabled (no RESEND_API_KEY or SMTP_HOST) — emails are no-ops. Set one in .env and restart to enable.');
   }
+}
+
+async function sendViaResend({ to, subject, text, html }) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ from: fromAddress(), to, subject, text, html })
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Resend ${res.status}: ${body.slice(0, 300)}`);
+  }
+  return true;
 }
 
 async function getTransport() {
@@ -72,10 +101,13 @@ export async function sendMail({ to, subject, text, html }) {
   if (!to) return false;
   if (!isConfigured()) {
     if (!warnedDisabled) {
-      console.warn('[mailer] SMTP not configured (SMTP_HOST empty) — email disabled; sends are no-ops.');
+      console.warn('[mailer] Mail not configured (no RESEND_API_KEY or SMTP_HOST) — email disabled; sends are no-ops.');
       warnedDisabled = true;
     }
     return false;
+  }
+  if (resendConfigured()) {
+    return sendViaResend({ to, subject, text, html });
   }
   const info = await (await getTransport()).sendMail({ from: fromAddress(), to, subject, text, html });
   const preview = nodemailer.getTestMessageUrl(info);
