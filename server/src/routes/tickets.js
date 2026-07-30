@@ -122,10 +122,14 @@ async function canApprove(user, ticket) {
 
 // Full-edit rights on a specific work order (status/priority/reassign, notes, KB,
 // attachments): staff work the whole queue; a department manager gets the same
-// powers for work orders routed to the department they head. Async because the
-// manager check hits the departments table.
+// powers for work orders routed to the department they head; the assignee and
+// any member of the department the work order is routed to can also edit it.
+// Async because the manager check hits the departments table.
 async function canManageTicket(user, ticket) {
-  return isStaff(user) || (await managesDepartment(user?.sub, ticket?.department));
+  if (isStaff(user)) return true;
+  if (userIdentities(user).includes(ticket?.assignee)) return true;
+  if (sameDepartment(user, ticket)) return true;
+  return await managesDepartment(user?.sub, ticket?.department);
 }
 
 router.get('/', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
