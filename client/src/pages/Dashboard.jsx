@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, getUser, hasPermission } from '../lib/auth.js';
+import { api, getUser } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
 import { slaPill } from '../lib/sla.js';
 import DashboardHeader from '../components/DashboardHeader.jsx';
@@ -384,33 +384,17 @@ function MyWorkItems() {
 }
 
 function UserDashboard({ user }) {
-  const [tickets, setTickets] = useState([]);
   const [requests, setRequests] = useState([]);
-  const [kb, setKb] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const canViewAssets = hasPermission('assets', 'view', user);
 
   useEffect(() => {
-    Promise.all([
-      api('/api/tickets'),
-      canViewAssets ? api('/api/asset-requests') : Promise.resolve([]),
-      api('/api/kb')
-    ])
-      .then(([t, r, k]) => {
-        setTickets(Array.isArray(t) ? t : []);
-        setRequests(Array.isArray(r) ? r : []);
-        setKb(Array.isArray(k) ? k : []);
-      })
+    api('/api/asset-requests')
+      .then((r) => setRequests(Array.isArray(r) ? r : []))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [canViewAssets]);
+  }, []);
 
-  const identities = [user?.name, user?.email].filter(Boolean);
-  const mine = tickets;
-  const openMine = mine.filter((t) => t.status !== 'closed' && t.status !== 'resolved');
-  const awaitingMe = mine.filter((t) => t.status === 'pending' && identities.includes(t.requester));
-  const pendingRequests = requests.filter((r) => r.status === 'pending');
   const greeting = getGreeting();
 
   return (
@@ -420,33 +404,7 @@ function UserDashboard({ user }) {
       <main className="container-app py-6 sm:py-10 space-y-6 sm:space-y-8">
         <AnnouncementsBanner canManage={user?.role === 'admin' || (user?.department || '').trim().toUpperCase() === 'IT'} />
 
-        <section className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <span className="eyebrow">Overview</span>
-            <h1 className="mt-2 text-2xl sm:text-3xl font-bold tracking-tight text-brand-900 dark:text-slate-100">
-              {greeting}, {user?.name?.split(' ')[0] || 'there'}.
-            </h1>
-            <p className="mt-1 text-slate-600 dark:text-slate-400">
-              Signed in as <span className="font-mono text-slate-700 dark:text-slate-300">{user?.email}</span>
-              {user?.department && <> · <span>{user.department}</span></>}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link to="/tickets/create" className="btn-primary !px-3.5 !py-2 text-xs">
-              <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              New Work Order
-            </Link>
-            <Link to="/tickets/create-incident" className="btn-secondary !px-3.5 !py-2 text-xs">
-              <svg className="h-4 w-4 mr-1.5 text-rose-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 3l9 16H3L12 3z" />
-                <path d="M12 10v4M12 17h.01" />
-              </svg>
-              Report Incident
-            </Link>
-          </div>
-        </section>
+        <PortalHero user={user} greeting={greeting} />
 
         {error && (
           <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:ring-rose-900 dark:text-rose-300">
@@ -454,147 +412,10 @@ function UserDashboard({ user }) {
           </div>
         )}
 
-        <section className={`grid gap-5 ${canViewAssets ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
-          <StatCard
-            label="Your open work orders"
-            value={openMine.length}
-            sub={`${mine.length} total · ${awaitingMe.length} waiting on you`}
-            tone="amber"
-            icon={
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15a4 4 0 0 1-4 4H8l-5 4V6a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v9z" />
-              </svg>
-            }
-          />
-          {canViewAssets && (
-            <StatCard
-              label="Asset requests"
-              value={pendingRequests.length}
-              sub={`${requests.length} total · ${pendingRequests.length} pending review`}
-              tone="brand"
-              icon={
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 13h5l2 3h4l2-3h5" />
-                  <path d="M5 13V5h14v8" />
-                </svg>
-              }
-            />
-          )}
-          <StatCard
-            label="KB articles"
-            value={kb.length}
-            sub="available to read"
-            tone="accent"
-            icon={
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 4h12a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4V4z" />
-                <path d="M4 16a4 4 0 0 1 4-4h12" />
-              </svg>
-            }
-          />
-        </section>
-
-        <section className="grid gap-5 lg:grid-cols-3">
-          <div className="lg:col-span-2 rounded-lg border border-slate-200 bg-white shadow-card dark:bg-slate-900 dark:border-slate-800">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
-              <div>
-                <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Your recent work orders</h2>
-                <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">Work orders you opened or are assigned to</p>
-              </div>
-              <Link to="/tickets/submitted" className="text-xs font-semibold text-accent-700 hover:text-accent-800 dark:text-accent-400 dark:hover:text-accent-300">
-                View all →
-              </Link>
-            </div>
-            {loading ? (
-              <div className="px-5 py-10 text-center text-sm text-slate-500 dark:text-slate-400">Loading…</div>
-            ) : mine.length === 0 ? (
-              <EmptyState
-                title="No work orders yet"
-                desc="Open one and it'll show up here. We'll keep you posted on updates."
-                cta={{ to: '/tickets/create', label: 'Open your first work order' }}
-              />
-            ) : (
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {mine.slice(0, 6).map((t) => (
-                  <li key={t.id}>
-                    <Link
-                      to={`/tickets/${t.id}`}
-                      className="block px-5 py-3 text-sm hover:bg-slate-50/60 dark:hover:bg-slate-800/40"
-                    >
-                      <div className="flex flex-col gap-1.5 sm:grid sm:grid-cols-12 sm:items-center sm:gap-3">
-                        <div className="flex items-center justify-between gap-2 sm:col-span-2">
-                          <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{formatTicketId(t.id)}</span>
-                          <span className="sm:hidden">
-                            <StatusPill status={t.status} />
-                          </span>
-                        </div>
-                        <span className="min-w-0 sm:col-span-3">
-                          <span className="block truncate text-slate-800 dark:text-slate-200">{t.title}</span>
-                          <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
-                            {t.assignee ? `Technician: ${t.assignee}` : 'Unassigned'}
-                          </span>
-                        </span>
-                        <span className="hidden min-w-0 sm:block sm:col-span-2">
-                          {t.category ? (
-                            <span className="inline-block max-w-full truncate rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300" title={t.category}>
-                              {t.category}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-slate-400">—</span>
-                          )}
-                        </span>
-                        <span className="sm:col-span-2">
-                          <SlaPill ticket={t} />
-                        </span>
-                        <span className="sm:col-span-1">
-                          <PriorityPill priority={t.priority} />
-                        </span>
-                        <span className="hidden sm:block sm:col-span-2 sm:text-right">
-                          <StatusPill status={t.status} />
-                        </span>
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div className="rounded-lg border border-slate-200 bg-white shadow-card dark:bg-slate-900 dark:border-slate-800">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
-              <div>
-                <h2 className="text-sm font-semibold text-brand-900 dark:text-slate-100">Latest articles</h2>
-                <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">From the knowledge base</p>
-              </div>
-              <Link to="/kb/all" className="text-xs font-semibold text-accent-700 hover:text-accent-800 dark:text-accent-400 dark:hover:text-accent-300">
-                Browse →
-              </Link>
-            </div>
-            {loading ? (
-              <div className="px-5 py-10 text-center text-sm text-slate-500 dark:text-slate-400">Loading…</div>
-            ) : kb.length === 0 ? (
-              <EmptyState title="No articles yet" desc="Check back later — IT publishes guides here." />
-            ) : (
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {kb.slice(0, 4).map((a) => (
-                  <li key={a.id} className="px-5 py-3 text-sm hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                    <Link to={`/kb/${a.slug}`} className="block">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-slate-800 truncate dark:text-slate-200">{a.title}</span>
-                        {isNewArticle(a) && <NewBadge />}
-                      </div>
-                      <div className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">{a.category || 'General'}</div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </section>
+        <PortalTiles />
 
         <MyWorkItems />
 
-        {canViewAssets && (
         <section className="rounded-lg border border-slate-200 bg-white shadow-card dark:bg-slate-900 dark:border-slate-800">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
             <div>
@@ -640,9 +461,131 @@ function UserDashboard({ user }) {
             </ul>
           )}
         </section>
-        )}
       </main>
     </div>
+  );
+}
+
+// Teal-gradient hero banner for the self-service portal home. The search bar
+// is a trigger for the existing ⌘K GlobalSearch palette (see the
+// 'hubly:open-search' listener in GlobalSearch.jsx) rather than a second
+// search implementation.
+function PortalHero({ user, greeting }) {
+  return (
+    <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-sky-400 via-blue-600 to-brand-900 px-6 py-10 text-center shadow-card sm:py-14">
+      <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
+        Welcome to the Self-Service Portal
+      </h1>
+      <p className="mt-2 text-sm text-white/85">
+        {greeting}, {user?.name?.split(' ')[0] || 'there'}. Signed in as{' '}
+        <span className="font-mono">{user?.email}</span>
+        {user?.department && <> · {user.department}</>}
+      </p>
+      <button
+        type="button"
+        onClick={() => window.dispatchEvent(new Event('hubly:open-search'))}
+        className="mx-auto mt-6 flex w-full max-w-xl items-center gap-3 rounded-full bg-white px-5 py-3 text-left shadow-md transition hover:shadow-lg dark:bg-slate-900"
+      >
+        <svg className="h-4 w-4 shrink-0 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="11" cy="11" r="8" />
+          <path d="M21 21l-4.35-4.35" />
+        </svg>
+        <span className="text-sm text-slate-400 dark:text-slate-500">What are you looking for?</span>
+      </button>
+    </section>
+  );
+}
+
+// The six self-service tiles. Raising an asset request is open to any signed-in
+// user (same as the /assets/request route and its API) — it isn't gated by the
+// assets module's 'view' permission, which is about seeing the inventory instead.
+function PortalTiles() {
+  const tiles = [
+    {
+      to: '/tickets/create',
+      label: 'Raise a Request',
+      desc: 'Raise a service request from a list of Services.',
+      icon: (
+        <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="9" cy="21" r="1" />
+          <circle cx="20" cy="21" r="1" />
+          <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+        </svg>
+      )
+    },
+    {
+      to: '/tickets/create-incident',
+      label: 'Log an Incident',
+      desc: 'Click here to raise a new Incident.',
+      icon: (
+        <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3l9 16H3L12 3z" />
+          <path d="M12 10v4M12 17h.01" />
+        </svg>
+      )
+    },
+    {
+      to: '/tickets/submitted',
+      label: 'My Work Orders',
+      desc: 'View your open and recently closed work orders, and track their progress.',
+      icon: (
+        <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 12h6M9 16h6M9 8h6M5 3h14a1 1 0 0 1 1 1v16l-3-2-3 2-3-2-3 2V4a1 1 0 0 1 1-1z" />
+        </svg>
+      )
+    },
+    {
+      to: '/kb/all',
+      label: 'Knowledge Base',
+      desc: 'View our frequently asked questions and help documentation.',
+      icon: (
+        <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 2-3 4" />
+          <path d="M12 17h.01" />
+        </svg>
+      )
+    },
+    {
+      to: '/kb/troubleshooting',
+      label: 'Troubleshooting Guide',
+      desc: 'Step-by-step fixes for common issues.',
+      icon: (
+        <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <circle cx="12" cy="12" r="4" />
+          <path d="m4.93 4.93 4.24 4.24M14.83 14.83l4.24 4.24M14.83 9.17l4.24-4.24M4.93 19.07l4.24-4.24" />
+        </svg>
+      )
+    },
+    {
+      to: '/assets/request',
+      label: 'Asset Request',
+      desc: 'Request new or replacement equipment from IT.',
+      icon: (
+        <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+        </svg>
+      )
+    }
+  ];
+
+  return (
+    <section className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      {tiles.map((t) => (
+        <Link
+          key={t.to}
+          to={t.to}
+          className="group flex flex-col items-center rounded-lg border border-slate-200 bg-white p-6 text-center shadow-card transition hover:-translate-y-px hover:border-blue-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-blue-500/40"
+        >
+          <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-sky-400 via-blue-600 to-brand-900 text-white shadow-sm transition group-hover:brightness-110">
+            {t.icon}
+          </span>
+          <h3 className="mt-4 text-sm font-semibold text-brand-800 dark:text-slate-100">{t.label}</h3>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{t.desc}</p>
+        </Link>
+      ))}
+    </section>
   );
 }
 

@@ -69,6 +69,15 @@ export default function GlobalSearch() {
     return () => window.removeEventListener('keydown', onKey);
   }, [me]);
 
+  // Other components (e.g. the self-service portal search bar on the dashboard)
+  // can open the palette without duplicating the search UI.
+  useEffect(() => {
+    if (!me) return;
+    const onOpen = () => setOpen(true);
+    window.addEventListener('hubly:open-search', onOpen);
+    return () => window.removeEventListener('hubly:open-search', onOpen);
+  }, [me]);
+
   // Focus the input + reset state when opening.
   useEffect(() => {
     if (open) {

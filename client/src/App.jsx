@@ -363,7 +363,7 @@ export default function App() {
       <Route
         path="/assets/request"
         element={
-          <ProtectedRoute permission={['assets', 'view']}>
+          <ProtectedRoute>
             <AssetRequest />
           </ProtectedRoute>
         }
