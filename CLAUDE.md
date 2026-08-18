@@ -9,7 +9,45 @@ This file gives Claude codebase-specific instructions for working in this reposi
 - **Primary stack:** React 18 + Vite + Tailwind (client), Node.js + Express + mysql2 (server)
 - **Database:** MySQL 8 / MariaDB (XAMPP on `localhost:3306`)
 - **Runtime(s):** Node.js 18+
-- **Package manager(s):** npm (separate `client/` and `server/` workspaces — no monorepo tooling)
+- **Package manager(s):** npm (separate `client/` and `server/` workspaces — no monorepo tooling); Composer for the parallel `server-laravel/` backend (see below)
+
+## Laravel backend port (`server-laravel/`)
+
+A **feature-complete parallel port** of `server/` to Laravel 11 (PHP 8.2), living
+alongside the Node backend — not yet deployed, not yet the live backend. It
+exists because the team wants to move backend hosting off Railway onto
+**Hostinger shared hosting** for cost reasons, and shared hosting can't run a
+persistent Node process. `server/` (Node/Express, on Railway) remains the
+canonical, live production backend until an explicit cutover happens (see
+`server-laravel/DEPLOYMENT.md`'s cutover steps) — **treat `server/` as the
+source of truth for current behavior**, and don't assume `server-laravel/` has
+picked up any `server/` change made after it was built.
+
+- **Status:** all 5 build phases done (auth → core ticketing → SLA/automation
+  → everything else → parity-verified against the live Node backend). Full
+  build log, phase-by-phase, in `server-laravel/README.md`; deployment runbook
+  in `server-laravel/DEPLOYMENT.md`.
+- **Scope cuts** (deliberate product decisions, not gaps): no realtime/chat
+  (Socket.IO + Team Chat dropped entirely), no idle-triggered automation +
+  its scheduler, no recurring-maintenance work orders. Everything else in
+  this file's Domain model / API surface has a Laravel counterpart.
+- **Shares the same MySQL database** as `server/` (`mainframe_app`) — same
+  `server/sql/schema.sql`, no Eloquent migrations of its own, and it must
+  **never** run `artisan migrate` against it.
+- **Conventions differ from `server/` on purpose**: raw `DB::table()` query
+  builder (no Eloquent/ORM) to stay close to the hand-tuned parameterized
+  SQL this file documents; JWT auth ported 1:1 (same cookie name/shape);
+  avatar/icon image processing uses `gd` via Intervention Image instead of
+  `sharp` (HEIC/AVIF uploads aren't supported there — PNG/JPEG/GIF/WebP are).
+- Two Node bugs were found and fixed during the port rather than reproduced
+  — see `server-laravel/README.md`'s Phase 4 notes (a silently-dropped
+  `ticket_activity` entry on resolution-survey send, and KB article images
+  being unviewable due to a missing `upload-access.js` category) and Phase 5
+  notes (an env-var boolean-casting bug affecting `UNIFI_OS`/
+  `UNIFI_INSECURE_TLS`, found while wiring up `TRUST_PROXY`).
+- If you're asked to change backend behavior and both directories exist,
+  **confirm with the user whether the change should land in `server/`,
+  `server-laravel/`, or both** — don't assume silently.
 
 ## Repository structure
 
@@ -45,6 +83,10 @@ new-mainframe/
 │       ├── middleware/        auth.js (JWT auth + role/permission gates), rateLimit.js
 │       └── routes/            auth, users, tickets, maintenance, assets, kb, asset-requests,
 │                              departments, password-resets, chat, network, notifications, automation, audit, sla
+├── server-laravel/            Parallel Laravel 11 (PHP) port of server/ — see
+│                              "Laravel backend port" above. Not yet deployed;
+│                              server/ is still the live backend. Own README.md
+│                              (build log) + DEPLOYMENT.md (Hostinger runbook).
 └── README.md
 ```
 
@@ -249,6 +291,16 @@ cd server && npm test
 ```
 
 Currently covers the permission logic (`src/lib/permissions.js`), ticket visibility, spaces helpers, the automation engine's pure helpers (`src/lib/automation.js` — condition matching + action/condition normalization), the SLA policy resolution (`src/lib/sla-policies.js` — `pickPolicy`/`effectiveTargets`/`sanitizePolicy`), and the business-hours math (`src/lib/business-hours.js` — `businessMsBetween`, incl. weekends/holidays/clipping). No linter is configured yet, and there is no frontend test runner — propose the framework before installing one.
+
+## Deployment
+
+Production is a **split-origin** deployment: static frontend on **Hostinger**, API + MySQL on **Railway**. They share the same registrable domain (`eljincorp.com`) on purpose, so the auth cookie stays `SameSite=Lax` (same-site) with no cookie code changes.
+
+- **Frontend — Hostinger** (`hubly.eljincorp.com`, docroot `public_html/hubly`, subdomain via an ALIAS/CNAME DNS record): build with `cd client && npm run build`, then upload the contents of `client/dist/` into `public_html/hubly`. `client/public/.htaccess` (copied into `dist/` by the build) handles SPA fallback routing. There is no CI/CD for this leg — it's a manual build + upload.
+- **Backend — Railway** (`api.eljincorp.com`, Railway custom domain via CNAME + a `_railway-verify.<sub>` TXT record): deploys from this GitHub repo — a push to `main` triggers Railway's own build/deploy, so `git push` is normally sufficient once Railway's GitHub integration is connected. Required environment variables: `JWT_SECRET` (32+ chars), `DB_*`, `NODE_ENV=production`, `TRUST_PROXY=1` (so `req.ip` reflects the real client behind Railway's proxy — see Security/rate limiting above), `CORS_ORIGINS=https://hubly.eljincorp.com`. Needs a **Volume mounted at `server/uploads`** (the filesystem is otherwise ephemeral and attachments/avatars would be lost on redeploy) and must run at **1 replica only** — the in-memory rate limiter, chat typing indicators, and Socket.IO state are single-process and don't share across replicas.
+- **Client → API wiring:** the client is origin-aware via `client/src/lib/config.js` (`API_BASE` from `VITE_API_URL`, `apiUrl()`, `rewriteUploadUrls()` for `/uploads/...` URLs in API responses), used by `api()` in `lib/auth.js` and `io()` in `lib/useSocket.jsx`. `client/.env.production` sets `VITE_API_URL=https://api.eljincorp.com` (a public URL, not a secret) and is picked up automatically by `npm run build`. In dev, `VITE_API_URL` is unset so calls stay same-origin through the Vite proxy.
+- Changing only backend code needs just a Railway deploy (push to `main`); changing client code needs a rebuild + re-upload to Hostinger too — do both when a change touches `client/`.
+- **Planned migration:** the backend leg (Railway) is expected to move to Hostinger shared hosting for cost reasons. A feature-complete Laravel replacement already exists at `server-laravel/` (see "Laravel backend port" above) with its own deployment runbook (`server-laravel/DEPLOYMENT.md`) — this hasn't happened yet, so treat Railway/Node as current reality until told otherwise.
 
 ## Database and migrations
 

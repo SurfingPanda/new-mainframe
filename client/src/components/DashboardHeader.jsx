@@ -8,7 +8,6 @@ import FloatingChat from './FloatingChat.jsx';
 import GlobalSearch from './GlobalSearch.jsx';
 import { usePendingResetCount } from '../lib/usePendingResetCount.js';
 import { useWorkOrderNotifications } from '../lib/useWorkOrderNotifications.js';
-import { useChatUnread } from '../lib/useChatUnread.js';
 import { useMailboxUnread } from '../lib/useMailboxUnread.js';
 import Modal from './Modal.jsx';
 
@@ -85,7 +84,6 @@ export default function DashboardHeader() {
   const usersSections = usersMenu(pendingResets, user?.role === 'admin');
   const workOrderAlerts = useWorkOrderNotifications(hasPermission('tickets', 'view', user));
   const workOrderByView = workOrderAlerts.byView;
-  const chatUnread = useChatUnread(!!user);
   const mailUnread = useMailboxUnread(!!user);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -148,25 +146,6 @@ export default function DashboardHeader() {
               Spaces
             </NavLink>
           )}
-          <NavLink
-            to="/chat"
-            className={({ isActive }) =>
-              `relative rounded-md px-2 py-1.5 text-sm font-medium transition-colors ${
-                isActive
-                  ? 'text-brand-900 bg-slate-100 dark:text-white dark:bg-slate-800'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800'
-              }`
-            }
-          >
-            <span className="inline-flex items-center gap-1.5">
-              Chat Room
-              {chatUnread > 0 && (
-                <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white">
-                  {chatUnread > 9 ? '9+' : chatUnread}
-                </span>
-              )}
-            </span>
-          </NavLink>
           {canManageUsers && (
             <NavDropdown label="Users" basePath="/users" sections={usersSections} badge="Admin" />
           )}
@@ -196,7 +175,7 @@ export default function DashboardHeader() {
       </div>
 
       {mobileOpen && (
-        <MobileNav user={user} usersSections={usersSections} workOrderByView={workOrderByView} chatUnread={chatUnread} mailUnread={mailUnread} onClose={() => setMobileOpen(false)} />
+        <MobileNav user={user} usersSections={usersSections} workOrderByView={workOrderByView} mailUnread={mailUnread} onClose={() => setMobileOpen(false)} />
       )}
     </header>
 
@@ -237,7 +216,7 @@ export default function DashboardHeader() {
   );
 }
 
-function MobileNav({ user, usersSections, workOrderByView = {}, chatUnread = 0, mailUnread = 0, onClose }) {
+function MobileNav({ user, usersSections, workOrderByView = {}, mailUnread = 0, onClose }) {
   const sections = [];
   sections.push({
     heading: 'Overview',
@@ -258,7 +237,6 @@ function MobileNav({ user, usersSections, workOrderByView = {}, chatUnread = 0, 
   sections.push({
     heading: 'Messages',
     items: [
-      { to: '/chat', label: 'Chat Room', desc: 'Team-wide messaging', badge: chatUnread },
       { to: '/mailbox', label: 'Mailbox', desc: 'Internal messages — inbox & sent', badge: mailUnread }
     ]
   });
