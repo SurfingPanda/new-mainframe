@@ -68,6 +68,7 @@ const upload = multer({
   }
 });
 
+const MAX_BULK_IDS = 100;
 const ALLOWED_PRIORITIES = ['low', 'normal', 'high', 'urgent'];
 const ALLOWED_STATUSES = ['open', 'in_progress', 'on_hold', 'pending', 'resolved', 'closed'];
 const ALLOWED_REQUEST_TYPES = ['incident', 'service_request', 'question', 'change'];
@@ -455,6 +456,115 @@ router.patch('/:id', requireAuth, requirePermission('tickets', 'view'), async (r
     // HR Concerns are excluded (see the create hook).
     if (updatedRows[0].category !== HR_CONCERNS) {
       runAutomations('ticket.updated', updatedRows[0], { actor });
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/tickets/bulk — apply one field change (status/priority/assignee)
+// across multiple tickets in one request. Deliberately narrower than PATCH
+// /:id's full EDITABLE_FIELDS — these are the 3 fields worth batch-editing
+// from a list view. Each ticket is independently authorized and reported, so
+// a caller with mixed access (e.g. browsing "All Work Orders") gets a partial
+// result rather than an all-or-nothing failure.
+const BULK_FIELDS = ['status', 'priority', 'assignee'];
+
+router.post('/bulk', requireAuth, requirePermission('tickets', 'view'), writeLimiter, async (req, res, next) => {
+  try {
+    const { field, value } = req.body || {};
+    if (!BULK_FIELDS.includes(field)) {
+      return res.status(400).json({ error: `field must be one of: ${BULK_FIELDS.join(', ')}` });
+    }
+    const rules = EDITABLE_FIELDS[field];
+
+    // Normalize/validate the target value once, up front — a single bad value
+    // 400s the whole request rather than silently skipping every ticket.
+    let nextValue;
+    if (value === null || value === undefined || value === '') {
+      if (!rules.nullable) {
+        return res.status(400).json({ error: `${field} cannot be empty` });
+      }
+      nextValue = null;
+    } else {
+      nextValue = String(value).trim();
+      if (rules.max) nextValue = nextValue.slice(0, rules.max);
+      if (rules.enum && !rules.enum.includes(nextValue)) {
+        return res.status(400).json({ error: `invalid ${field}` });
+      }
+    }
+
+    const rawIds = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    const ids = [...new Set(rawIds.map(Number))].filter((n) => Number.isInteger(n) && n > 0);
+    if (!ids.length) {
+      return res.status(400).json({ error: 'ids must be a non-empty array of ticket ids' });
+    }
+    if (ids.length > MAX_BULK_IDS) {
+      return res.status(400).json({ error: `cannot update more than ${MAX_BULK_IDS} tickets at once` });
+    }
+
+    const actor = req.user?.name || req.user?.email || 'system';
+    const updated = [];
+    const skipped = [];
+    const sideEffects = []; // { ticket, changes, previousStatus } — run after the response is sent
+
+    for (const id of ids) {
+      const [rows] = await pool.query(
+        `SELECT id, title, description, status, priority, request_type, category, subcategory, subcategory2, department,
+                requester, assignee, asset_id, overtime_report, created_at, updated_at
+           FROM tickets WHERE id = ?`,
+        [id]
+      );
+      const before = rows[0];
+      if (!before) {
+        skipped.push({ id, reason: 'not_found' });
+        continue;
+      }
+      if (!(await canManageTicket(req.user, before))) {
+        skipped.push({ id, reason: 'forbidden' });
+        continue;
+      }
+
+      const prev = before[field] == null ? null : before[field];
+      if ((prev ?? null) === (nextValue ?? null)) {
+        skipped.push({ id, reason: 'unchanged' });
+        continue;
+      }
+
+      await pool.query(`UPDATE tickets SET ${field} = ? WHERE id = ?`, [nextValue, id]);
+      await pool.query(
+        `INSERT INTO ticket_activity (ticket_id, type, actor, field, old_value, new_value)
+         VALUES (?, 'change', ?, ?, ?, ?)`,
+        [id, actor, field, prev == null ? null : String(prev).slice(0, 500), nextValue == null ? null : String(nextValue).slice(0, 500)]
+      );
+
+      const [afterRows] = await pool.query(
+        `SELECT id, title, description, status, priority, request_type, category, subcategory, subcategory2, department,
+                requester, assignee, asset_id, overtime_report, created_at, updated_at
+           FROM tickets WHERE id = ?`,
+        [id]
+      );
+      updated.push(id);
+      sideEffects.push({
+        ticket: afterRows[0],
+        changes: [{ field, oldValue: prev, newValue: nextValue }],
+        previousStatus: before.status
+      });
+    }
+
+    res.json({ updated, skipped });
+
+    // Fire-and-forget side effects, mirroring PATCH /:id (emails, real-time
+    // notifications, survey invite, automation) — run after the response.
+    for (const { ticket, changes, previousStatus } of sideEffects) {
+      notifyTicketChanges(ticket, changes, actor);
+      if (changes.some((c) => c.field === 'status' && c.newValue === 'resolved')) {
+        maybeSendResolutionSurvey(ticket, previousStatus);
+      }
+      emitTicketNotifications(ticket, changes);
+      if (ticket.category !== HR_CONCERNS) {
+        runAutomations('ticket.updated', ticket, { actor });
+      }
     }
   } catch (err) {
     next(err);
@@ -996,6 +1106,164 @@ router.delete('/:id/kb/:articleId', requireAuth, requirePermission('tickets', 'v
       `INSERT INTO ticket_activity (ticket_id, type, actor, field, old_value)
        VALUES (?, 'change', ?, 'kb_unlink', ?)`,
       [id, actor, String(articleTitle).slice(0, 500)]
+    );
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Watchers ---------------------------------------------------------
+// Third parties (managers, coworkers who reported an issue secondhand) can
+// follow a ticket's activity without being its requester/assignee. Blocked
+// entirely on 'HR Concerns' (need-to-know) — category is immutable after
+// creation (see the reclassification guard in PATCH /:id above), so this is
+// a stable, once-only check, not something that reacts to approval_status.
+
+router.get('/:id/watchers', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'invalid ticket id' });
+    }
+
+    const [ownerRows] = await pool.query(
+      'SELECT requester, assignee, department, category, approval_status, approval_dept FROM tickets WHERE id = ? LIMIT 1',
+      [id]
+    );
+    if (!ownerRows.length) return res.status(404).json({ error: 'Ticket not found' });
+    if (!(await canReadTicket(req.user, ownerRows[0]))) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+
+    const [rows] = await pool.query(
+      `SELECT u.id, u.name, u.email, u.avatar_url, u.department,
+              w.added_by, w.added_at
+         FROM ticket_watchers w
+         JOIN users u ON u.id = w.user_id
+        WHERE w.ticket_id = ? AND u.is_active = 1
+        ORDER BY w.added_at ASC`,
+      [id]
+    );
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/tickets/:id/watchers — { user_id } optional. Omitted (or equal to
+// the caller's own id) = self-subscribe, gated on canReadTicket (anyone who
+// can already see the ticket may opt in). Any OTHER user_id = adding someone
+// else as a watcher, gated on canManageTicket (staff/assignee/dept
+// member/dept manager — mirrors the KB-link permission).
+router.post('/:id/watchers', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'invalid ticket id' });
+    }
+
+    const [tRows] = await pool.query(
+      'SELECT id, requester, assignee, department, category, approval_status, approval_dept FROM tickets WHERE id = ? LIMIT 1',
+      [id]
+    );
+    if (!tRows.length) return res.status(404).json({ error: 'Ticket not found' });
+    const ticket = tRows[0];
+
+    const raw = req.body?.user_id;
+    const targetId = raw == null || raw === '' ? req.user.sub : Number(raw);
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      return res.status(400).json({ error: 'invalid user_id' });
+    }
+    const isSelf = targetId === req.user.sub;
+
+    // Check permission BEFORE the HR-Concerns block below, so an unauthorized
+    // caller gets the same 404/403 they'd get anywhere else on this ticket —
+    // never a message that incidentally confirms it's an HR Concern.
+    if (isSelf) {
+      if (!(await canReadTicket(req.user, ticket))) return res.status(404).json({ error: 'Ticket not found' });
+    } else if (!(await canManageTicket(req.user, ticket))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    if (ticket.category === HR_CONCERNS) {
+      return res.status(400).json({ error: "Watchers aren't available on 'HR Concerns' tickets." });
+    }
+
+    const [uRows] = await pool.query(
+      'SELECT id, name, email, avatar_url, department FROM users WHERE id = ? AND is_active = 1 LIMIT 1',
+      [targetId]
+    );
+    if (!uRows.length) return res.status(404).json({ error: 'User not found' });
+    const target = uRows[0];
+
+    const actor = req.user?.name || req.user?.email || 'system';
+    try {
+      await pool.query(
+        `INSERT INTO ticket_watchers (ticket_id, user_id, added_by) VALUES (?, ?, ?)`,
+        [id, targetId, actor]
+      );
+    } catch (err) {
+      if (err.code === 'ER_DUP_ENTRY') {
+        return res.status(409).json({ error: 'Already watching this ticket' });
+      }
+      throw err;
+    }
+
+    await pool.query(
+      `INSERT INTO ticket_activity (ticket_id, type, actor, field, new_value)
+       VALUES (?, 'change', ?, 'watcher_added', ?)`,
+      [id, actor, target.name.slice(0, 500)]
+    );
+
+    res.status(201).json({
+      id: target.id,
+      name: target.name,
+      email: target.email,
+      avatar_url: target.avatar_url,
+      department: target.department,
+      added_by: actor,
+      added_at: new Date().toISOString()
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/tickets/:id/watchers/:userId — anyone may remove THEMSELVES
+// regardless of continued read access (they were already watching); removing
+// someone else requires canManageTicket.
+router.delete('/:id/watchers/:userId', requireAuth, requirePermission('tickets', 'view'), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const userId = Number(req.params.userId);
+    if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: 'invalid ids' });
+    }
+
+    const [[ticket]] = await pool.query('SELECT id, department FROM tickets WHERE id = ? LIMIT 1', [id]);
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+    const isSelf = userId === req.user.sub;
+    if (!isSelf && !(await canManageTicket(req.user, ticket))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const [uRows] = await pool.query('SELECT name FROM users WHERE id = ? LIMIT 1', [userId]);
+    const watcherName = uRows[0]?.name || `User #${userId}`;
+
+    const [r] = await pool.query(
+      'DELETE FROM ticket_watchers WHERE ticket_id = ? AND user_id = ?',
+      [id, userId]
+    );
+    if (!r.affectedRows) return res.status(404).json({ error: 'Not watching this ticket' });
+
+    const actor = req.user?.name || req.user?.email || 'system';
+    await pool.query(
+      `INSERT INTO ticket_activity (ticket_id, type, actor, field, old_value)
+       VALUES (?, 'change', ?, 'watcher_removed', ?)`,
+      [id, actor, String(watcherName).slice(0, 500)]
     );
 
     res.json({ ok: true });

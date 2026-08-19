@@ -362,3 +362,12 @@ the deliberate scope cuts (realtime/chat, idle automation, recurring
 maintenance) agreed at the start of this project. What's left is entirely in
 the user's hands: working through `DEPLOYMENT.md` against a real Hostinger
 account.
+
+## Post-Phase-5 addition — Watchers
+
+Ported alongside the Node `ticket_watchers` feature
+(`TicketController::watchersIndex/watchersStore/watchersDestroy`,
+`routes/api.php`, `NotificationController`) — same table, same authorization
+rules (self-subscribe = `canReadTicket`, add/remove another user =
+`canManageTicket`, blocked on 'HR Concerns'). No new migration — the table is
+created by `server/sql/schema.sql` / Node's `ensureSchema()`, shared as usual.

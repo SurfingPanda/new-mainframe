@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import UserPicker from '../components/UserPicker.jsx';
+import Avatar from '../components/Avatar.jsx';
 import { api, getUser, updateStoredUser } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
 import { SLA_DAYS, RESOLVED_STATUSES, PAUSED_STATUSES as SLA_PAUSED_STATUSES } from '../lib/sla.js';
@@ -88,6 +89,7 @@ export default function TicketDetail() {
   const [draft, setDraft] = useState({});
   const [activity, setActivity] = useState([]);
   const [kbLinks, setKbLinks] = useState([]);
+  const [watchers, setWatchers] = useState([]);
   const [assignableUsers, setAssignableUsers] = useState([]);
   const [directoryUsers, setDirectoryUsers] = useState([]);
   const [deptList, setDeptList] = useState([]);
@@ -110,16 +112,18 @@ export default function TicketDetail() {
       api(`/api/tickets/${id}`),
       api(`/api/tickets/${id}/activity`).catch(() => []),
       api(`/api/tickets/${id}/kb`).catch(() => []),
+      api(`/api/tickets/${id}/watchers`).catch(() => []),
       api('/api/users/assignable').catch(() => []),
       api('/api/users/directory').catch(() => []),
       api('/api/departments').catch(() => [])
     ])
-      .then(([t, acts, kb, users, dir, depts]) => {
+      .then(([t, acts, kb, watch, users, dir, depts]) => {
         if (!active) return;
         setTicket(t);
         setDraft(makeDraft(t));
         setActivity(acts);
         setKbLinks(kb);
+        setWatchers(watch);
         setAssignableUsers(users);
         setDirectoryUsers(dir);
         setDeptList((depts || []).filter((d) => d.is_active).map((d) => d.name));
@@ -301,6 +305,19 @@ export default function TicketDetail() {
   const unlinkArticle = async (articleId) => {
     await api(`/api/tickets/${id}/kb/${articleId}`, { method: 'DELETE' });
     setKbLinks((prev) => prev.filter((a) => a.id !== articleId));
+  };
+
+  const addWatcher = async (userId) => {
+    const w = await api(`/api/tickets/${id}/watchers`, {
+      method: 'POST',
+      body: JSON.stringify(userId ? { user_id: userId } : {})
+    });
+    setWatchers((prev) => [...prev, w]);
+  };
+
+  const removeWatcher = async (userId) => {
+    await api(`/api/tickets/${id}/watchers/${userId}`, { method: 'DELETE' });
+    setWatchers((prev) => prev.filter((w) => w.id !== userId));
   };
 
   // Approve or deny a pending HR request (manager / staff). On approve the work
@@ -611,6 +628,17 @@ export default function TicketDetail() {
                   onLink={linkArticle}
                   onUnlink={unlinkArticle}
                 />
+
+                {ticket.category !== 'HR Concerns' && (
+                  <WatchersPanel
+                    watchers={watchers}
+                    canManage={canManage}
+                    currentUserId={me?.id}
+                    directoryUsers={directoryUsers}
+                    onAdd={addWatcher}
+                    onRemove={removeWatcher}
+                  />
+                )}
 
                 <ActivityPanel
                   activity={activity}
@@ -1074,6 +1102,157 @@ function KbLinkPanel({ links, canEdit, onLink, onUnlink }) {
                     className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 print:hidden"
                     aria-label="Unlink"
                     title="Unlink"
+                  >
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function WatchersPanel({ watchers, canManage, currentUserId, directoryUsers, onAdd, onRemove }) {
+  const [picking, setPicking] = useState(false);
+  const [query, setQuery] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const watcherIds = useMemo(() => new Set(watchers.map((w) => w.id)), [watchers]);
+  const isWatching = currentUserId != null && watcherIds.has(currentUserId);
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const pool = directoryUsers.filter((u) => !watcherIds.has(u.id));
+    const matches = q
+      ? pool.filter((u) => `${u.name} ${u.email || ''}`.toLowerCase().includes(q))
+      : pool;
+    return matches.slice(0, 25);
+  }, [directoryUsers, query, watcherIds]);
+
+  const toggleSelf = async () => {
+    setErr('');
+    setBusy(true);
+    try {
+      if (isWatching) await onRemove(currentUserId);
+      else await onAdd(null);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addOther = async (user) => {
+    setErr('');
+    try {
+      await onAdd(user.id);
+      setQuery('');
+    } catch (e) {
+      setErr(e.message);
+    }
+  };
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white shadow-card">
+      <header className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+        <div>
+          <h2 className="text-sm font-semibold text-brand-900">Watchers</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {watchers.length ? `${watchers.length} watching` : 'No watchers yet'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 print:hidden">
+          <button
+            type="button"
+            onClick={toggleSelf}
+            disabled={busy || currentUserId == null}
+            className="btn-secondary !px-2.5 !py-1.5 text-[11px] disabled:opacity-60"
+          >
+            {isWatching ? 'Unwatch' : 'Watch'}
+          </button>
+          {canManage && !picking && (
+            <button
+              type="button"
+              onClick={() => { setPicking(true); setErr(''); }}
+              className="btn-secondary !px-2.5 !py-1.5 text-[11px]"
+            >
+              + Add watcher
+            </button>
+          )}
+        </div>
+      </header>
+
+      {picking && (
+        <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 space-y-2 print:hidden">
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by name or email…"
+            className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
+          />
+          {err && <p className="text-xs text-rose-700">{err}</p>}
+          <div className="max-h-56 overflow-y-auto scrollbar-pretty rounded-md border border-slate-200 bg-white">
+            {results.length === 0 ? (
+              <p className="px-3 py-4 text-center text-xs italic text-slate-400">No matching users.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {results.map((u) => (
+                  <li key={u.id} className="flex items-center gap-2 px-3 py-2">
+                    <Avatar name={u.name} src={u.avatar_url} size="h-7 w-7" textClass="text-[10px]" className="flex-none" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-slate-800">{u.name}</p>
+                      <p className="text-[11px] text-slate-500">
+                        {u.email}{u.department ? ` · ${u.department}` : ''}
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => addOther(u)} className="btn-primary !px-2.5 !py-1 text-[11px]">
+                      Add
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => { setPicking(false); setQuery(''); setErr(''); }}
+              className="btn-ghost !px-2.5 !py-1.5 text-[11px]"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="p-5">
+        {watchers.length === 0 ? (
+          <p className="text-xs italic text-slate-400">No one is watching this work order yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {watchers.map((w) => (
+              <li key={w.id} className="flex items-center gap-2 rounded-md border border-slate-200 p-2">
+                <Avatar name={w.name} src={w.avatar_url} size="h-7 w-7" textClass="text-[10px]" className="flex-none" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-slate-800">{w.name}</p>
+                  <p className="text-[11px] text-slate-500">
+                    {w.email}{w.department ? ` · ${w.department}` : ''}
+                  </p>
+                </div>
+                {(canManage || w.id === currentUserId) && (
+                  <button
+                    type="button"
+                    onClick={() => onRemove(w.id)}
+                    className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 print:hidden"
+                    aria-label="Remove watcher"
+                    title="Remove watcher"
                   >
                     <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M18 6L6 18M6 6l12 12" />
@@ -1559,6 +1738,8 @@ function labelForField(field) {
     created: 'creation',
     kb_link: 'KB link',
     kb_unlink: 'KB link',
+    watcher_added: 'watcher',
+    watcher_removed: 'watcher',
     attachment_removed: 'attachment'
   };
   return map[field] || field;

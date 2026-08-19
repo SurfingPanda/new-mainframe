@@ -9,22 +9,32 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Ported from server/src/routes/asset-requests.js. List/create: any signed-in
- * user. Update: admin/agent. Delete: admin. See routes/api.php for the role
- * gates (this module predates the permission system — Node gates it by role,
- * not requirePermission — so this port matches with `role:` middleware).
+ * user. Update: IT reviewers only (see isAssetReviewer). Delete: admin. See
+ * routes/api.php for the delete role gate; update is gated inline here since
+ * it isn't a plain role check.
  */
 class AssetRequestController extends Controller
 {
     private const URGENCIES = ['low', 'normal', 'high', 'urgent'];
     private const STATUSES = ['pending', 'approved', 'denied', 'fulfilled'];
 
+    // Requests always route to IT, so reviewing/approving them is IT's job:
+    // any admin (global oversight, same carve-out as the announcements
+    // "manage" gate), or an agent who belongs to the IT department.
+    private static function isAssetReviewer(array $user): bool
+    {
+        if (($user['role'] ?? null) === 'admin') return true;
+        return ($user['role'] ?? null) === 'agent'
+            && strtoupper(trim((string) ($user['department'] ?? ''))) === 'IT';
+    }
+
     public function index(Request $request)
     {
         $user = $request->authUser();
-        $isStaff = in_array($user['role'] ?? null, ['admin', 'agent'], true);
+        $canReviewAll = self::isAssetReviewer($user);
 
         $query = DB::table('asset_requests');
-        if (!$isStaff) {
+        if (!$canReviewAll) {
             $query->where('requester_id', $user['sub']);
         }
         $status = $request->query('status');
@@ -67,13 +77,17 @@ class AssetRequestController extends Controller
 
     public function update(Request $request, string $id)
     {
+        $user = $request->authUser();
+        if (!self::isAssetReviewer($user)) {
+            return response()->json(['error' => 'Forbidden'], 403);
+        }
+
         $id = (int) $id;
         $status = $request->input('status');
         if (!$status || !in_array($status, self::STATUSES, true)) {
             return response()->json(['error' => 'Valid status is required'], 400);
         }
 
-        $user = $request->authUser();
         $affected = DB::table('asset_requests')->where('id', $id)->update([
             'status' => $status,
             'admin_notes' => $request->input('admin_notes') ?: null,

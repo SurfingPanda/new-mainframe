@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, getUser } from '../lib/auth.js';
+import { api, getUser, isAssetReviewer } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
 import { slaPill } from '../lib/sla.js';
 import DashboardHeader from '../components/DashboardHeader.jsx';
@@ -36,6 +36,8 @@ function StaffDashboard({ user }) {
   const [spaces, setSpaces] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const canReviewAssets = isAssetReviewer(user);
+  const [pendingAssetRequests, setPendingAssetRequests] = useState(0);
 
   useEffect(() => {
     Promise.all([
@@ -51,6 +53,13 @@ function StaffDashboard({ user }) {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!canReviewAssets) return;
+    api('/api/asset-requests?status=pending')
+      .then((r) => setPendingAssetRequests(Array.isArray(r) ? r.length : 0))
+      .catch(() => {});
+  }, [canReviewAssets]);
 
   const openTickets = tickets.filter((t) => t.status !== 'closed' && t.status !== 'resolved');
   const highPriority = tickets.filter((t) => t.priority === 'high' || t.priority === 'urgent').length;
@@ -98,7 +107,7 @@ function StaffDashboard({ user }) {
           </div>
         )}
 
-        <section className="grid gap-5 md:grid-cols-3">
+        <section className={`grid gap-5 md:grid-cols-3 ${canReviewAssets ? 'xl:grid-cols-4' : ''}`}>
           <StatCard
             label="Open work orders"
             value={openTickets.length}
@@ -136,6 +145,20 @@ function StaffDashboard({ user }) {
               </svg>
             }
           />
+          {canReviewAssets && (
+            <StatCard
+              label="Asset requests"
+              value={pendingAssetRequests}
+              sub="pending your review"
+              tone="brand"
+              to="/assets/approvals"
+              icon={
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                </svg>
+              }
+            />
+          )}
         </section>
 
         <section className="grid gap-5 lg:grid-cols-3">

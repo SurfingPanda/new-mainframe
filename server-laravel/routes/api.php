@@ -56,6 +56,11 @@ Route::prefix('tickets')->middleware('auth.jwt')->group(function () {
     Route::post('/', [TicketController::class, 'store'])
         ->middleware(['permission:tickets,create', 'throttle:ticket-write']);
 
+    // Literal path — must stay registered before the '/{id}' routes below so
+    // Laravel's router never captures 'bulk' as an {id} wildcard.
+    Route::post('/bulk', [TicketController::class, 'bulkUpdate'])
+        ->middleware(['permission:tickets,view', 'throttle:ticket-write']);
+
     Route::get('/{id}', [TicketController::class, 'show'])->middleware('permission:tickets,view');
     Route::patch('/{id}', [TicketController::class, 'update'])->middleware('permission:tickets,view');
 
@@ -74,6 +79,10 @@ Route::prefix('tickets')->middleware('auth.jwt')->group(function () {
     Route::get('/{id}/kb', [TicketController::class, 'kbIndex'])->middleware('permission:tickets,view');
     Route::post('/{id}/kb', [TicketController::class, 'kbStore'])->middleware('permission:tickets,view');
     Route::delete('/{id}/kb/{articleId}', [TicketController::class, 'kbDestroy'])->middleware('permission:tickets,view');
+
+    Route::get('/{id}/watchers', [TicketController::class, 'watchersIndex'])->middleware('permission:tickets,view');
+    Route::post('/{id}/watchers', [TicketController::class, 'watchersStore'])->middleware('permission:tickets,view');
+    Route::delete('/{id}/watchers/{userId}', [TicketController::class, 'watchersDestroy'])->middleware('permission:tickets,view');
 });
 
 // Ported from server/src/routes/sla.js (phase 3). requirePermission('users','manage').
@@ -146,11 +155,12 @@ Route::prefix('assets')->middleware(['auth.jwt', 'permission:assets,view'])->gro
 });
 
 // Ported from server/src/routes/asset-requests.js (phase 4). List/create: any
-// signed-in user (role-gated in Node, not permission-gated — matched here).
+// signed-in user. Update is gated inline in the controller (IT reviewers
+// only — not a plain role check, see AssetRequestController::isAssetReviewer).
 Route::prefix('asset-requests')->middleware('auth.jwt')->group(function () {
     Route::get('/', [AssetRequestController::class, 'index']);
     Route::post('/', [AssetRequestController::class, 'store']);
-    Route::patch('/{id}', [AssetRequestController::class, 'update'])->middleware('role:admin,agent');
+    Route::patch('/{id}', [AssetRequestController::class, 'update']);
     Route::delete('/{id}', [AssetRequestController::class, 'destroy'])->middleware('role:admin');
 });
 

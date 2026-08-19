@@ -50,6 +50,10 @@ function describe(row, identitySet, dept) {
     message = `${actor} linked a KB article`;
   } else if (row.field === 'kb_unlink') {
     message = `${actor} unlinked a KB article`;
+  } else if (row.field === 'watcher_added') {
+    message = `${actor} added a watcher`;
+  } else if (row.field === 'watcher_removed') {
+    message = `${actor} removed a watcher`;
   } else if (row.field) {
     message = `${actor} updated the ${row.field.replace(/_/g, ' ')}`;
   } else {
@@ -90,9 +94,15 @@ router.get('/', requireAuth, async (req, res, next) => {
     const approvalClause = managedDepts.length
       ? " OR (t.approval_status = 'pending' AND t.approval_dept IN (?))"
       : '';
+    // Tickets the user watches (opted in, or added by someone with edit
+    // rights) also surface here — unconditional since any user could watch.
+    // 'HR Concerns' tickets can never appear via this clause since watchers
+    // are blocked at write time on them.
+    const watchClause = ' OR t.id IN (SELECT ticket_id FROM ticket_watchers WHERE user_id = ?)';
     const params = [identities, identities];
     if (dept) params.push(dept);
     if (managedDepts.length) params.push(managedDepts);
+    params.push(req.user.sub);
     params.push(identities);
 
     const [rows] = await pool.query(
@@ -102,7 +112,7 @@ router.get('/', requireAuth, async (req, res, next) => {
          FROM ticket_activity a
          JOIN tickets t ON t.id = a.ticket_id
         WHERE ( t.assignee IN (?)
-                OR (a.field = 'assignee' AND a.new_value IN (?))${deptClause}${approvalClause} )
+                OR (a.field = 'assignee' AND a.new_value IN (?))${deptClause}${approvalClause}${watchClause} )
           AND ( a.actor IS NULL OR a.actor NOT IN (?) )
           AND ( a.field IS NULL OR a.field <> 'survey_sent' )
         ORDER BY a.created_at DESC, a.id DESC

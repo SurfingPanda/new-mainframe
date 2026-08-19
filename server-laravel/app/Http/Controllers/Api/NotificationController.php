@@ -45,6 +45,8 @@ class NotificationController extends Controller
             $row->field === 'attachment_removed' => "{$actor} removed an attachment",
             $row->field === 'kb_link' => "{$actor} linked a KB article",
             $row->field === 'kb_unlink' => "{$actor} unlinked a KB article",
+            $row->field === 'watcher_added' => "{$actor} added a watcher",
+            $row->field === 'watcher_removed' => "{$actor} removed a watcher",
             !empty($row->field) => "{$actor} updated the " . str_replace('_', ' ', $row->field),
             default => "{$actor} updated this work order",
         };
@@ -71,7 +73,7 @@ class NotificationController extends Controller
             ->select('a.id', 'a.ticket_id', 'a.type', 'a.actor', 'a.field', 'a.new_value', 'a.created_at',
                 't.title as ticket_title', 't.assignee as ticket_assignee', 't.requester as ticket_requester',
                 't.department as ticket_department')
-            ->where(function ($q) use ($identities, $dept, $managedDepts) {
+            ->where(function ($q) use ($identities, $dept, $managedDepts, $user) {
                 $q->whereIn('t.assignee', $identities)
                     ->orWhere(fn ($q2) => $q2->where('a.field', 'assignee')->whereIn('a.new_value', $identities));
                 if ($dept) {
@@ -80,6 +82,12 @@ class NotificationController extends Controller
                 if ($managedDepts) {
                     $q->orWhere(fn ($q2) => $q2->where('t.approval_status', 'pending')->whereIn('t.approval_dept', $managedDepts));
                 }
+                // Tickets the user watches also surface here. 'HR Concerns'
+                // tickets can never appear via this clause since watchers are
+                // blocked at write time on them.
+                $q->orWhereIn('t.id', function ($sub) use ($user) {
+                    $sub->select('ticket_id')->from('ticket_watchers')->where('user_id', $user['sub']);
+                });
             })
             ->where(fn ($q) => $q->whereNull('a.actor')->orWhereNotIn('a.actor', $identities))
             ->where(fn ($q) => $q->whereNull('a.field')->orWhere('a.field', '<>', 'survey_sent'))

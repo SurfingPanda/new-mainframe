@@ -85,6 +85,18 @@ export function hasPermission(module, action, user = getUser()) {
   return !!ROLE_DEFAULTS[role][module]?.[action];
 }
 
+// Asset requests always route to IT, so reviewing/approving them is IT's job:
+// any admin (global oversight, same carve-out as the announcements "manage"
+// gate elsewhere in the app), or an agent who belongs to the IT department. A
+// plain 'user' role never qualifies, even if tagged department 'IT'. Mirrors
+// isAssetReviewer() in server/src/routes/asset-requests.js — the server is
+// the real gate, this is just for UI (nav/route) gating.
+export function isAssetReviewer(user = getUser()) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return user.role === 'agent' && (user.department || '').trim().toUpperCase() === 'IT';
+}
+
 export async function api(path, options = {}) {
   const isFormData = options.body instanceof FormData;
   // apiUrl() prefixes the backend origin in split deployments (no-op same-origin).

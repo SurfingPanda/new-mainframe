@@ -360,6 +360,96 @@ class TicketController extends Controller
         return response()->json($updated);
     }
 
+    // --- Bulk update -----------------------------------------------------
+    // Apply one field change (status/priority/assignee) across multiple
+    // tickets in one request. Deliberately narrower than EDITABLE_FIELDS —
+    // these are the 3 fields worth batch-editing from a list view. Each
+    // ticket is independently authorized and reported, so a caller with mixed
+    // access (e.g. browsing "All Work Orders") gets a partial result rather
+    // than an all-or-nothing failure.
+
+    private const BULK_FIELDS = ['status', 'priority', 'assignee'];
+    private const MAX_BULK_IDS = 100;
+
+    public function bulkUpdate(Request $request)
+    {
+        $field = $request->input('field');
+        if (!in_array($field, self::BULK_FIELDS, true)) {
+            return response()->json(['error' => 'field must be one of: ' . implode(', ', self::BULK_FIELDS)], 400);
+        }
+        $rules = self::EDITABLE_FIELDS[$field];
+
+        $raw = $request->input('value');
+        $nextValue = null;
+        if ($raw === null || $raw === '') {
+            if (empty($rules['nullable'])) {
+                return response()->json(['error' => "{$field} cannot be empty"], 400);
+            }
+        } else {
+            $nextValue = trim((string) $raw);
+            if (!empty($rules['max'])) {
+                $nextValue = mb_substr($nextValue, 0, $rules['max']);
+            }
+            if (!empty($rules['enum']) && !in_array($nextValue, $rules['enum'], true)) {
+                return response()->json(['error' => "invalid {$field}"], 400);
+            }
+        }
+
+        $rawIds = $request->input('ids');
+        $ids = is_array($rawIds)
+            ? array_values(array_unique(array_filter(array_map(fn ($v) => is_numeric($v) ? (int) $v : null, $rawIds), fn ($v) => $v !== null && $v > 0)))
+            : [];
+        if (!$ids) {
+            return response()->json(['error' => 'ids must be a non-empty array of ticket ids'], 400);
+        }
+        if (count($ids) > self::MAX_BULK_IDS) {
+            return response()->json(['error' => 'cannot update more than ' . self::MAX_BULK_IDS . ' tickets at once'], 400);
+        }
+
+        $user = $request->authUser();
+        $actor = $user['name'] ?? $user['email'] ?? 'system';
+        $updated = [];
+        $skipped = [];
+
+        foreach ($ids as $id) {
+            $before = DB::table('tickets')->selectRaw(self::ROW_COLUMNS)->where('id', $id)->first();
+            if (!$before) {
+                $skipped[] = ['id' => $id, 'reason' => 'not_found'];
+                continue;
+            }
+            $before = (array) $before;
+            if (!$this->canManageTicket($user, $before)) {
+                $skipped[] = ['id' => $id, 'reason' => 'forbidden'];
+                continue;
+            }
+
+            $prev = $before[$field] ?? null;
+            if (($prev ?? null) === ($nextValue ?? null)) {
+                $skipped[] = ['id' => $id, 'reason' => 'unchanged'];
+                continue;
+            }
+
+            DB::table('tickets')->where('id', $id)->update([$field => $nextValue]);
+            $changes = [['field' => $field, 'oldValue' => $prev, 'newValue' => $nextValue]];
+            $this->logChanges($id, $actor, $changes);
+
+            $ticketAfter = (array) DB::table('tickets')->selectRaw(self::ROW_COLUMNS)->where('id', $id)->first();
+
+            TicketNotifications::notifyTicketChanges($ticketAfter, $changes, $actor);
+            if ($field === 'status' && $nextValue === 'resolved') {
+                TicketNotifications::maybeSendResolutionSurvey($ticketAfter, $before['status'] ?? null);
+            }
+            TicketNotifications::emitTicketNotifications($ticketAfter, $changes);
+            if (($ticketAfter['category'] ?? null) !== TV::HR_CONCERNS) {
+                TicketNotifications::runAutomations('ticket.updated', $ticketAfter, ['actor' => $actor]);
+            }
+
+            $updated[] = $id;
+        }
+
+        return response()->json(['updated' => $updated, 'skipped' => $skipped]);
+    }
+
     // --- Self-assign ---------------------------------------------------
 
     private function setSelfAssignment(Request $request, string $id, bool $assign)
@@ -776,6 +866,137 @@ class TicketController extends Controller
         DB::table('ticket_activity')->insert([
             'ticket_id' => $id, 'type' => 'change', 'actor' => $actor,
             'field' => 'kb_unlink', 'old_value' => mb_substr((string) $articleTitle, 0, 500),
+            'created_at' => now(),
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    // --- Watchers -------------------------------------------------------
+    // Third parties (managers, coworkers who reported an issue secondhand) can
+    // follow a ticket's activity without being its requester/assignee. Blocked
+    // entirely on 'HR Concerns' (need-to-know) — category is immutable after
+    // creation, so this is a stable, once-only check.
+
+    public function watchersIndex(Request $request, string $id)
+    {
+        $id = $this->intId($id);
+        if (!$id) {
+            return response()->json(['error' => 'invalid ticket id'], 400);
+        }
+        $owner = DB::table('tickets')->select('requester', 'assignee', 'department', 'category', 'approval_status', 'approval_dept')
+            ->where('id', $id)->first();
+        if (!$owner) {
+            return response()->json(['error' => 'Ticket not found'], 404);
+        }
+        if (!$this->canReadTicket($request->authUser(), (array) $owner)) {
+            return response()->json(['error' => 'Ticket not found'], 404);
+        }
+
+        $rows = DB::table('ticket_watchers as w')
+            ->join('users as u', 'u.id', '=', 'w.user_id')
+            ->where('w.ticket_id', $id)->where('u.is_active', 1)
+            ->orderBy('w.added_at')
+            ->select('u.id', 'u.name', 'u.email', 'u.avatar_url', 'u.department', 'w.added_by', 'w.added_at')
+            ->get();
+
+        return response()->json($rows);
+    }
+
+    public function watchersStore(Request $request, string $id)
+    {
+        $id = $this->intId($id);
+        if (!$id) {
+            return response()->json(['error' => 'invalid ticket id'], 400);
+        }
+        $ticket = DB::table('tickets')->select('id', 'requester', 'assignee', 'department', 'category', 'approval_status', 'approval_dept')
+            ->where('id', $id)->first();
+        if (!$ticket) {
+            return response()->json(['error' => 'Ticket not found'], 404);
+        }
+        $ticket = (array) $ticket;
+
+        $user = $request->authUser();
+        $raw = $request->input('user_id');
+        $targetId = ($raw === null || $raw === '') ? ($user['sub'] ?? null) : $this->intId((string) $raw);
+        if (!$targetId) {
+            return response()->json(['error' => 'invalid user_id'], 400);
+        }
+        $isSelf = $targetId === ($user['sub'] ?? null);
+
+        // Check permission BEFORE the HR-Concerns block below, so an
+        // unauthorized caller gets the same 404/403 they'd get anywhere else
+        // on this ticket — never a message that incidentally confirms it's
+        // an HR Concern.
+        if ($isSelf) {
+            if (!$this->canReadTicket($user, $ticket)) {
+                return response()->json(['error' => 'Ticket not found'], 404);
+            }
+        } elseif (!$this->canManageTicket($user, $ticket)) {
+            return response()->json(['error' => 'Forbidden'], 403);
+        }
+
+        if (($ticket['category'] ?? null) === TV::HR_CONCERNS) {
+            return response()->json(['error' => "Watchers aren't available on 'HR Concerns' tickets."], 400);
+        }
+
+        $target = DB::table('users')->select('id', 'name', 'email', 'avatar_url', 'department')
+            ->where('id', $targetId)->where('is_active', 1)->first();
+        if (!$target) {
+            return response()->json(['error' => 'User not found'], 404);
+        }
+
+        $actor = $user['name'] ?? $user['email'] ?? 'system';
+        if (DB::table('ticket_watchers')->where('ticket_id', $id)->where('user_id', $targetId)->exists()) {
+            return response()->json(['error' => 'Already watching this ticket'], 409);
+        }
+        DB::table('ticket_watchers')->insert([
+            'ticket_id' => $id, 'user_id' => $targetId, 'added_by' => $actor, 'added_at' => now(),
+        ]);
+
+        DB::table('ticket_activity')->insert([
+            'ticket_id' => $id, 'type' => 'change', 'actor' => $actor,
+            'field' => 'watcher_added', 'new_value' => mb_substr($target->name, 0, 500),
+            'created_at' => now(),
+        ]);
+
+        return response()->json([
+            'id' => $target->id, 'name' => $target->name, 'email' => $target->email,
+            'avatar_url' => $target->avatar_url, 'department' => $target->department,
+            'added_by' => $actor, 'added_at' => now()->toIso8601String(),
+        ], 201);
+    }
+
+    public function watchersDestroy(Request $request, string $id, string $userId)
+    {
+        $id = $this->intId($id);
+        $userId = $this->intId($userId);
+        if (!$id || !$userId) {
+            return response()->json(['error' => 'invalid ids'], 400);
+        }
+
+        $ticket = DB::table('tickets')->select('id', 'department')->where('id', $id)->first();
+        if (!$ticket) {
+            return response()->json(['error' => 'Ticket not found'], 404);
+        }
+
+        $user = $request->authUser();
+        $isSelf = $userId === ($user['sub'] ?? null);
+        if (!$isSelf && !$this->canManageTicket($user, (array) $ticket)) {
+            return response()->json(['error' => 'Forbidden'], 403);
+        }
+
+        $watcherName = DB::table('users')->where('id', $userId)->value('name') ?? "User #{$userId}";
+
+        $deleted = DB::table('ticket_watchers')->where('ticket_id', $id)->where('user_id', $userId)->delete();
+        if (!$deleted) {
+            return response()->json(['error' => 'Not watching this ticket'], 404);
+        }
+
+        $actor = $user['name'] ?? $user['email'] ?? 'system';
+        DB::table('ticket_activity')->insert([
+            'ticket_id' => $id, 'type' => 'change', 'actor' => $actor,
+            'field' => 'watcher_removed', 'old_value' => mb_substr((string) $watcherName, 0, 500),
             'created_at' => now(),
         ]);
 

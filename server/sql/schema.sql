@@ -97,6 +97,22 @@ CREATE TABLE IF NOT EXISTS ticket_kb_links (
   INDEX idx_tkl_article (article_id)
 );
 
+-- Watchers: users who opted in (or were added by someone with edit rights) to
+-- follow a ticket's activity without being its requester/assignee — surfaces
+-- in /api/notifications for that ticket's activity. No FK on ticket_id
+-- (tickets are never hard-deleted; matches ticket_kb_links) or on user_id
+-- (matches space_members.user_id) — app-level integrity, consistent with the
+-- rest of the schema. Blocked entirely on 'HR Concerns' tickets (need-to-know)
+-- — enforced in the route layer, not here.
+CREATE TABLE IF NOT EXISTS ticket_watchers (
+  ticket_id  INT UNSIGNED NOT NULL,
+  user_id    INT UNSIGNED NOT NULL,
+  added_by   VARCHAR(120),
+  added_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (ticket_id, user_id),
+  INDEX idx_tw_user (user_id)
+);
+
 CREATE TABLE IF NOT EXISTS ticket_attachments (
   id                INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   ticket_id         INT UNSIGNED NOT NULL,

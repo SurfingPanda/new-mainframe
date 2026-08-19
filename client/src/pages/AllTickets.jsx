@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
+import BulkTicketActionBar from '../components/BulkTicketActionBar.jsx';
 import { api, getUser } from '../lib/auth.js';
 import { formatTicketId, matchesTicketId, truncateWords } from '../lib/ticket.js';
 
@@ -35,6 +36,8 @@ export default function AllTickets() {
   const [error, setError] = useState('');
   const [banner, setBanner] = useState(location.state?.banner || null);
   const [capped, setCapped] = useState(false); // server truncated the queue (see X-Result-Capped)
+  const [assignableUsers, setAssignableUsers] = useState([]);
+  const [selected, setSelected] = useState(new Set());
 
   // "New since you last looked": the timestamp of the previous visit is kept
   // per-user in localStorage. Any work order created after it is flagged New.
@@ -68,18 +71,24 @@ export default function AllTickets() {
   const [sort, setSort] = useState('newest');
   const [page, setPage] = useState(1);
 
-  useEffect(() => {
-    // scope=all returns every work order (not just the caller's own/department)
-    // so any user can browse and search the full queue here. withMeta surfaces
-    // the server's cap signal so we can warn the user instead of silently
-    // filtering/searching a truncated set.
-    api('/api/tickets?scope=all', { withMeta: true })
+  // scope=all returns every work order (not just the caller's own/department)
+  // so any user can browse and search the full queue here. withMeta surfaces
+  // the server's cap signal so we can warn the user instead of silently
+  // filtering/searching a truncated set.
+  const loadTickets = () => {
+    setLoading(true);
+    return api('/api/tickets?scope=all', { withMeta: true })
       .then(({ data, capped }) => {
         setTickets(Array.isArray(data) ? data : []);
         setCapped(capped);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadTickets();
+    if (isStaff) api('/api/users/assignable').then(setAssignableUsers).catch(() => {});
   }, []);
 
   // Once the list has loaded and the user has seen it, advance the "last viewed"
@@ -139,7 +148,30 @@ export default function AllTickets() {
 
   useEffect(() => {
     setPage(1);
+    setSelected(new Set());
   }, [query, statusFilter, priorityFilter, assigneeFilter, categoryFilter, overdueOnly, sort]);
+
+  const toggleSelected = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const pageIds = pageRows.map((t) => t.id);
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+  const somePageSelected = pageIds.some((id) => selected.has(id));
+
+  const toggleSelectAllOnPage = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
 
   const toggleStatus = (key) => {
     const next = new Set(statusFilter);
@@ -257,6 +289,17 @@ export default function AllTickets() {
 
         {error && (
           <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>
+        )}
+
+        {isStaff && (
+          <BulkTicketActionBar
+            selectedIds={selected}
+            onClear={() => setSelected(new Set())}
+            onApplied={loadTickets}
+            statuses={STATUSES}
+            priorities={PRIORITIES}
+            assignableUsers={assignableUsers}
+          />
         )}
 
         <section className="rounded-lg border border-slate-200 bg-white shadow-card overflow-hidden">
@@ -377,6 +420,18 @@ export default function AllTickets() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50/80">
                 <tr className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  {isStaff && (
+                    <Th className="w-8">
+                      <input
+                        type="checkbox"
+                        checked={allPageSelected}
+                        ref={(el) => { if (el) el.indeterminate = !allPageSelected && somePageSelected; }}
+                        onChange={toggleSelectAllOnPage}
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-accent-600 focus:ring-accent-500"
+                        aria-label="Select all on this page"
+                      />
+                    </Th>
+                  )}
                   <Th className="w-24">ID</Th>
                   <Th>Title</Th>
                   <Th className="w-32">Requester</Th>
@@ -389,10 +444,10 @@ export default function AllTickets() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
-                  <tr><td colSpan={8} className="px-5 py-12 text-center text-sm text-slate-500">Loading work orders…</td></tr>
+                  <tr><td colSpan={isStaff ? 9 : 8} className="px-5 py-12 text-center text-sm text-slate-500">Loading work orders…</td></tr>
                 ) : pageRows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-5 py-12 text-center">
+                    <td colSpan={isStaff ? 9 : 8} className="px-5 py-12 text-center">
                       <p className="text-sm font-semibold text-slate-700">
                         {tickets.length === 0 ? 'No work orders yet' : 'No work orders match your filters'}
                       </p>
@@ -413,6 +468,17 @@ export default function AllTickets() {
                 ) : (
                   pageRows.map((t) => (
                     <tr key={t.id} className={isNew(t) ? 'bg-accent-50/50 hover:bg-accent-50' : 'hover:bg-slate-50/60'}>
+                      {isStaff && (
+                        <td className="px-5 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selected.has(t.id)}
+                            onChange={() => toggleSelected(t.id)}
+                            className="h-3.5 w-3.5 rounded border-slate-300 text-accent-600 focus:ring-accent-500"
+                            aria-label={`Select ${t.title}`}
+                          />
+                        </td>
+                      )}
                       <td className={`px-5 py-3 ${isNew(t) ? 'border-l-2 border-accent-500' : ''}`}>
                         <Link to={`/tickets/${t.id}`} className="font-mono text-xs text-accent-700 hover:text-accent-800">
                           {formatTicketId(t.id)}

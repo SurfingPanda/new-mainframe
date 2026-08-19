@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
+import { isAssetReviewer } from './lib/auth.js';
 
 // Public/unauthenticated pages stay eager — they're on the cold-start critical
 // path (and small), so we don't want a chunk round-trip before first paint.
@@ -43,6 +44,7 @@ const KbArticle = lazy(() => import('./pages/KbArticle.jsx'));
 const KbCategory = lazy(() => import('./pages/KbCategory.jsx'));
 const ArticleEditor = lazy(() => import('./pages/ArticleEditor.jsx'));
 const AssetRequest = lazy(() => import('./pages/AssetRequest.jsx'));
+const AssetRequestApprovals = lazy(() => import('./pages/AssetRequestApprovals.jsx'));
 const NetworkMonitoring = lazy(() => import('./pages/NetworkMonitoring.jsx'));
 const NetworkReports = lazy(() => import('./pages/NetworkReports.jsx'));
 const NetworkReportEditor = lazy(() => import('./pages/NetworkReportEditor.jsx'));
@@ -365,6 +367,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <AssetRequest />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/assets/approvals"
+        element={
+          <ProtectedRoute test={isAssetReviewer}>
+            <AssetRequestApprovals />
           </ProtectedRoute>
         }
       />

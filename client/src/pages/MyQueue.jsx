@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
+import BulkTicketActionBar from '../components/BulkTicketActionBar.jsx';
 import { api, getUser } from '../lib/auth.js';
 import { formatTicketId, matchesTicketId, truncateWords } from '../lib/ticket.js';
 
@@ -35,6 +36,8 @@ export default function MyQueue() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [assignableUsers, setAssignableUsers] = useState([]);
+  const [selected, setSelected] = useState(new Set());
 
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState(new Set());
@@ -43,11 +46,17 @@ export default function MyQueue() {
   const [page, setPage] = useState(1);
   const [showResolvedClosed, setShowResolvedClosed] = useState(false);
 
-  useEffect(() => {
-    api('/api/tickets')
+  const loadTickets = () => {
+    setLoading(true);
+    return api('/api/tickets')
       .then(setTickets)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadTickets();
+    api('/api/users/assignable').then(setAssignableUsers).catch(() => {});
   }, []);
 
   const myTickets = useMemo(() => {
@@ -98,7 +107,30 @@ export default function MyQueue() {
 
   useEffect(() => {
     setPage(1);
+    setSelected(new Set());
   }, [query, statusFilter, priorityFilter, sort, showResolvedClosed]);
+
+  const toggleSelected = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const pageIds = pageRows.map((t) => t.id);
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+  const somePageSelected = pageIds.some((id) => selected.has(id));
+
+  const toggleSelectAllOnPage = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
 
   const toggleStatus = (key) => {
     const next = new Set(statusFilter);
@@ -177,6 +209,15 @@ export default function MyQueue() {
           <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>
         )}
 
+        <BulkTicketActionBar
+          selectedIds={selected}
+          onClear={() => setSelected(new Set())}
+          onApplied={loadTickets}
+          statuses={STATUSES}
+          priorities={PRIORITIES}
+          assignableUsers={assignableUsers}
+        />
+
         <section className="rounded-lg border border-slate-200 bg-white shadow-card overflow-hidden">
           <div className="flex flex-col gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center">
             <div className="relative flex-1">
@@ -248,6 +289,16 @@ export default function MyQueue() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50/80">
                 <tr className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  <Th className="w-8">
+                    <input
+                      type="checkbox"
+                      checked={allPageSelected}
+                      ref={(el) => { if (el) el.indeterminate = !allPageSelected && somePageSelected; }}
+                      onChange={toggleSelectAllOnPage}
+                      className="h-3.5 w-3.5 rounded border-slate-300 text-accent-600 focus:ring-accent-500"
+                      aria-label="Select all on this page"
+                    />
+                  </Th>
                   <Th className="w-24">ID</Th>
                   <Th>Title</Th>
                   <Th className="w-32">Requester</Th>
@@ -258,10 +309,10 @@ export default function MyQueue() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
-                  <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500">Loading your work orders…</td></tr>
+                  <tr><td colSpan={7} className="px-5 py-12 text-center text-sm text-slate-500">Loading your work orders…</td></tr>
                 ) : pageRows.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-5 py-12 text-center">
+                    <td colSpan={7} className="px-5 py-12 text-center">
                       <p className="text-sm font-semibold text-slate-700">
                         {myTickets.length === 0
                           ? 'Nothing in your queue'
@@ -284,6 +335,15 @@ export default function MyQueue() {
                 ) : (
                   pageRows.map((t) => (
                     <tr key={t.id} className={`hover:bg-slate-50/60 ${ACTIVE_STATUSES.has(t.status) ? '' : 'opacity-70'}`}>
+                      <td className="px-5 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(t.id)}
+                          onChange={() => toggleSelected(t.id)}
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-accent-600 focus:ring-accent-500"
+                          aria-label={`Select ${t.title}`}
+                        />
+                      </td>
                       <td className="px-5 py-3">
                         <Link to={`/tickets/${t.id}`} className="font-mono text-xs text-accent-700 hover:text-accent-800">
                           {formatTicketId(t.id)}

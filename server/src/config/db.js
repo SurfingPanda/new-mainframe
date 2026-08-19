@@ -147,6 +147,17 @@ export async function ensureSchema() {
   }
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS ticket_watchers (
+      ticket_id  INT UNSIGNED NOT NULL,
+      user_id    INT UNSIGNED NOT NULL,
+      added_by   VARCHAR(120),
+      added_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (ticket_id, user_id),
+      INDEX idx_tw_user (user_id)
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS chat_rooms (
       id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
       kind          VARCHAR(20) NOT NULL DEFAULT 'group',

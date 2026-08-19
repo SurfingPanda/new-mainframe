@@ -8,16 +8,31 @@ const router = Router();
 const URGENCIES = ['low', 'normal', 'high', 'urgent'];
 const REQ_STATUSES = ['pending', 'approved', 'denied', 'fulfilled'];
 
-// List requests — users see their own; admin/agent see all
+// Requests always route to IT, so reviewing/approving them is IT's job: any
+// admin (global oversight, same carve-out as the announcements "manage" gate),
+// or an agent who belongs to the IT department. A plain 'user' role never
+// qualifies, even if tagged department 'IT'.
+function isAssetReviewer(user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return user.role === 'agent' && (user.department || '').trim().toUpperCase() === 'IT';
+}
+
+function requireAssetReviewer(req, res, next) {
+  if (!isAssetReviewer(req.user)) return res.status(403).json({ error: 'Forbidden' });
+  next();
+}
+
+// List requests — reviewers (see isAssetReviewer) see all; everyone else sees only their own
 router.get('/', requireAuth, async (req, res, next) => {
   try {
-    const isStaff = ['admin', 'agent'].includes(req.user.role);
+    const canReviewAll = isAssetReviewer(req.user);
     const { status } = req.query;
 
     const conditions = [];
     const values = [];
 
-    if (!isStaff) {
+    if (!canReviewAll) {
       conditions.push('requester_id = ?');
       values.push(req.user.sub);
     }
@@ -72,8 +87,8 @@ router.post('/', requireAuth, async (req, res, next) => {
   }
 });
 
-// Update request status — admin/agent only
-router.patch('/:id', requireAuth, requireRole('admin', 'agent'), async (req, res, next) => {
+// Update request status — IT reviewers only (see isAssetReviewer)
+router.patch('/:id', requireAuth, requireAssetReviewer, async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const { status, admin_notes } = req.body || {};

@@ -1,7 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { getUser, hasPermission, isAuthenticated } from '../lib/auth.js';
 
-export default function ProtectedRoute({ children, role, permission }) {
+export default function ProtectedRoute({ children, role, permission, test }) {
   const location = useLocation();
   if (!isAuthenticated()) {
     return <Navigate to="/signin" replace state={{ from: location }} />;
@@ -18,6 +18,11 @@ export default function ProtectedRoute({ children, role, permission }) {
     if (!hasPermission(mod, action)) {
       return <Navigate to="/dashboard" replace />;
     }
+  }
+  // Escape hatch for gates that aren't a plain role/permission check (e.g.
+  // "admin or IT department" — see lib/auth.js isAssetReviewer).
+  if (test && !test(getUser())) {
+    return <Navigate to="/dashboard" replace />;
   }
   return children;
 }
