@@ -29,6 +29,21 @@ Route::get('/uploads/avatars/{filename}', function (Request $request, string $fi
     ]);
 })->middleware('auth.jwt');
 
+// E-signatures, like avatars, are visible to any signed-in user (per
+// lib/upload-access.js) — no per-resource check.
+Route::get('/uploads/signatures/{filename}', function (Request $request, string $filename) {
+    $filename = basename($filename);
+    $disk = Storage::disk('signatures');
+    if (!$disk->exists($filename)) {
+        return response()->json(['error' => 'Not found'], 404);
+    }
+    return response($disk->get($filename), 200, [
+        'Content-Type' => $disk->mimeType($filename) ?: 'image/webp',
+        'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        'X-Content-Type-Options' => 'nosniff',
+    ]);
+})->middleware('auth.jwt');
+
 Route::get('/uploads/messages/{filename}', [MessageController::class, 'serveAttachment'])->middleware('auth.jwt');
 
 // See KbController::serveAttachment docblock for why this fixes a Node bug

@@ -37,6 +37,11 @@ Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login'])
         ->middleware(['throttle:login-ip', 'throttle:login-email']);
 
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])
+        ->middleware('throttle:forgot-password');
+    Route::post('/reset-password', [AuthController::class, 'resetPassword'])
+        ->middleware('throttle:forgot-password');
+
     Route::post('/logout', [AuthController::class, 'logout']);
 
     Route::middleware('auth.jwt')->group(function () {
@@ -44,6 +49,13 @@ Route::prefix('auth')->group(function () {
         Route::patch('/me', [AuthController::class, 'updateMe']);
         Route::post('/change-password', [AuthController::class, 'changePassword'])
             ->middleware('throttle:change-password');
+
+        // Self-service profile picture + e-signature (ported from
+        // server/src/routes/auth.js — both throttled like the Node avatarLimiter).
+        Route::post('/me/avatar', [AuthController::class, 'avatarStore'])->middleware('throttle:avatar-self');
+        Route::delete('/me/avatar', [AuthController::class, 'avatarDestroy']);
+        Route::post('/me/signature', [AuthController::class, 'signatureStore'])->middleware('throttle:avatar-self');
+        Route::delete('/me/signature', [AuthController::class, 'signatureDestroy']);
     });
 });
 

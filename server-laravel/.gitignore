@@ -30,6 +30,10 @@ yarn-error.log
 /uploads/avatars/*
 !/uploads/avatars/.gitkeep
 
+# E-signature uploads
+/uploads/signatures/*
+!/uploads/signatures/.gitkeep
+
 # Message (mailbox) attachments
 /uploads/messages/*
 !/uploads/messages/.gitkeep

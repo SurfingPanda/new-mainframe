@@ -3,9 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\AvatarUpload;
+use App\Services\EmailTemplates;
+use App\Services\InvalidImageException;
 use App\Services\JwtService;
+use App\Services\Mailer;
 use App\Services\PasswordPolicy;
 use App\Services\Permissions;
+use App\Services\SignatureUpload;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -14,12 +19,11 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
  * Ported (partial — phase 1) from server/src/routes/auth.js. Covers: login,
- * /me (read + self-service name/job_title edit), change-password, logout.
+ * /me (read + self-service name/job_title edit), change-password,
+ * forgot/reset-password, logout.
  *
- * Deferred to later phases (not yet ported): forgot/reset-password (needs the
- * mailer + email templates), /me/stats (needs the SLA engine), avatar +
- * signature upload (needs a sharp/Imagick equivalent), preferences,
- * invalidate-sessions.
+ * Still deferred (not yet ported): /me/stats (needs the SLA engine),
+ * preferences, invalidate-sessions.
  */
 class AuthController extends Controller
 {
@@ -172,6 +176,199 @@ class AuthController extends Controller
         // Re-set the cookie so THIS device keeps a valid token — the version
         // bump above invalidated the old one everywhere, including here.
         return $this->withAuthCookie(response()->json(['ok' => true]), $token);
+    }
+
+    /**
+     * Upload / replace own profile picture. Ported from
+     * server/src/routes/auth.js's POST /me/avatar. Returns { avatar_url }.
+     */
+    public function avatarStore(Request $request)
+    {
+        $file = $request->file('avatar');
+        if (!$file || !$file->isValid()) {
+            return response()->json(['error' => 'No image was uploaded.'], 400);
+        }
+        if (!in_array($file->getClientMimeType(), AvatarUpload::ALLOWED_MIME, true)) {
+            return response()->json(['error' => 'Profile picture must be a PNG, JPEG, GIF, or WebP image.'], 400);
+        }
+        if ($file->getSize() > AvatarUpload::MAX_UPLOAD_BYTES) {
+            return response()->json(['error' => 'Profile picture is larger than 5 MB.'], 400);
+        }
+
+        try {
+            $avatarUrl = AvatarUpload::save(file_get_contents($file->getRealPath()));
+        } catch (InvalidImageException $e) {
+            return response()->json(['error' => $e->getMessage()], 400);
+        }
+
+        $userId = $request->authUser()['sub'];
+        $prev = DB::table('users')->where('id', $userId)->value('avatar_url');
+        DB::table('users')->where('id', $userId)->update(['avatar_url' => $avatarUrl]);
+        AvatarUpload::remove($prev);
+
+        return response()->json(['avatar_url' => $avatarUrl]);
+    }
+
+    /**
+     * Remove own profile picture. Ported from DELETE /me/avatar.
+     */
+    public function avatarDestroy(Request $request)
+    {
+        $userId = $request->authUser()['sub'];
+        $prev = DB::table('users')->where('id', $userId)->value('avatar_url');
+        DB::table('users')->where('id', $userId)->update(['avatar_url' => null]);
+        AvatarUpload::remove($prev);
+
+        return response()->json(['avatar_url' => null]);
+    }
+
+    /**
+     * Upload / replace own e-signature (a drawn or uploaded image). Ported
+     * from POST /me/signature. Returns { signature_url }.
+     */
+    public function signatureStore(Request $request)
+    {
+        $file = $request->file('signature');
+        if (!$file || !$file->isValid()) {
+            return response()->json(['error' => 'No image was uploaded.'], 400);
+        }
+        if (!in_array($file->getClientMimeType(), SignatureUpload::ALLOWED_MIME, true)) {
+            return response()->json(['error' => 'Signature must be a PNG, JPEG, or WebP image.'], 400);
+        }
+        if ($file->getSize() > SignatureUpload::MAX_UPLOAD_BYTES) {
+            return response()->json(['error' => 'Signature image is larger than 5 MB.'], 400);
+        }
+
+        try {
+            $signatureUrl = SignatureUpload::save(file_get_contents($file->getRealPath()));
+        } catch (InvalidImageException $e) {
+            return response()->json(['error' => $e->getMessage()], 400);
+        }
+
+        $userId = $request->authUser()['sub'];
+        $prev = DB::table('users')->where('id', $userId)->value('signature_url');
+        DB::table('users')->where('id', $userId)->update(['signature_url' => $signatureUrl]);
+        SignatureUpload::remove($prev);
+
+        return response()->json(['signature_url' => $signatureUrl]);
+    }
+
+    /**
+     * Remove own e-signature. Ported from DELETE /me/signature.
+     */
+    public function signatureDestroy(Request $request)
+    {
+        $userId = $request->authUser()['sub'];
+        $prev = DB::table('users')->where('id', $userId)->value('signature_url');
+        DB::table('users')->where('id', $userId)->update(['signature_url' => null]);
+        SignatureUpload::remove($prev);
+
+        return response()->json(['signature_url' => null]);
+    }
+
+    /**
+     * Always responds with success so attackers can't enumerate which emails
+     * have accounts. If the email matches an active user, logs the request
+     * server-side (an IT admin can follow up via the Users page reset-password
+     * flow) and emails a single-use, 1-hour self-service reset link.
+     */
+    public function forgotPassword(Request $request)
+    {
+        $email = strtolower(trim((string) $request->input('email', '')));
+        $ok = fn () => response()->json(['ok' => true]);
+        if (!$email || !preg_match('/^[^\s@]+@[^\s@]+\.[^\s@]+$/', $email)) {
+            return $ok();
+        }
+
+        $user = DB::table('users')
+            ->select('id', 'email', 'name', 'is_active')
+            ->where('email', $email)
+            ->first();
+
+        if ($user && $user->is_active) {
+            // Coalesce repeats: if this user already has a pending request,
+            // just bump it instead of stacking duplicate rows.
+            $existing = DB::table('password_reset_requests')
+                ->where('user_id', $user->id)->where('status', 'pending')
+                ->first();
+            if ($existing) {
+                DB::table('password_reset_requests')->where('id', $existing->id)
+                    ->update(['updated_at' => now()]);
+            } else {
+                DB::table('password_reset_requests')->insert([
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            // Only the SHA-256 hash is stored; the raw token lives only in the emailed URL.
+            $rawToken = bin2hex(random_bytes(32));
+            $tokenHash = hash('sha256', $rawToken);
+            DB::table('password_reset_tokens')->insert([
+                'user_id' => $user->id,
+                'token_hash' => $tokenHash,
+                'expires_at' => now()->addHour(),
+                'created_at' => now(),
+            ]);
+            Mailer::sendSafe([
+                'to' => $user->email,
+                ...EmailTemplates::passwordResetLink(
+                    $user->name,
+                    Mailer::appUrl('/reset-password?token=' . $rawToken)
+                ),
+            ]);
+        }
+
+        return $ok();
+    }
+
+    /**
+     * Self-service reset: consume a token from the emailed link and set a new
+     * password. Public + rate-limited. Errors are generic (no enumeration).
+     */
+    public function resetPassword(Request $request)
+    {
+        $token = trim((string) $request->input('token', ''));
+        $newPassword = $request->input('new_password');
+        if (!$token || !$newPassword) {
+            return response()->json(['error' => 'token and new_password are required'], 400);
+        }
+
+        $policyError = PasswordPolicy::error($newPassword);
+        if ($policyError) {
+            return response()->json(['error' => $policyError], 400);
+        }
+
+        $tokenHash = hash('sha256', $token);
+        $row = DB::table('password_reset_tokens')
+            ->select('id', 'user_id')
+            ->where('token_hash', $tokenHash)
+            ->whereNull('used_at')
+            ->where('expires_at', '>', now())
+            ->first();
+
+        if (!$row) {
+            return response()->json(['error' => 'This reset link is invalid or has expired. Please request a new one.'], 400);
+        }
+
+        // Bump token_version so any sessions opened before the reset are invalidated.
+        DB::table('users')->where('id', $row->user_id)->update([
+            'password_hash' => Hash::make($newPassword),
+            'token_version' => DB::raw('token_version + 1'),
+        ]);
+        DB::table('password_reset_tokens')->where('id', $row->id)->update(['used_at' => now()]);
+        // Close any pending IT-queue request now that the user reset it themselves.
+        DB::table('password_reset_requests')
+            ->where('user_id', $row->user_id)->where('status', 'pending')
+            ->update([
+                'status' => 'resolved',
+                'resolved_by' => 'self-service',
+                'resolved_at' => now(),
+            ]);
+
+        return response()->json(['ok' => true]);
     }
 
     public function logout()

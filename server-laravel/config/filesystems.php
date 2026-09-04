@@ -70,6 +70,16 @@ return [
             'report' => false,
         ],
 
+        // E-signatures — visible to any signed-in user (per lib/upload-access.js,
+        // same as avatars), so served via a plain auth-gated route in
+        // routes/uploads.php. Transparent WebP, drawn or uploaded on the Profile page.
+        'signatures' => [
+            'driver' => 'local',
+            'root' => base_path('uploads/signatures'),
+            'throw' => false,
+            'report' => false,
+        ],
+
         // Internal mail (Mailbox) attachments — auth-gated (sender or
         // recipient only), served via a scoped route like the ticket disk.
         'messages' => [

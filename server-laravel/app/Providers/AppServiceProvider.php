@@ -140,6 +140,11 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinutes(15, 5)->by('pw:' . $key);
         });
 
+        // Ported from routes/auth.js's forgotLimiter (forgot/reset-password: 5/15min per IP).
+        RateLimiter::for('forgot-password', function (Request $request) {
+            return Limit::perMinutes(15, 5)->by('forgot:' . $request->ip());
+        });
+
         // Ported from middleware/rateLimit.js's userWriteLimit({ max: 30 }) —
         // throttles ticket creation + activity notes per authenticated user.
         RateLimiter::for('ticket-write', function (Request $request) {
@@ -153,6 +158,14 @@ class AppServiceProvider extends ServiceProvider
             $user = $request->authUser();
             $key = $user['sub'] ?? $request->ip();
             return Limit::perMinutes(15, 40)->by('avatar:' . $key);
+        });
+
+        // Ported from routes/auth.js's avatarLimiter (self-service avatar +
+        // signature uploads: 20/15min per authenticated user).
+        RateLimiter::for('avatar-self', function (Request $request) {
+            $user = $request->authUser();
+            $key = $user['sub'] ?? $request->ip();
+            return Limit::perMinutes(15, 20)->by('avatar-self:' . $key);
         });
 
         // Ported from routes/users.js's importLimiter (bulk user import: 10/15min).
