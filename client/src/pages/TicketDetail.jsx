@@ -160,17 +160,20 @@ export default function TicketDetail() {
   const onSubcategoryEdit = (v) => setDraft((d) => ({ ...d, subcategory: v, subcategory2: '' }));
 
   // Self-assign: a department member (or staff) can pick up a work order routed
-  // to their department. Staff edit through the normal draft/Save flow (they can
-  // assign anyone); non-staff have no Save bar, so they persist immediately via
-  // the claim/release endpoints.
+  // to their department. Assignment remains manager-only in the normal Save
+  // flow; other eligible users persist it through the claim/release endpoints.
   const myIdentity = me?.name || me?.email || '';
   const canClaim = isStaff || (!!me?.department && !!ticket?.department && me.department === ticket.department);
   // Staff edit the whole queue; a department manager gets the same full-edit UI
   // for work orders routed to the department they head (server returns can_edit).
   const canManage = isStaff || !!ticket?.can_edit;
+  // The requester can amend the information they supplied on an active ticket.
+  // Workflow, routing, ownership, priority, and status remain manager-only.
+  const canRequesterEdit = !!ticket?.can_requester_edit;
+  const canEditRequestDetails = canManage || canRequesterEdit;
   // Assignment edits are staged in the draft like every other field, so nothing
-  // is written (or logged) until the user clicks Save. Staff save via PATCH;
-  // non-staff save via the claim/release endpoints (see `save` below).
+  // is written (or logged) until the user clicks Save. Managers save via PATCH;
+  // other eligible users save via the claim/release endpoints (see `save` below).
   const effectiveAssignee = draft.assignee || '';
   const isMine = !!myIdentity && effectiveAssignee === myIdentity;
 
@@ -215,7 +218,7 @@ export default function TicketDetail() {
     setError('');
     try {
       let updated;
-      if (canManage) {
+      if (canEditRequestDetails) {
         const patch = {};
         for (const f of dirtyFields) {
           const v = draft[f];
@@ -443,7 +446,7 @@ export default function TicketDetail() {
                       value={draft.request_type}
                       options={REQUEST_TYPES}
                       onChange={(v) => setField('request_type', v)}
-                      disabled={!canManage}
+                      disabled={!canEditRequestDetails}
                     />
                     <SelectField
                       label="Category"
@@ -453,7 +456,7 @@ export default function TicketDetail() {
                         ...CATEGORIES.map((c) => ({ key: c, label: c }))
                       ]}
                       onChange={onCategoryEdit}
-                      disabled={!canManage}
+                      disabled={!canEditRequestDetails}
                     />
                     {subOpts.length > 0 && (
                       <SelectField
@@ -461,7 +464,7 @@ export default function TicketDetail() {
                         value={draft.subcategory || ''}
                         options={[{ key: '', label: '— None —' }, ...subOpts.map((s) => ({ key: s, label: s }))]}
                         onChange={onSubcategoryEdit}
-                        disabled={!canManage}
+                        disabled={!canEditRequestDetails}
                       />
                     )}
                     {sub2Opts.length > 0 && (
@@ -470,7 +473,7 @@ export default function TicketDetail() {
                         value={draft.subcategory2 || ''}
                         options={[{ key: '', label: '— None —' }, ...sub2Opts.map((s) => ({ key: s, label: s }))]}
                         onChange={(v) => setField('subcategory2', v)}
-                        disabled={!canManage}
+                        disabled={!canEditRequestDetails}
                       />
                     )}
                   </div>
@@ -516,7 +519,7 @@ export default function TicketDetail() {
                         onChange={(e) => setField('description', e.target.value)}
                         placeholder="Describe the issue, steps to reproduce, expected behavior, error messages…"
                         rows={10}
-                        disabled={!canManage}
+                        disabled={!canEditRequestDetails}
                         className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm leading-relaxed placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:bg-slate-50 disabled:text-slate-700 resize-y"
                       />
                     </>
@@ -653,7 +656,7 @@ export default function TicketDetail() {
                   saving={saving}
                   onSave={save}
                   onDiscard={discard}
-                  visible={canManage || (canClaim && isDirty)}
+                  visible={canEditRequestDetails || (canClaim && isDirty)}
                 />
               </aside>
             </div>

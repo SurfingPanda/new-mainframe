@@ -111,6 +111,20 @@ class TicketController extends Controller
         return DepartmentManagers::managesDepartment($user['sub'] ?? null, $ticket['department'] ?? null);
     }
 
+    /**
+     * A requester may correct the information they supplied while their work
+     * order is still active.  Routing and workflow fields remain reserved for
+     * staff, assignees, and department managers (canManageTicket).
+     */
+    private function canRequesterEditTicket(?array $user, array $ticket): bool
+    {
+        if (!$user || in_array($ticket['status'] ?? null, ['resolved', 'closed'], true)) {
+            return false;
+        }
+
+        return in_array($ticket['requester'] ?? null, TV::userIdentities($user), true);
+    }
+
     // --- List / detail -------------------------------------------------
 
     public function index(Request $request)
@@ -233,6 +247,7 @@ class TicketController extends Controller
         }
 
         $ticket['can_edit'] = $this->canManageTicket($user, $ticket);
+        $ticket['can_requester_edit'] = $this->canRequesterEditTicket($user, $ticket);
         $ticket['can_approve'] = $this->canApprove($user, $ticket);
 
         return response()->json($ticket);
@@ -253,6 +268,12 @@ class TicketController extends Controller
         'asset_id' => ['numeric' => true, 'nullable' => true],
     ];
 
+    // Fields a requester may amend on an active ticket they submitted.  Keep
+    // workflow state, priority, people, routing, and assets manager-only.
+    private const REQUESTER_EDITABLE_FIELDS = [
+        'description', 'request_type', 'category', 'subcategory', 'subcategory2',
+    ];
+
     public function update(Request $request, string $id)
     {
         $id = $this->intId($id);
@@ -269,7 +290,9 @@ class TicketController extends Controller
         $before = (array) $before;
 
         $user = $request->authUser();
-        if (!$this->canManageTicket($user, $before)) {
+        $canManage = $this->canManageTicket($user, $before);
+        $canRequesterEdit = $this->canRequesterEditTicket($user, $before);
+        if (!$canManage && !$canRequesterEdit) {
             return response()->json(['error' => 'Forbidden'], 403);
         }
 
@@ -301,6 +324,9 @@ class TicketController extends Controller
         foreach (self::EDITABLE_FIELDS as $field => $rules) {
             if (!array_key_exists($field, $body)) {
                 continue;
+            }
+            if (!$canManage && !in_array($field, self::REQUESTER_EDITABLE_FIELDS, true)) {
+                return response()->json(['error' => 'Forbidden'], 403);
             }
             $raw = $body[$field];
             $next = null;
