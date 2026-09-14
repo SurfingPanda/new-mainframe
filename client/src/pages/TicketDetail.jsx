@@ -167,8 +167,8 @@ export default function TicketDetail() {
   // Staff edit the whole queue; a department manager gets the same full-edit UI
   // for work orders routed to the department they head (server returns can_edit).
   const canManage = isStaff || !!ticket?.can_edit;
-  // The requester can amend request details, status, and priority on an active
-  // ticket. Routing and ownership remain manager-only.
+  // The requester can amend all work-order details, including the People
+  // section, on an active ticket they submitted.
   const canRequesterEdit = !!ticket?.can_requester_edit;
   const canEditRequestDetails = canManage || canRequesterEdit;
   // Assignment edits are staged in the draft like every other field, so nothing
@@ -532,7 +532,7 @@ export default function TicketDetail() {
                     <select
                       value={draft.department || ''}
                       onChange={(e) => onDepartmentChange(e.target.value)}
-                      disabled={!canManage}
+                      disabled={!canEditRequestDetails}
                       className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:opacity-60"
                     >
                       <option value="" disabled>Select a department</option>
@@ -553,7 +553,7 @@ export default function TicketDetail() {
                         value={draft.requester || ''}
                         users={directoryUsers}
                         onChange={(v) => setField('requester', v)}
-                        disabled={!canManage}
+                        disabled={!canEditRequestDetails}
                         placeholder="Type to search users or enter a name"
                       />
                     </div>
@@ -563,7 +563,7 @@ export default function TicketDetail() {
                         value={draft.assignee || ''}
                         users={assigneeChoices}
                         onChange={(v) => setField('assignee', v)}
-                        disabled={!canManage}
+                        disabled={!canEditRequestDetails}
                         placeholder="Type to search users or enter a name"
                       />
                     </div>

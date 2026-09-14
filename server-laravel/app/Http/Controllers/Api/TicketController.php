@@ -113,8 +113,7 @@ class TicketController extends Controller
 
     /**
      * A requester may correct the information they supplied while their work
-     * order is still active.  Routing and workflow fields remain reserved for
-     * staff, assignees, and department managers (canManageTicket).
+     * order is still active.
      */
     private function canRequesterEditTicket(?array $user, array $ticket): bool
     {
@@ -268,11 +267,11 @@ class TicketController extends Controller
         'asset_id' => ['numeric' => true, 'nullable' => true],
     ];
 
-    // Fields a requester may amend on an active ticket they submitted.  Keep
-    // people, routing, and assets manager-only.
+    // Fields a requester may amend on an active ticket they submitted.  Assets
+    // remain manager-only because they identify inventory records.
     private const REQUESTER_EDITABLE_FIELDS = [
         'description', 'status', 'priority', 'request_type', 'category',
-        'subcategory', 'subcategory2',
+        'subcategory', 'subcategory2', 'department', 'requester', 'assignee',
     ];
 
     public function update(Request $request, string $id)
