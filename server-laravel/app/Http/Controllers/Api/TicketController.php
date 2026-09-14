@@ -269,9 +269,10 @@ class TicketController extends Controller
     ];
 
     // Fields a requester may amend on an active ticket they submitted.  Keep
-    // workflow state, priority, people, routing, and assets manager-only.
+    // people, routing, and assets manager-only.
     private const REQUESTER_EDITABLE_FIELDS = [
-        'description', 'request_type', 'category', 'subcategory', 'subcategory2',
+        'description', 'status', 'priority', 'request_type', 'category',
+        'subcategory', 'subcategory2',
     ];
 
     public function update(Request $request, string $id)

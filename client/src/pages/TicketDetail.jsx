@@ -167,8 +167,8 @@ export default function TicketDetail() {
   // Staff edit the whole queue; a department manager gets the same full-edit UI
   // for work orders routed to the department they head (server returns can_edit).
   const canManage = isStaff || !!ticket?.can_edit;
-  // The requester can amend the information they supplied on an active ticket.
-  // Workflow, routing, ownership, priority, and status remain manager-only.
+  // The requester can amend request details, status, and priority on an active
+  // ticket. Routing and ownership remain manager-only.
   const canRequesterEdit = !!ticket?.can_requester_edit;
   const canEditRequestDetails = canManage || canRequesterEdit;
   // Assignment edits are staged in the draft like every other field, so nothing
@@ -432,14 +432,14 @@ export default function TicketDetail() {
                       value={draft.status}
                       options={STATUSES}
                       onChange={(v) => setField('status', v)}
-                      disabled={!canManage}
+                      disabled={!canEditRequestDetails}
                     />
                     <SelectField
                       label="Priority"
                       value={draft.priority}
                       options={PRIORITIES}
                       onChange={(v) => setField('priority', v)}
-                      disabled={!canManage}
+                      disabled={!canEditRequestDetails}
                     />
                     <SelectField
                       label="Request type"
