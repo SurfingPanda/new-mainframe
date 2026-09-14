@@ -2,10 +2,18 @@
 
 This is the Phase 5 runbook — the steps needed to take this Laravel backend
 from "works locally against XAMPP" to "live on Hostinger shared hosting,"
-replacing the Node/Railway backend. It assumes the frontend stays where it
-is (Hostinger, `hubly.eljincorp.com`) per the existing split-origin setup
-documented in the root `CLAUDE.md` — only the **backend** leg is moving, from
-Railway to a second Hostinger (sub)domain.
+replacing the Node/Railway backend.
+
+**Topology: path-mounted under the existing frontend site, not a separate
+subdomain.** The API is reachable at `hubly.eljincorp.com/backend/*` —
+inside the same Hostinger site/doc root that already serves the frontend
+(`public_html/hubly/`) — rather than on its own `api.*` subdomain. This was
+a deliberate choice (see the folder-structure diagram below) over the
+originally-drafted subdomain approach: it means true same-origin between
+frontend and API (simpler than same-site cookies), and it means the cutover
+in Step 9 never touches DNS at all — just a frontend env var + rebuild.
+The trade-off: the API's uptime is now tied to the `hubly` site's doc root
+existing and its `.htaccess` staying correct (see Step 2).
 
 I don't have access to your Hostinger hPanel/SSH, so I can't execute this
 myself — this is the checklist to work through by hand. Where a step has a
@@ -31,42 +39,65 @@ verification you can run locally first, I've noted it.
 - **Cron jobs** — hPanel → Advanced → Cron Jobs. Needed for the SLA breach
   monitor and the Spaces due-reminders digest (see step 7). Confirm your plan
   allows at least a 10-minute-granularity cron entry (most do).
-- **A subdomain you can point at this app**, e.g. `api.eljincorp.com` (matching
-  the domain already used for the Node backend on Railway, so the frontend's
-  cookie stays same-site with zero client-side changes — see the root
-  `CLAUDE.md`'s Security section on `SameSite=Lax`).
+- ~~A subdomain you can point at this app~~ — not needed. This app is
+  path-mounted under the existing `hubly.eljincorp.com` site instead (see
+  Step 2), so no new subdomain/DNS record is required.
 
-## 2. Set the subdomain's document root to `server-laravel/public`
+## 2. Lay out the app under the existing `hubly` site
 
 Laravel serves from a `public/` subdirectory (`public/index.php` is the
-front controller), not the project root — this is the one genuinely
-non-obvious part of deploying Laravel to shared hosting.
+front controller), not the project root — normally the one genuinely
+non-obvious part of deploying Laravel to shared hosting. Here it's one step
+more involved, because we're mounting it at a *path* under the frontend's
+existing doc root rather than giving it a dedicated subdomain doc root.
 
-**Preferred: custom document root.** When adding the `api` subdomain in
-hPanel, most Hostinger plans let you choose its document root instead of
-defaulting to `public_html/api`. Upload the whole `server-laravel/` app to
-somewhere *outside* any web-servable folder (e.g. `~/hubly-api/`, a sibling
-of `public_html`), then point the subdomain's document root at
-`~/hubly-api/public`. This is the cleanest option — nothing needs editing,
-and the app's source (`.env`, `app/`, `vendor/`) isn't reachable via HTTP.
+Target layout (matches `deploy-hostinger-backend/README.md` in this repo):
 
-**Fallback: no custom document root available.** Upload the app to
-`~/hubly-api/` as above, then:
-1. Copy the *contents* of `~/hubly-api/public/` (not the folder itself) into
-   the subdomain's actual web root (e.g. `public_html/api/`).
-2. Edit the copied `index.php`'s two `require` paths to point up to the real
-   app location:
-   ```php
-   require __DIR__.'/../../hubly-api/vendor/autoload.php';
-   (require_once __DIR__.'/../../hubly-api/bootstrap/app.php')
-   ```
-   (adjust the `../../hubly-api` relative path to match where you actually
-   uploaded it relative to the web root).
-3. This is more fragile (a future `public/` change in this repo needs
-   re-copying) — use option A whenever the plan allows it.
+```
+domains/eljincorp.com/
+├── public_html/
+│   └── hubly/                      ← frontend site's doc root (dist/ upload)
+│       ├── index.html, assets/     ← built frontend (unchanged)
+│       ├── .htaccess               ← client/public/.htaccess (has the
+│       │                             /backend exclusion — see below)
+│       └── backend/                ← Laravel's front controller lives here
+│           ├── index.php           ← edited require paths, see below
+│           ├── .htaccess           ← stock Laravel public/.htaccess
+│           ├── robots.txt
+│           └── favicon.ico
+└── laravel/
+    └── backend-f/                  ← the whole server-laravel/ app
+        ├── app/, vendor/, bootstrap/, .env, ...
+```
 
-Either way, **never** set the document root to the project root itself — that
-would serve `.env`, `app/`, and everything else directly over HTTP.
+Steps:
+1. Upload the whole `server-laravel/` app (this repo's `server-laravel/`
+   directory) to `domains/eljincorp.com/laravel/backend-f/` — a sibling of
+   `public_html`, **not web-servable**. This is where `composer install`
+   (Step 5) and the cron jobs (Step 7) run from.
+2. Create `public_html/hubly/backend/` and upload the 4 files from this
+   repo's `server-laravel/deploy-hostinger-backend/` into it verbatim — its
+   `index.php` is already a pre-edited copy of `server-laravel/public/`'s,
+   with `require`/`file_exists` paths pointing up to
+   `../../../laravel/backend-f/...` (three levels: `backend/` → `hubly/` →
+   `public_html/` → `eljincorp.com/`, then down into `laravel/backend-f/`).
+   Adjust that depth if you upload to different folder names/depths than
+   shown above.
+3. Confirm `public_html/hubly/.htaccess` (the frontend's `.htaccess`,
+   normally overwritten each time you rebuild+reupload the frontend from
+   `client/public/.htaccess`) has the `RewriteCond %{REQUEST_URI}
+   !^/backend/` exclusion above its SPA-fallback rule — without it, every
+   `/backend/*` request 404s into `index.html` before Laravel ever sees it.
+   Already in `client/public/.htaccess` as of this write-up; just don't lose
+   it on a future frontend `.htaccess` edit.
+4. `public_html/hubly/backend/.htaccess` is the **stock, unmodified**
+   Laravel front-controller ruleset — because `index.php` physically lives
+   inside `backend/`, Symfony auto-detects `/backend` as the app's base path
+   and strips it, so Laravel's own routes stay exactly `/api/...` /
+   `/uploads/...` internally, no prefix changes needed anywhere in the app.
+
+**Never** put `laravel/backend-f/` itself under `public_html` — that would
+serve `.env`, `app/`, `vendor/`, etc. directly over HTTP.
 
 ## 3. Database
 
@@ -95,7 +126,7 @@ differences from the local-dev values:
 ```
 APP_ENV=production
 APP_DEBUG=false          # critical — true leaks stack traces in error responses
-APP_URL=https://api.eljincorp.com
+APP_URL=https://hubly.eljincorp.com/backend
 
 DB_HOST=<Hostinger MySQL host, usually localhost>
 DB_DATABASE=<your db name>
@@ -105,9 +136,15 @@ DB_PASSWORD=<your db password>
 JWT_SECRET=<generate fresh — see below, NEVER reuse the placeholder>
 CORS_ORIGINS=https://hubly.eljincorp.com
 
-# Same-site with the frontend origin (both on *.eljincorp.com) — cookies stay
-# SameSite=Lax with no code changes, matching how the Node/Railway backend
-# already works (see root CLAUDE.md's Security section).
+HASH_VERIFY=false          # required — see .env.example; without this,
+                            # every pre-existing user (hashed by Node's
+                            # bcryptjs, prefix $2a$/$2b$) 500s on login
+
+# Frontend and API are the SAME origin now (both hubly.eljincorp.com — see
+# Step 2's path-mounted topology), so cookies are same-origin, which is even
+# stronger than the SameSite=Lax same-site setup the Node/Railway backend
+# uses today. CORS_ORIGINS above is mostly moot for browser traffic but
+# left set for any non-browser/cross-origin callers.
 
 TRUST_PROXY=true         # Hostinger's web server sits in front of PHP-FPM —
                           # without this, rate limiting collapses onto one
@@ -177,18 +214,19 @@ replaced with this pattern.
 
 **Preferred — CLI cron** (needs SSH/cron access to run a PHP command):
 ```cron
-*/10 * * * * php /home/<user>/hubly-api/artisan sla:monitor >> /dev/null 2>&1
-0 * * * *    php /home/<user>/hubly-api/artisan spaces:due-reminders >> /dev/null 2>&1
+*/10 * * * * php /home/<user>/domains/eljincorp.com/laravel/backend-f/artisan sla:monitor >> /dev/null 2>&1
+0 * * * *    php /home/<user>/domains/eljincorp.com/laravel/backend-f/artisan spaces:due-reminders >> /dev/null 2>&1
 ```
-(adjust the path to wherever you uploaded the app; use the full path to your
-account's PHP 8.2+ binary if `php` on the cron `$PATH` resolves to an older
-default — Hostinger's cron UI usually lets you pick the PHP version per job.)
+(adjust the path to wherever you uploaded `laravel/backend-f/` — see Step 2;
+use the full path to your account's PHP 8.2+ binary if `php` on the cron
+`$PATH` resolves to an older default — Hostinger's cron UI usually lets you
+pick the PHP version per job.)
 
 **Fallback — HTTP cron** (for plans that can only fetch a URL, not run a
 command): set `CRON_SECRET` in `.env` to a random value, then:
 ```cron
-*/10 * * * * wget -q -O /dev/null "https://api.eljincorp.com/cron/sla-monitor?token=<CRON_SECRET>"
-0 * * * *    wget -q -O /dev/null "https://api.eljincorp.com/cron/space-due-reminders?token=<CRON_SECRET>"
+*/10 * * * * wget -q -O /dev/null "https://hubly.eljincorp.com/backend/cron/sla-monitor?token=<CRON_SECRET>"
+0 * * * *    wget -q -O /dev/null "https://hubly.eljincorp.com/backend/cron/space-due-reminders?token=<CRON_SECRET>"
 ```
 Both endpoints 404 unless the token matches — safe to leave `CRON_SECRET`
 empty until you're ready to wire this up (the endpoints are simply inert
@@ -196,13 +234,21 @@ until then, see `routes/cron.php`).
 
 ## 8. Smoke test before cutting over traffic
 
-With the subdomain live but *before* changing the frontend's `VITE_API_URL`:
+`/backend/*` is live as soon as Step 2's files are uploaded — it doesn't
+depend on the frontend's `VITE_API_URL` at all, since that only controls
+what URL the *built JS* calls. That means you can test the live backend here
+with **zero risk to production**, as long as the currently-live
+`public_html/hubly/.htaccess` has the `!^/backend/` exclusion from Step 2.3.
+If you haven't rebuilt+reuploaded the frontend since making that edit, either
+do a normal frontend rebuild+upload now (safe — `VITE_API_URL` is still
+unchanged, so the live site still calls Railway) or just patch that one line
+into the live `.htaccess` by hand via File Manager/SSH first.
 
 ```bash
-curl https://api.eljincorp.com/api/health
+curl https://hubly.eljincorp.com/backend/api/health
 # {"status":"ok","db":"connected",...}
 
-curl -X POST https://api.eljincorp.com/api/auth/login \
+curl -X POST https://hubly.eljincorp.com/backend/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"<a real user>","password":"<their password>"}'
 # 200 + Set-Cookie: mf_token=...; the same shape verified during Phase 5
@@ -217,20 +263,21 @@ show up in `/api/health` alone.
 
 ## 9. Cut over
 
-Once the smoke test is clean:
+Once the smoke test is clean — **no DNS change needed**, since `/backend`
+already lives under the domain that's already live:
 
-1. Update the frontend's `client/.env.production` — `VITE_API_URL` from the
-   Railway URL to `https://api.eljincorp.com` (already pointing at the
-   `api.eljincorp.com` name if you reused it; only the DNS target changes).
+1. Update `client/.env.production` — `VITE_API_URL` from the Railway URL
+   (`https://api.eljincorp.com`) to `https://hubly.eljincorp.com/backend`.
 2. Rebuild + re-upload the frontend (`cd client && npm run build`, upload
    `dist/` to Hostinger — see the root `CLAUDE.md`'s Deployment section for
-   the existing process, unchanged by this migration).
-3. Point `api.eljincorp.com`'s DNS at the new Hostinger-hosted backend
-   (update the A/CNAME record that currently points at Railway).
-4. Keep the Railway/Node backend running, untouched, for a rollback window —
+   the existing process). This is the actual cutover moment — the instant
+   this new build is live, all browser traffic calls the Laravel backend
+   instead of Railway.
+3. Keep the Railway/Node backend running, untouched, for a rollback window —
    don't decommission it until you've confirmed the new backend handles real
-   traffic cleanly for a few days.
-5. Decommission Railway once you're confident (stop the service; there's no
+   traffic cleanly for a few days. Rollback is just re-deploying the
+   previous frontend build (restores the old `VITE_API_URL`).
+4. Decommission Railway once you're confident (stop the service; there's no
    data to migrate back since both backends share the one MySQL database
    throughout).
 

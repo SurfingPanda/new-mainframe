@@ -6,39 +6,76 @@ This file gives Claude codebase-specific instructions for working in this reposi
 
 - **Project name:** Hubly
 - **Purpose:** Internal IT operations platform combining ticketing, IT asset inventory, and a knowledge base in one app.
-- **Primary stack:** React 18 + Vite + Tailwind (client), Node.js + Express + mysql2 (server)
-- **Database:** MySQL 8 / MariaDB (XAMPP on `localhost:3306`)
-- **Runtime(s):** Node.js 18+
-- **Package manager(s):** npm (separate `client/` and `server/` workspaces — no monorepo tooling); Composer for the parallel `server-laravel/` backend (see below)
+- **Primary stack:** React 18 + Vite + Tailwind (client); **Laravel 11 / PHP 8.2** (`server-laravel/`) is the only deployed backend, ported from a now-historical Node.js + Express + mysql2 app (`server/`, kept as reference only)
+- **Database:** MySQL 8 / MariaDB (XAMPP on `localhost:3306`) — both backends share the same `mainframe_app` schema
+- **Runtime(s):** PHP 8.2 (backend); Node.js 18+ (client build, `server/` reference, backend tests)
+- **Package manager(s):** Composer for `server-laravel/`; npm for `client/` and the legacy `server/` (separate workspaces — no monorepo tooling)
 
 ## Laravel backend port (`server-laravel/`)
 
-A **feature-complete parallel port** of `server/` to Laravel 11 (PHP 8.2), living
-alongside the Node backend — not yet deployed, not yet the live backend. It
-exists because the team wants to move backend hosting off Railway onto
-**Hostinger shared hosting** for cost reasons, and shared hosting can't run a
-persistent Node process. `server/` (Node/Express, on Railway) remains the
-canonical, live production backend until an explicit cutover happens (see
-`server-laravel/DEPLOYMENT.md`'s cutover steps) — **treat `server/` as the
-source of truth for current behavior**, and don't assume `server-laravel/` has
-picked up any `server/` change made after it was built.
+A **feature-complete parallel port** of `server/` to Laravel 11 (PHP 8.2),
+built so the team can move backend hosting off Railway onto **Hostinger
+shared hosting** for cost reasons (shared hosting can't run a persistent
+Node process).
+
+**Cutover is done: `server-laravel/` is the only backend — Railway has been
+decommissioned.** `server/` (Node/Express) is no longer deployed anywhere;
+`api.eljincorp.com` (its old Railway custom domain) is dead (confirmed
+404/`x-railway-fallback` as of 2026-08-20). **`server-laravel/` is therefore
+the source of truth for current *and* production backend behavior** — treat
+`server/` as historical reference only, not something to keep in parity with
+going forward.
+
+**Production is live on Hostinger and the migration is essentially
+complete.** `hubly.eljincorp.com` serves the SPA, the path-mounted API at
+`hubly.eljincorp.com/backend/api/health` returns `{"status":"ok"}`, and
+login + core flows work. Caveats: there is **no CI/CD on either leg**, so a
+committed change is not live until someone rebuilds/re-uploads by hand (see
+Deployment below), and the `VITE_API_URL` wiring has drifted more than
+once — so **verify live** (`curl https://hubly.eljincorp.com/backend/api/health`,
+or exercise the affected endpoint) before assuming a given fix has shipped.
+Full topology + runbook in `server-laravel/DEPLOYMENT.md`.
+
+All new backend work should target `server-laravel/` only — there is no
+`server/` to keep updated in parallel anymore.
+
+**Local dev targets `server-laravel` by default.** `client/vite.config.js`'s
+dev proxy (`/api`, `/uploads`) points at `:8000` (`php artisan serve`), not
+`:4000` (Node) — `server/` is not run locally day-to-day and isn't deployed
+anywhere either (see above). Run `cd server-laravel && php artisan serve`
+(not `cd server && npm run dev`) to develop against the client locally.
+`/socket.io` in the same proxy config still points at `:4000` since
+`server-laravel` dropped realtime/chat — it's simply inert now unless you
+run `server/` yourself for some other reason; leave it unless Team Chat is
+formally removed from the client.
 
 - **Status:** all 5 build phases done (auth → core ticketing → SLA/automation
-  → everything else → parity-verified against the live Node backend). Full
-  build log, phase-by-phase, in `server-laravel/README.md`; deployment runbook
-  in `server-laravel/DEPLOYMENT.md`.
+  → everything else → parity-verified against the Node backend), plus a
+  later pass finishing the self-service auth endpoints the initial port had
+  stubbed out: `POST`/`DELETE /api/auth/me/avatar` + `/me/signature` (image
+  processing on GD, see below) and `POST /api/auth/forgot-password` +
+  `/reset-password`. **Known remaining gap:** `GET /api/auth/me/stats`
+  (technician scorecard) is still unported — the client swallows the 404, so
+  the Profile page's Performance card silently renders zeros on production.
+  Full build log, phase-by-phase, in `server-laravel/README.md`; deployment
+  runbook in `server-laravel/DEPLOYMENT.md`.
 - **Scope cuts** (deliberate product decisions, not gaps): no realtime/chat
   (Socket.IO + Team Chat dropped entirely), no idle-triggered automation +
   its scheduler, no recurring-maintenance work orders. Everything else in
-  this file's Domain model / API surface has a Laravel counterpart.
+  this file's Domain model / API surface has a Laravel counterpart (the one
+  known exception — `GET /api/auth/me/stats` — is a gap, not a cut; see Status).
 - **Shares the same MySQL database** as `server/` (`mainframe_app`) — same
   `server/sql/schema.sql`, no Eloquent migrations of its own, and it must
   **never** run `artisan migrate` against it.
 - **Conventions differ from `server/` on purpose**: raw `DB::table()` query
   builder (no Eloquent/ORM) to stay close to the hand-tuned parameterized
   SQL this file documents; JWT auth ported 1:1 (same cookie name/shape);
-  avatar/icon image processing uses `gd` via Intervention Image instead of
-  `sharp` (HEIC/AVIF uploads aren't supported there — PNG/JPEG/GIF/WebP are).
+  image processing (avatars, space icons, e-signatures — `app/Services/AvatarUpload.php`
+  + `SignatureUpload.php`) uses `gd` via Intervention Image instead of `sharp`,
+  decoding-then-re-encoding every upload to WebP just like the Node path, but
+  **rejecting** HEIC/AVIF on that host since GD can't decode them (PNG/JPEG/GIF/WebP
+  go through). Node rate limiters become named `throttle:*` limiters registered in
+  `app/Providers/AppServiceProvider.php` (same windows/keys).
 - Two Node bugs were found and fixed during the port rather than reproduced
   — see `server-laravel/README.md`'s Phase 4 notes (a silently-dropped
   `ticket_activity` entry on resolution-survey send, and KB article images
@@ -69,8 +106,26 @@ new-mainframe/
 │                              NetworkReportEditor, NetworkReportView, ModulePlaceholder,
 │                              MaintenanceSchedules, MaintenanceScheduleEditor, Spaces, SpaceDetail,
 │                              Automation (automation rule builder)
-├── server/                    Node.js + Express API
-│   ├── sql/schema.sql         Database schema + seed data
+├── server-laravel/            Laravel 11 (PHP 8.2) API — the ONLY deployed
+│   │                          backend (see "Laravel backend port" above).
+│   ├── README.md              Phase-by-phase build log
+│   ├── DEPLOYMENT.md          Hostinger path-mounted runbook
+│   ├── uploads/               avatars/ signatures/ tickets/ messages/ kb/ spaces/ (served via /uploads)
+│   ├── app/
+│   │   ├── Http/Controllers/Api/   one controller per resource (Auth, Ticket, User, Asset,
+│   │   │                           Kb, Space*, Sla, Automation, Audit, Notification, …)
+│   │   ├── Http/Middleware/        JwtAuthenticate (auth.jwt), EnsurePermission (permission:m,a),
+│   │   │                           EnsureRole (role:…), SecurityHeaders
+│   │   ├── Services/               ports of server/src/lib/* — Permissions, Sla*, BusinessHours,
+│   │   │                           Automation, Audit, TicketVisibility, AvatarUpload, SignatureUpload,
+│   │   │                           Mailer, EmailTemplates, JwtService, Unifi, …
+│   │   └── Console/Commands/       RunSlaMonitor, RunSpaceDueReminders (driven by routes/cron.php + host cron)
+│   ├── config/                hubly.php (app-specific), filesystems.php (upload disks), hashing.php
+│   └── routes/                api.php (/api/*), uploads.php (/uploads/*), cron.php, console.php, web.php
+├── server/                    Node.js + Express API — HISTORICAL REFERENCE ONLY,
+│   │                          not deployed anywhere. Still the canonical home of
+│   │                          sql/schema.sql and the backend unit tests.
+│   ├── sql/schema.sql         Database schema + seed data (both backends build from this)
 │   ├── uploads/               Ticket + chat attachments (served via /uploads; chat/ subdir)
 │   └── src/
 │       ├── index.js           App bootstrap, route mounting, /api/health
@@ -83,10 +138,6 @@ new-mainframe/
 │       ├── middleware/        auth.js (JWT auth + role/permission gates), rateLimit.js
 │       └── routes/            auth, users, tickets, maintenance, assets, kb, asset-requests,
 │                              departments, password-resets, chat, network, notifications, automation, audit, sla
-├── server-laravel/            Parallel Laravel 11 (PHP) port of server/ — see
-│                              "Laravel backend port" above. Not yet deployed;
-│                              server/ is still the live backend. Own README.md
-│                              (build log) + DEPLOYMENT.md (Hostinger runbook).
 └── README.md
 ```
 
@@ -123,12 +174,16 @@ Database name: `mainframe_app` (utf8mb4_unicode_ci).
 
 ## API surface
 
-Mounted in `server/src/index.js` under `/api`:
+Route paths + semantics below are shared by both backends: Node mounts them in
+`server/src/index.js`, Laravel in `server-laravel/routes/api.php` (`routes/uploads.php`
+for `/uploads/*`). The `File` column names the Node source; the Laravel equivalent is
+`app/Http/Controllers/Api/<Resource>Controller.php`. Divergences are called out in the
+row or under "Laravel backend port" above. All under `/api`:
 
 | Prefix                 | File                        | Purpose                                          |
 | ---------------------- | --------------------------- | ------------------------------------------------ |
 | `/api/health`          | `index.js`                  | Service + DB ping                                |
-| `/api/auth`            | `routes/auth.js`            | Login, JWT issue, `/me`, change/forgot password, self-service profile edit (`PATCH /me` name + job_title, `POST`/`DELETE /me/avatar`), technician scorecard (`GET /me/stats` — on-hold/resolved counts, SLA breaches, avg survey rating) |
+| `/api/auth`            | `routes/auth.js`            | Login, JWT issue, `/me`, change / forgot / reset password, self-service profile edit (`PATCH /me` name + job_title, `POST`/`DELETE /me/avatar`, `POST`/`DELETE /me/signature`), technician scorecard (`GET /me/stats` — on-hold/resolved counts, SLA breaches, avg survey rating; **not yet ported to Laravel** — see the Laravel section) |
 | `/api/users`           | `routes/users.js`           | User CRUD (incl. job_title) + permission overrides + bulk import (`POST /import`) + avatar (`POST`/`DELETE /:id/avatar`) (`users.manage`)|
 | `/api/tickets`         | `routes/tickets.js`         | Tickets, activity, KB links, attachments, self-assign (`POST /:id/claim` & `/release`), HR-approval decisions (`POST /:id/approve` & `/:id/deny`), watchers (`GET`/`POST`/`DELETE /:id/watchers` — self-subscribe open to anyone with read access, adding/removing another user requires edit rights, unavailable on 'HR Concerns') |
 | `/api/maintenance`     | `routes/maintenance.js`     | Recurring work orders (preventive maintenance); staff-only (`requireRole('admin','agent')`) |
@@ -162,7 +217,7 @@ Rate limiting: `server/src/middleware/rateLimit.js` — an in-memory, single-pro
 
 File uploads: `multer` for ticket attachments (`server/uploads/`) and chat attachments (`server/uploads/chat/`), served statically under `/uploads`. The whole `/uploads` tree is gated by `requireAuth` + `authorizeUpload` (`lib/upload-access.js`): first a valid, non-revoked session (the browser auto-sends the httpOnly cookie with `<img>`/`<video>`/download requests, so inline previews still render), then **per-resource** authorization. `canAccessUpload(user, path)` maps the file back to its owning row by the stored `/uploads/<category>/<file>` path (ticket attachments key off the bare `stored_filename`) and re-applies that resource's visibility rules: **avatars** / **signatures** → any signed-in user; **chat** → room membership (DM party / group member / Team Chat); **messages** → sender or recipient; **spaces** → space member or `spaces.manage`; **tickets** → `canViewTicket` (staff / requester / assignee / same department). Default-deny for unknown categories or orphaned files.
 
-Profile pictures: `server/src/lib/avatar-upload.js` takes the upload in memory and runs it through `sharp` — this both **validates** the bytes (a spoofed MIME or an SVG/script payload fails to decode and is rejected 400) and **normalizes** it to a 256×256 WebP saved under `server/uploads/avatars/` (served via `/uploads/avatars`). HEIC/AVIF are accepted (libvips decodes them) and re-encoded so they render everywhere. Replacing or removing an avatar deletes the old file; uploads are rate-limited. Used by both the self-service (`/api/auth/me/avatar`) and admin (`/api/users/:id/avatar`) routes. Avatars surface app-wide via the shared `client/src/components/Avatar.jsx` (image, else initials) — header, Users directory, chat messages/people lists, and the assignee `UserPicker` (the `/api/users/directory` + `/assignable` lists return `avatar_url`).
+Profile pictures & e-signatures: `server/src/lib/avatar-upload.js` takes the upload in memory and runs it through `sharp` — this both **validates** the bytes (a spoofed MIME or an SVG/script payload fails to decode and is rejected 400) and **normalizes** it to a 256×256 WebP saved under `server/uploads/avatars/` (served via `/uploads/avatars`). HEIC/AVIF are accepted (libvips decodes them) and re-encoded so they render everywhere. Replacing or removing an avatar deletes the old file; uploads are rate-limited. Used by both the self-service (`/api/auth/me/avatar`) and admin (`/api/users/:id/avatar`) routes. **E-signatures** follow the same validate-by-re-encode pattern via `server/src/lib/signature-upload.js` (self-service only, `/api/auth/me/signature`) but keep transparency and fit the mark inside a 600×240 banner instead of cropping to a square, saved under `server/uploads/signatures/`; the saved signature auto-fills the requester/technician blocks on printed work orders. Avatars surface app-wide via the shared `client/src/components/Avatar.jsx` (image, else initials) — header, Users directory, chat messages/people lists, and the assignee `UserPicker` (the `/api/users/directory` + `/assignable` lists return `avatar_url`). **Laravel port:** `app/Services/AvatarUpload.php` + `SignatureUpload.php` (Intervention Image on GD) mirror both, output WebP, and are served by auth-gated routes in `routes/uploads.php` (`/uploads/avatars/*`, `/uploads/signatures/*` — any signed-in user, matching `lib/upload-access.js`); HEIC/AVIF are rejected there since GD can't decode them.
 
 Bulk user import: the Users page parses a CSV/XLSX **client-side** with `xlsx` (SheetJS — the one non-trivial client dependency, added for spreadsheet parsing) and POSTs the rows as JSON to `POST /api/users/import`. The server validates per-row (name+email required, email format, role allowlist, in-file + existing-email dedupe), generates a random password per created user, and returns it once in the response so the admin can distribute it (never stored in plaintext).
 
@@ -184,7 +239,7 @@ Routes defined in `client/src/App.jsx`. Most routes wrap pages in `<ProtectedRou
 - `/dashboard`, `/settings`, `/chat` — any signed-in user (no `permission` prop)
 - `/`, `/signin`, `/forgot-password` — public
 
-`ProtectedRoute` is UX only — the server re-checks permissions on every request. Vite dev server proxies `/api/*` to the backend on `:4000`, so the client can fetch without CORS configuration.
+`ProtectedRoute` is UX only — the server re-checks permissions on every request. Vite dev server proxies `/api/*` and `/uploads/*` to `:8000` (`server-laravel`, the local dev default — see the "Laravel backend port" section above), so the client can fetch without CORS configuration. `/socket.io` still proxies to `:4000` (Node) since `server-laravel` has no realtime/chat counterpart (a deliberate scope cut) — it's a no-op unless `server/` is also running.
 
 ## Permissions
 
@@ -270,12 +325,18 @@ This creates `mainframe_app` with a seed admin user, sample assets, departments,
 ### Run locally
 
 ```bash
-# backend (http://localhost:4000)
-cd server && npm run dev
+# backend — server-laravel is the local dev default (http://localhost:8000)
+cd server-laravel && php artisan serve
 
 # frontend (http://localhost:5173)
 cd client && npm run dev
 ```
+
+`server/` (Node, `http://localhost:4000`) still exists as historical
+reference and as the home of `sql/schema.sql` + the backend unit tests, but
+is **not deployed anywhere** — `cd server && npm run dev` only if you
+specifically need to compare behavior against it. The client's Vite proxy
+does not target it (see the "Laravel backend port" section above).
 
 ### Build
 
@@ -295,13 +356,14 @@ Currently covers the permission logic (`src/lib/permissions.js`), ticket visibil
 
 ## Deployment
 
-Production is a **split-origin** deployment: static frontend on **Hostinger**, API + MySQL on **Railway**. They share the same registrable domain (`eljincorp.com`) on purpose, so the auth cookie stays `SameSite=Lax` (same-site) with no cookie code changes.
+**Railway has been decommissioned.** Production is a **single Hostinger account, both legs same-origin** — a change from the old split-origin Hostinger+Railway setup. `server/` (Node/Express) is no longer deployed anywhere; `api.eljincorp.com` (its old Railway domain) 404s. The migration is **essentially complete and live**: `hubly.eljincorp.com` serves the SPA and `hubly.eljincorp.com/backend/api/health` returns `{"status":"ok"}`. But there is **no CI/CD on either leg**, so a merged commit is not necessarily deployed — always confirm a change is actually live (`curl https://hubly.eljincorp.com/backend/api/health`, or exercise the affected endpoint) before assuming it shipped.
 
-- **Frontend — Hostinger** (`hubly.eljincorp.com`, docroot `public_html/hubly`, subdomain via an ALIAS/CNAME DNS record): build with `cd client && npm run build`, then upload the contents of `client/dist/` into `public_html/hubly`. `client/public/.htaccess` (copied into `dist/` by the build) handles SPA fallback routing. There is no CI/CD for this leg — it's a manual build + upload.
-- **Backend — Railway** (`api.eljincorp.com`, Railway custom domain via CNAME + a `_railway-verify.<sub>` TXT record): deploys from this GitHub repo — a push to `main` triggers Railway's own build/deploy, so `git push` is normally sufficient once Railway's GitHub integration is connected. Required environment variables: `JWT_SECRET` (32+ chars), `DB_*`, `NODE_ENV=production`, `TRUST_PROXY=1` (so `req.ip` reflects the real client behind Railway's proxy — see Security/rate limiting above), `CORS_ORIGINS=https://hubly.eljincorp.com`. Needs a **Volume mounted at `server/uploads`** (the filesystem is otherwise ephemeral and attachments/avatars would be lost on redeploy) and must run at **1 replica only** — the in-memory rate limiter, chat typing indicators, and Socket.IO state are single-process and don't share across replicas.
-- **Client → API wiring:** the client is origin-aware via `client/src/lib/config.js` (`API_BASE` from `VITE_API_URL`, `apiUrl()`, `rewriteUploadUrls()` for `/uploads/...` URLs in API responses), used by `api()` in `lib/auth.js` and `io()` in `lib/useSocket.jsx`. `client/.env.production` sets `VITE_API_URL=https://api.eljincorp.com` (a public URL, not a secret) and is picked up automatically by `npm run build`. In dev, `VITE_API_URL` is unset so calls stay same-origin through the Vite proxy.
-- Changing only backend code needs just a Railway deploy (push to `main`); changing client code needs a rebuild + re-upload to Hostinger too — do both when a change touches `client/`.
-- **Planned migration:** the backend leg (Railway) is expected to move to Hostinger shared hosting for cost reasons. A feature-complete Laravel replacement already exists at `server-laravel/` (see "Laravel backend port" above) with its own deployment runbook (`server-laravel/DEPLOYMENT.md`) — this hasn't happened yet, so treat Railway/Node as current reality until told otherwise.
+**Topology: path-mounted, not split-origin.** The Laravel backend (`server-laravel/`) is **path-mounted under the frontend site**, reachable at `hubly.eljincorp.com/backend/*`, rather than on its own `api.*` subdomain — see `server-laravel/DEPLOYMENT.md`'s topology note and Step 2 for the full folder layout (`public_html/hubly/backend/` front controller → sibling `domains/eljincorp.com/laravel/backend-f/` app), and `server-laravel/deploy-hostinger-backend/` for the pre-edited files that go in `backend/`. This makes frontend↔API same-origin (simpler than any same-site cookie setup) and means redeploying the backend never touches DNS.
+
+- **Frontend — Hostinger** (`hubly.eljincorp.com`, docroot `public_html/hubly`): build with `cd client && npm run build`, then upload the contents of `client/dist/` into `public_html/hubly`. `client/public/.htaccess` (copied into `dist/` by the build) handles SPA fallback routing **and must keep its `RewriteCond %{REQUEST_URI} !^/backend/` exclusion** — without it, every `/backend/*` request 404s into `index.html` instead of ever reaching Laravel. There is no CI/CD for this leg — it's a manual build + upload.
+- **Backend — Hostinger, path-mounted** (`hubly.eljincorp.com/backend/*`): see `server-laravel/DEPLOYMENT.md` for the full runbook (PHP extensions, `.env`, `composer install`, cron jobs). No separate deploy trigger — files are uploaded by hand (no CI/CD on this leg either).
+- **Client → API wiring:** the client is origin-aware via `client/src/lib/config.js` (`API_BASE` from `VITE_API_URL`, `apiUrl()`, `rewriteUploadUrls()` for `/uploads/...` URLs in API responses), used by `api()` in `lib/auth.js` and `io()` in `lib/useSocket.jsx`. `client/.env.production` should set `VITE_API_URL=https://hubly.eljincorp.com/backend` (the client appends `/api/...`/`/uploads/...` itself) — **verify this value is actually correct before trusting it**, it has drifted to wrong/empty values more than once during this migration. In dev, `VITE_API_URL` is unset so calls stay same-origin through the Vite proxy (which points at `server-laravel` on `:8000` — see "Laravel backend port" above).
+- Any change to `server-laravel/` needs a manual re-upload to `laravel/backend-f/` (see `DEPLOYMENT.md`); changing client code needs a rebuild + re-upload to `public_html/hubly/` — do both when a change touches `client/`.
 
 ## Database and migrations
 

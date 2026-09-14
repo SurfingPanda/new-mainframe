@@ -39,10 +39,22 @@ const ROLE_DEFAULTS = {
 
 export function getUser() {
   const raw = localStorage.getItem(USER_KEY);
-  return raw ? JSON.parse(raw) : null;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Corrupt/stale cached value (e.g. a prior setSession(undefined)) would
+    // otherwise crash every page load until a user manually clears storage.
+    localStorage.removeItem(USER_KEY);
+    return null;
+  }
 }
 
 export function setSession(user) {
+  if (!user) {
+    clearSession();
+    return;
+  }
   localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 

@@ -1,5 +1,6 @@
 # Hubly frontend — static Vite build on Hostinger (Apache/LiteSpeed)
-# The API + uploads live on Railway; this host only serves the built SPA.
+# The Laravel API lives at /backend under this same host+doc root (see
+# backend/.htaccess + backend/index.php) — same-origin with the SPA.
 
 # ----------------------------------------------------------------------
 # Force HTTPS (cookies are Secure in production; the app must be on https)
@@ -14,9 +15,15 @@
 
   # ----------------------------------------------------------------------
   # SPA fallback: react-router handles routing client-side, so any path
-  # that is NOT a real file or directory must serve index.html.
+  # that is NOT a real file or directory must serve index.html — EXCEPT
+  # /backend/*, which is the Laravel API mounted in its own subfolder with
+  # its own .htaccess/front controller. Without this exclusion this rule
+  # fires first (there's no literal file at e.g. /backend/api/auth/login)
+  # and every API request would get index.html instead of ever reaching
+  # Laravel.
   # ----------------------------------------------------------------------
   RewriteBase /
+  RewriteCond %{REQUEST_URI} !^/backend/
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule ^ index.html [L]
@@ -54,16 +61,17 @@
 
 # ----------------------------------------------------------------------
 # Basic security headers for the static host.
-# (The API on Railway sets its own; these harden the frontend files.)
-# The CSP allows XHR/websocket to your Railway backend — EDIT the two
-# https://YOUR-BACKEND hosts below to your real API origin.
+# (Laravel's own SecurityHeaders middleware sets its response headers under
+# /backend; these cover the frontend files. The API is same-origin now, so
+# a plain 'self' CSP covers it too — no external backend host to list.)
 # ----------------------------------------------------------------------
 <IfModule mod_headers.c>
   Header always set X-Content-Type-Options "nosniff"
   Header always set X-Frame-Options "DENY"
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
-  # Uncomment and set once your backend origin is final:
-  # Header always set Content-Security-Policy "default-src 'self'; connect-src 'self' https://YOUR-BACKEND wss://YOUR-BACKEND; img-src 'self' https://YOUR-BACKEND data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+  # Uncomment once verified against the app (uploads/avatars are same-origin
+  # under /backend/uploads, so 'self' covers img-src/connect-src too):
+  # Header always set Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
 </IfModule>
 
 # ----------------------------------------------------------------------
