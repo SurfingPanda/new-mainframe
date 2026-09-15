@@ -1,4 +1,5 @@
 import { apiUrl, rewriteUploadUrls } from './config.js';
+import { normalizeApiTimestamps } from './datetime.js';
 
 // The auth token now lives in an httpOnly cookie set by the server — it is
 // deliberately NOT readable from JS (XSS can't exfiltrate it). Only the
@@ -128,6 +129,9 @@ export async function api(path, options = {}) {
   if (!res.ok) {
     throw new Error(data.error || `Request failed with ${res.status}`);
   }
+  // Laravel/MySQL returns UTC date-times without a timezone suffix. Normalize
+  // them before pages format or compare them so they follow the device clock.
+  normalizeApiTimestamps(data);
   // Rewrite any /uploads/... paths in the body to the backend origin so media
   // (avatars, signatures, attachments) load from the API host, not the static
   // frontend host. No-op in same-origin dev.

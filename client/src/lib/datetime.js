@@ -5,11 +5,34 @@
 export function parseApiDate(value) {
   if (typeof value !== 'string') return new Date(value);
   const trimmed = value.trim();
-  const mysqlTimestamp = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+  const mysqlTimestamp = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
   if (mysqlTimestamp.test(trimmed)) {
     return new Date(`${trimmed.replace(' ', 'T')}Z`);
   }
   return new Date(trimmed);
+}
+
+// Normalize bare UTC date-times once as API data enters the client. This makes
+// every existing `new Date(value)` call device-timezone aware without touching
+// date-only fields such as due_at/start_date (which must remain calendar dates).
+export function normalizeApiTimestamps(value) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const bareDateTime = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+    return bareDateTime.test(trimmed) ? `${trimmed.replace(' ', 'T')}Z` : value;
+  }
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index++) {
+      value[index] = normalizeApiTimestamps(value[index]);
+    }
+    return value;
+  }
+  if (value && typeof value === 'object') {
+    for (const key of Object.keys(value)) {
+      value[key] = normalizeApiTimestamps(value[key]);
+    }
+  }
+  return value;
 }
 
 export function relativeTime(value) {

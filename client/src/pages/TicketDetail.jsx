@@ -7,6 +7,7 @@ import { api, getUser, updateStoredUser } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
 import { SLA_DAYS, RESOLVED_STATUSES, PAUSED_STATUSES as SLA_PAUSED_STATUSES } from '../lib/sla.js';
 import { CATEGORY_TREE } from '../lib/categories.js';
+import { parseApiDate, relativeTime as formatRelativeTime } from '../lib/datetime.js';
 
 const STATUSES = [
   { key: 'open', label: 'Open' },
@@ -1352,7 +1353,7 @@ function SlaBanner({ ticket, activity }) {
 function statusChanges(activity) {
   return (activity || [])
     .filter((a) => a.type === 'change' && a.field === 'status' && a.new_value)
-    .map((a) => ({ at: new Date(a.created_at).getTime(), status: a.new_value, prev: a.old_value }))
+    .map((a) => ({ at: parseApiDate(a.created_at).getTime(), status: a.new_value, prev: a.old_value }))
     .filter((c) => !Number.isNaN(c.at))
     .sort((a, b) => a.at - b.at);
 }
@@ -1367,7 +1368,7 @@ function resolvedAtMs(ticket, activity) {
     if (RESOLVED_STATUSES.has(c.status) && (latest === null || c.at > latest)) latest = c.at;
   }
   if (latest !== null) return latest;
-  const u = new Date(ticket.updated_at).getTime();
+  const u = parseApiDate(ticket.updated_at).getTime();
   return Number.isNaN(u) ? Date.now() : u;
 }
 
@@ -1398,7 +1399,7 @@ function pausedDurationMs(ticket, activity, opened, until) {
 function computeSla(ticket, activity = []) {
   const days = SLA_DAYS[ticket.priority];
   if (!days || !ticket.created_at) return null;
-  const opened = new Date(ticket.created_at).getTime();
+  const opened = parseApiDate(ticket.created_at).getTime();
   if (Number.isNaN(opened)) return null;
 
   const resolved = RESOLVED_STATUSES.has(ticket.status);
@@ -1906,7 +1907,7 @@ function PriorityPill({ priority }) {
 
 function formatDateTime(ts) {
   if (!ts) return '—';
-  const d = ts instanceof Date ? ts : new Date(ts);
+  const d = parseApiDate(ts);
   return d.toLocaleString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit'
@@ -1921,15 +1922,5 @@ function formatSize(bytes) {
 }
 
 function relativeTime(ts) {
-  if (!ts) return '';
-  const then = new Date(ts).getTime();
-  const diff = Date.now() - then;
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d ago`;
-  return new Date(ts).toLocaleDateString();
+  return ts ? formatRelativeTime(ts) : '';
 }

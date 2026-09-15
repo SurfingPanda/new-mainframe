@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import { api } from '../lib/auth.js';
+import { parseApiDate } from '../lib/datetime.js';
 
 const STATUSES = {
   pending:   { label: 'Pending', tone: 'bg-amber-50 text-amber-700 ring-amber-200' },
@@ -151,7 +152,7 @@ export default function AssetRequestDetail() {
                     <Detail label="Asset Type" value={request.asset_type} />
                     <Detail label="Quantity" value={request.quantity} />
                     <Detail label="Urgency" value={URGENCIES[request.urgency] || request.urgency} />
-                    <Detail label="Submitted" value={request.created_at ? new Date(request.created_at).toLocaleString() : '—'} />
+                    <Detail label="Submitted" value={request.created_at ? parseApiDate(request.created_at).toLocaleString() : '—'} />
                     <div className="border-t border-slate-100 pt-5 sm:col-span-2">
                       <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Justification</dt>
                       <dd className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-800">{request.justification}</dd>
@@ -200,7 +201,14 @@ export default function AssetRequestDetail() {
                       <article key={`${entry.timestamp}-${entry.author}-${index}`} className="px-5 py-4">
                         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                           <span className="text-xs font-semibold text-brand-900">{entry.author}</span>
-                          {entry.timestamp && <time className="text-[10px] tabular-nums text-slate-400">{entry.timestamp}</time>}
+                          {entry.timestamp && (
+                            <time className="text-[10px] tabular-nums text-slate-400" title={`${entry.timestamp} UTC`}>
+                              {parseApiDate(entry.timestamp).toLocaleString(undefined, {
+                                month: 'short', day: 'numeric', year: 'numeric',
+                                hour: 'numeric', minute: '2-digit'
+                              })}
+                            </time>
+                          )}
                         </div>
                         <p className="mt-1.5 whitespace-pre-wrap text-sm leading-5 text-slate-700">{entry.body}</p>
                       </article>
