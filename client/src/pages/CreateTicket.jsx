@@ -64,6 +64,7 @@ const PRIORITY_OPTIONS = [
 export default function CreateTicket() {
   const navigate = useNavigate();
   const user = getUser();
+  const defaultRequester = user?.name || user?.email || '';
 
   // The signed-in user's saved e-signature, for the overtime report's signature
   // cell. Refreshed from /me so it's current even on an older cached session.
@@ -112,7 +113,7 @@ export default function CreateTicket() {
   const [subcategory, setSubcategory] = useState('');
   const [subcategory2, setSubcategory2] = useState('');
   const [priority, setPriority] = useState('normal');
-  const [requester, setRequester] = useState(user?.email || '');
+  const [requester, setRequester] = useState(defaultRequester);
   const [assignee, setAssignee] = useState('');
   const [department, setDepartment] = useState('');
   const [files, setFiles] = useState([]);
@@ -320,8 +321,8 @@ export default function CreateTicket() {
       erpDept.trim() !== (user?.department || '').trim() ||
       erpPosition.trim() !== (user?.job_title || '').trim() ||
       erpAccessDetails.trim() !== '' ||
-      requester.trim() !== (user?.email || '').trim(),
-    [title, description, category, subcategory, subcategory2, department, assignee, requestType, priority, files, leaveType, leaveStart, leaveEnd, leaveReason, otRows, mpDateRequested, mpType, mpReplacementFor, mpSection, mpDurationFrom, mpDurationTo, mpQualification, mpReason, csDateFiled, csName, csSection, csKind, csCurrentSchedule, csNewSchedule, csDuration, csScheduledRestDay, csNewRestDay, csReason, csEffectiveDate, csParticularDate, erpDate, erpName, erpEmployeeId, erpDept, erpPosition, erpAccessDetails, requester, user?.email, user?.name, user?.department, user?.job_title]
+      requester.trim() !== defaultRequester.trim(),
+    [title, description, category, subcategory, subcategory2, department, assignee, requestType, priority, files, leaveType, leaveStart, leaveEnd, leaveReason, otRows, mpDateRequested, mpType, mpReplacementFor, mpSection, mpDurationFrom, mpDurationTo, mpQualification, mpReason, csDateFiled, csName, csSection, csKind, csCurrentSchedule, csNewSchedule, csDuration, csScheduledRestDay, csNewRestDay, csReason, csEffectiveDate, csParticularDate, erpDate, erpName, erpEmployeeId, erpDept, erpPosition, erpAccessDetails, requester, defaultRequester, user?.name, user?.department, user?.job_title]
   );
 
   // Warn before a full-page unload (refresh / close / external link) when the
