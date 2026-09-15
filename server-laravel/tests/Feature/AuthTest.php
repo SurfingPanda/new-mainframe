@@ -127,10 +127,22 @@ class AuthTest extends TestCase
             'created_at' => now()->subHours(2),
             'updated_at' => now()->subHours(2),
             'sla_resolution_minutes' => 30,
+            'sla_resolution_breached_at' => now(),
         ]));
+        // An overdue-looking ticket with no recorded breach must not be
+        // inferred as one by the Profile scorecard.
         DB::table('tickets')->insert(array_merge($baseTicket, [
-            'status' => 'closed',
+            'status' => 'open',
+            'created_at' => now()->subDays(30),
+            'sla_resolution_minutes' => 30,
+        ]));
+        // A breached ticket submitted by this user but assigned to somebody
+        // else must not affect this technician's performance.
+        DB::table('tickets')->insert(array_merge($baseTicket, [
+            'status' => 'open',
+            'requester' => 'Feature Test User',
             'assignee' => 'Someone Else',
+            'sla_resolution_breached_at' => now(),
         ]));
 
         DB::table('ticket_surveys')->insert([

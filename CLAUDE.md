@@ -55,7 +55,7 @@ formally removed from the client.
   stubbed out: `POST`/`DELETE /api/auth/me/avatar` + `/me/signature` (image
   processing on GD, see below) and `POST /api/auth/forgot-password` +
   `/reset-password`, and technician scorecard `GET /api/auth/me/stats`
-  (assigned work-order counts, pause-aware SLA breaches, and survey rating).
+  (assigned work-order counts, recorded SLA breaches, and survey rating).
   Full build log, phase-by-phase, in `server-laravel/README.md`; deployment
   runbook in `server-laravel/DEPLOYMENT.md`.
 - **Scope cuts** (deliberate product decisions, not gaps): no realtime/chat

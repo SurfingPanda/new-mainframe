@@ -110,37 +110,21 @@ class AuthController extends Controller
         $identities = array_values(array_unique(array_filter([$me->name, $me->email])));
         $tickets = DB::table('tickets')
             ->select(
-                'id', 'status', 'priority', 'created_at', 'updated_at',
-                'first_responded_at', 'sla_response_minutes',
-                'sla_resolution_minutes', 'sla_calendar_id'
+                'id', 'status',
+                'sla_response_breached_at', 'sla_resolution_breached_at'
             )
             ->whereIn('assignee', $identities)
             ->get();
 
         $onHold = $tickets->where('status', 'on_hold')->count();
         $resolved = $tickets->whereIn('status', Sla::RESOLVED_STATUSES)->count();
-        $breached = 0;
-
-        if ($tickets->isNotEmpty()) {
-            $changes = DB::table('ticket_activity')
-                ->select('ticket_id', 'field', 'old_value', 'new_value', 'created_at')
-                ->whereIn('ticket_id', $tickets->pluck('id'))
-                ->where('type', 'change')
-                ->where('field', 'status')
-                ->orderBy('created_at')
-                ->get()
-                ->groupBy('ticket_id');
-
-            foreach ($tickets as $ticket) {
-                $standing = Sla::standing(
-                    (array) $ticket,
-                    ($changes->get($ticket->id) ?? collect())->all()
-                );
-                if ($standing['overdue'] ?? false) {
-                    $breached++;
-                }
-            }
-        }
+        // Count only breaches the SLA monitor actually recorded. Recomputing
+        // from today's date can retroactively label an old closed work order as
+        // breached even though it never breached while active.
+        $breached = $tickets->filter(fn ($ticket) =>
+            $ticket->sla_response_breached_at !== null
+            || $ticket->sla_resolution_breached_at !== null
+        )->count();
 
         $ratingRow = DB::table('ticket_surveys')
             ->where('technician_id', $userId)
