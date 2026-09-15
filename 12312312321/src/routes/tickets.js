@@ -1335,13 +1335,11 @@ router.post(
         }
       }
 
-      // A plain user can only file tickets under their own identity; agents
-      // and admins may file on behalf of anyone.
-      const requesterName = isStaff(req.user)
-        ? requester
-        : (req.user?.name || req.user?.email || '');
+      // Any authenticated user may file on somebody else's behalf. Requester
+      // remains free text so the reported person need not have an account.
+      const requesterName = requester;
 
-      if (!title || !requesterName) {
+      if (!title || !String(requesterName || '').trim()) {
         cleanup();
         return res.status(400).json({ error: 'title and requester are required' });
       }
@@ -1376,10 +1374,10 @@ router.post(
       let hrName = null;
       if (category === HR_CONCERNS) {
         // Route approval to the REQUESTER's department manager, not the filer's:
-        // staff may open an HR concern on behalf of someone in another department.
-        // For a self-service filer the requester IS them, so use their own
-        // department; otherwise resolve the requester (free-text name/email) to a
-        // user. No match (e.g. an external requester) → no manager → straight to HR.
+        // any user may open an HR concern on behalf of someone in another
+        // department. If the requester is the filer, use their department;
+        // otherwise resolve the free-text name/email to an active user. No match
+        // (for example, an external requester) means it goes straight to HR.
         let homeDept;
         let requesterUserId;
         if (userIdentities(req.user).includes(requesterName)) {

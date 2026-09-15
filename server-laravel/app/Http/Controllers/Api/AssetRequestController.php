@@ -18,23 +18,35 @@ class AssetRequestController extends Controller
     private const URGENCIES = ['low', 'normal', 'high', 'urgent'];
     private const STATUSES = ['pending', 'approved', 'denied', 'fulfilled'];
 
+    private static function isItDepartment(array $user): bool
+    {
+        $department = strtoupper(trim((string) ($user['department'] ?? '')));
+        return in_array($department, ['IT', 'IT DEPARTMENT'], true);
+    }
+
+    // Every member of IT may see the complete request queue. Admins retain
+    // global visibility even when their account belongs to another department.
+    private static function canViewAll(array $user): bool
+    {
+        return ($user['role'] ?? null) === 'admin' || self::isItDepartment($user);
+    }
+
     // Requests always route to IT, so reviewing/approving them is IT's job:
-    // any admin (global oversight, same carve-out as the announcements
-    // "manage" gate), or an agent who belongs to the IT department.
+    // any admin (global oversight), or any member of the IT department.
     private static function isAssetReviewer(array $user): bool
     {
         if (($user['role'] ?? null) === 'admin') return true;
-        return ($user['role'] ?? null) === 'agent'
-            && strtoupper(trim((string) ($user['department'] ?? ''))) === 'IT';
+        return self::isItDepartment($user);
     }
 
     public function index(Request $request)
     {
         $user = $request->authUser();
-        $canReviewAll = self::isAssetReviewer($user);
+        $showAll = self::isAssetReviewer($user)
+            || ($request->query('scope') === 'all' && self::canViewAll($user));
 
         $query = DB::table('asset_requests');
-        if (!$canReviewAll) {
+        if (!$showAll) {
             $query->where('requester_id', $user['sub']);
         }
         $status = $request->query('status');
@@ -75,6 +87,20 @@ class AssetRequestController extends Controller
         return response()->json(DB::table('asset_requests')->where('id', $id)->first(), 201);
     }
 
+    public function show(Request $request, string $id)
+    {
+        $user = $request->authUser();
+        if (!self::isAssetReviewer($user)) {
+            return response()->json(['error' => 'Forbidden'], 403);
+        }
+        $row = DB::table('asset_requests')->where('id', (int) $id)->first();
+        if (!$row) {
+            return response()->json(['error' => 'Request not found'], 404);
+        }
+
+        return response()->json($row);
+    }
+
     public function update(Request $request, string $id)
     {
         $user = $request->authUser();
@@ -88,13 +114,18 @@ class AssetRequestController extends Controller
             return response()->json(['error' => 'Valid status is required'], 400);
         }
 
-        $affected = DB::table('asset_requests')->where('id', $id)->update([
+        $updates = [
             'status' => $status,
-            'admin_notes' => $request->input('admin_notes') ?: null,
             'reviewed_by' => $user['name'] ?? $user['email'],
             'reviewed_at' => now(),
             'updated_at' => now(),
-        ]);
+        ];
+        if ($request->has('admin_notes')) {
+            $notes = trim((string) $request->input('admin_notes'));
+            $updates['admin_notes'] = $notes !== '' ? mb_substr($notes, 0, 60000) : null;
+        }
+
+        $affected = DB::table('asset_requests')->where('id', $id)->update($updates);
         if (!$affected) {
             return response()->json(['error' => 'Request not found'], 404);
         }
@@ -102,6 +133,43 @@ class AssetRequestController extends Controller
         $row = DB::table('asset_requests')->where('id', $id)->first();
         TicketNotifications::notifyAssetRequestDecision((array) $row, $user['name'] ?? $user['email']);
         return response()->json($row);
+    }
+
+    public function storeNote(Request $request, string $id)
+    {
+        $user = $request->authUser();
+        if (!self::isAssetReviewer($user)) {
+            return response()->json(['error' => 'Forbidden'], 403);
+        }
+
+        $body = trim((string) $request->input('body'));
+        if ($body === '') {
+            return response()->json(['error' => 'Note is required'], 400);
+        }
+        if (mb_strlen($body) > 2000) {
+            return response()->json(['error' => 'Note must be 2000 characters or fewer'], 400);
+        }
+
+        $id = (int) $id;
+        $row = DB::table('asset_requests')->where('id', $id)->first();
+        if (!$row) {
+            return response()->json(['error' => 'Request not found'], 404);
+        }
+
+        $author = $user['name'] ?? $user['email'];
+        $entry = '[' . now()->format('Y-m-d H:i') . '] ' . $author . "\n" . $body;
+        $notes = trim((string) ($row->admin_notes ?? ''));
+        $combined = $notes === '' ? $entry : $notes . "\n\n" . $entry;
+        if (strlen($combined) > 60000) {
+            return response()->json(['error' => 'The follow-up note history is full'], 422);
+        }
+
+        DB::table('asset_requests')->where('id', $id)->update([
+            'admin_notes' => $combined,
+            'updated_at' => now(),
+        ]);
+
+        return response()->json(DB::table('asset_requests')->where('id', $id)->first(), 201);
     }
 
     public function destroy(string $id)

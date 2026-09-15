@@ -64,7 +64,6 @@ const PRIORITY_OPTIONS = [
 export default function CreateTicket() {
   const navigate = useNavigate();
   const user = getUser();
-  const isStaff = user?.role === 'admin' || user?.role === 'agent';
 
   // The signed-in user's saved e-signature, for the overtime report's signature
   // cell. Refreshed from /me so it's current even on an older cached session.
@@ -171,13 +170,11 @@ export default function CreateTicket() {
     api('/api/departments')
       .then((rows) => setDeptList((rows || []).filter((d) => d.is_active).map((d) => d.name)))
       .catch(() => setDeptList([]));
-    // Only staff use these — non-staff have a read-only requester and can't
-    // pick an assignee, so skip the fetches for them.
-    if (isStaff) {
-      api('/api/users/assignable').then(setAssignableUsers).catch(() => setAssignableUsers([]));
-      api('/api/users/directory').then(setDirectoryUsers).catch(() => setDirectoryUsers([]));
-    }
-  }, [isStaff]);
+    // All authenticated users can select a registered requester/assignee;
+    // UserPicker still accepts free text for people without an account.
+    api('/api/users/assignable').then(setAssignableUsers).catch(() => setAssignableUsers([]));
+    api('/api/users/directory').then(setDirectoryUsers).catch(() => setDirectoryUsers([]));
+  }, []);
 
   const titleCount = title.length;
   const descCount = description.length;
@@ -1187,28 +1184,16 @@ export default function CreateTicket() {
 
             <Card title="People">
               <Field label="Requester" htmlFor={requesterId} hint="Person reporting the issue." required>
-                {isStaff ? (
-                  <UserPicker
-                    id={requesterId}
-                    value={requester}
-                    users={directoryUsers}
-                    onChange={setRequester}
-                    placeholder="Type to search users or enter a name"
-                  />
-                ) : (
-                  <>
-                    <input
-                      id={requesterId}
-                      value={requester}
-                      onChange={(e) => setRequester(e.target.value)}
-                      placeholder="username or email"
-                      className={inputCls(false)}
-                      aria-required="true"
-                      readOnly
-                    />
-                    <p className="mt-1 text-[11px] text-slate-500">Requester is locked to your account.</p>
-                  </>
-                )}
+                <UserPicker
+                  id={requesterId}
+                  value={requester}
+                  users={directoryUsers}
+                  onChange={setRequester}
+                  placeholder="Search users or enter a name/email"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Select a registered user or type the name/email of someone without an account.
+                </p>
               </Field>
 
               {isLeaveRequest ? (
@@ -1247,15 +1232,14 @@ export default function CreateTicket() {
                   <Field
                     label="Assignee"
                     htmlFor={assigneeId}
-                    hint={isStaff ? 'Leave blank to triage later.' : 'IT will assign someone.'}
+                    hint="Search and select an assignee, or leave blank to triage later."
                   >
                     <UserPicker
                       id={assigneeId}
                       value={assignee}
                       users={assigneeChoices}
                       onChange={setAssignee}
-                      disabled={!isStaff}
-                      placeholder={isStaff ? 'Type to search users (optional)' : 'unassigned'}
+                      placeholder="Type to search users (optional)"
                     />
                   </Field>
                 </>

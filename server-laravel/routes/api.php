@@ -172,7 +172,9 @@ Route::prefix('assets')->middleware(['auth.jwt', 'permission:assets,view'])->gro
 Route::prefix('asset-requests')->middleware('auth.jwt')->group(function () {
     Route::get('/', [AssetRequestController::class, 'index']);
     Route::post('/', [AssetRequestController::class, 'store']);
+    Route::get('/{id}', [AssetRequestController::class, 'show']);
     Route::patch('/{id}', [AssetRequestController::class, 'update']);
+    Route::post('/{id}/notes', [AssetRequestController::class, 'storeNote']);
     Route::delete('/{id}', [AssetRequestController::class, 'destroy'])->middleware('role:admin');
 });
 

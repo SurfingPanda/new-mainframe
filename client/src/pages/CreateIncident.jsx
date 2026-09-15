@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
+import UserPicker from '../components/UserPicker.jsx';
 import { api, getUser } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
 
@@ -92,7 +93,6 @@ function localNowForInput() {
 export default function CreateIncident() {
   const navigate = useNavigate();
   const user = getUser();
-  const isStaff = user?.role === 'admin' || user?.role === 'agent';
 
   // Core fields
   const [title, setTitle] = useState('');
@@ -480,14 +480,15 @@ export default function CreateIncident() {
 
             <Card title="People">
               <Field label="Requester" hint="Person reporting the incident." required>
-                <input
+                <UserPicker
                   value={requester}
-                  onChange={(e) => setRequester(e.target.value)}
-                  placeholder="username or email"
-                  className={inputCls(false)}
-                  readOnly={!isStaff}
+                  users={users}
+                  onChange={setRequester}
+                  placeholder="Search users or enter a name/email"
                 />
-                {!isStaff && <p className="mt-1 text-[11px] text-slate-500">Requester is locked to your account.</p>}
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Select a registered user or type the name/email of someone without an account.
+                </p>
               </Field>
 
               <Field
@@ -513,8 +514,8 @@ export default function CreateIncident() {
                 </select>
               </Field>
 
-              <Field label="Assignee" hint={isStaff ? 'Search and pick a responder, or leave for triage.' : 'IT will assign someone.'}>
-                <AssigneePicker value={assignee} users={assigneeChoices} onChange={setAssignee} disabled={!isStaff} />
+              <Field label="Assignee" hint="Search and pick a responder, or leave for triage.">
+                <AssigneePicker value={assignee} users={assigneeChoices} onChange={setAssignee} />
               </Field>
             </Card>
 

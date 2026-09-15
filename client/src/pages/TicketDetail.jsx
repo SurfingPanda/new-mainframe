@@ -48,6 +48,7 @@ const DRAFT_FIELDS = [
   'description', 'status', 'priority', 'request_type',
   'category', 'subcategory', 'subcategory2', 'department', 'requester', 'assignee'
 ];
+const PEOPLE_FIELDS = ['department', 'requester', 'assignee'];
 
 // Parse the overtime report JSON column (mysql2 may return it parsed or as text).
 function parseOvertime(v) {
@@ -159,9 +160,8 @@ export default function TicketDetail() {
   const onCategoryEdit = (v) => setDraft((d) => ({ ...d, category: v, subcategory: '', subcategory2: '' }));
   const onSubcategoryEdit = (v) => setDraft((d) => ({ ...d, subcategory: v, subcategory2: '' }));
 
-  // Self-assign: a department member (or staff) can pick up a work order routed
-  // to their department. Assignment remains manager-only in the normal Save
-  // flow; other eligible users persist it through the claim/release endpoints.
+  // Self-assign shortcut for a department member (or staff). Everyone can also
+  // choose an assignee directly from the editable People section.
   const myIdentity = me?.name || me?.email || '';
   const canClaim = isStaff || (!!me?.department && !!ticket?.department && me.department === ticket.department);
   // Staff edit the whole queue; a department manager gets the same full-edit UI
@@ -171,9 +171,11 @@ export default function TicketDetail() {
   // section, on an active ticket they submitted.
   const canRequesterEdit = !!ticket?.can_requester_edit;
   const canEditRequestDetails = canManage || canRequesterEdit;
-  // Assignment edits are staged in the draft like every other field, so nothing
-  // is written (or logged) until the user clicks Save. Managers save via PATCH;
-  // other eligible users save via the claim/release endpoints (see `save` below).
+  // Anyone who can open the work order may update its routing and people.
+  // Broader work-order fields retain their existing authorization rules.
+  const canEditPeople = !!me;
+  // Assignment edits are staged like every other field, so nothing is written
+  // or logged until the user clicks Save.
   const effectiveAssignee = draft.assignee || '';
   const isMine = !!myIdentity && effectiveAssignee === myIdentity;
 
@@ -218,7 +220,8 @@ export default function TicketDetail() {
     setError('');
     try {
       let updated;
-      if (canEditRequestDetails) {
+      const onlyPeopleChanged = dirtyFields.every((field) => PEOPLE_FIELDS.includes(field));
+      if (canEditRequestDetails || (canEditPeople && onlyPeopleChanged)) {
         const patch = {};
         for (const f of dirtyFields) {
           const v = draft[f];
@@ -226,10 +229,7 @@ export default function TicketDetail() {
         }
         updated = await api(`/api/tickets/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
       } else {
-        // Non-staff can only change their own assignment — persist it through
-        // the claim/release endpoints (they can't PATCH the work order).
-        const assign = (draft.assignee || '') === myIdentity;
-        updated = await api(`/api/tickets/${id}/${assign ? 'claim' : 'release'}`, { method: 'POST' });
+        throw new Error('You do not have permission to edit those fields.');
       }
       const merged = { ...ticket, ...updated };
       setTicket(merged);
@@ -532,7 +532,7 @@ export default function TicketDetail() {
                     <select
                       value={draft.department || ''}
                       onChange={(e) => onDepartmentChange(e.target.value)}
-                      disabled={!canEditRequestDetails}
+                      disabled={!canEditPeople}
                       className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:opacity-60"
                     >
                       <option value="" disabled>Select a department</option>
@@ -553,7 +553,7 @@ export default function TicketDetail() {
                         value={draft.requester || ''}
                         users={directoryUsers}
                         onChange={(v) => setField('requester', v)}
-                        disabled={!canEditRequestDetails}
+                        disabled={!canEditPeople}
                         placeholder="Type to search users or enter a name"
                       />
                     </div>
@@ -563,7 +563,7 @@ export default function TicketDetail() {
                         value={draft.assignee || ''}
                         users={assigneeChoices}
                         onChange={(v) => setField('assignee', v)}
-                        disabled={!canEditRequestDetails}
+                        disabled={!canEditPeople}
                         placeholder="Type to search users or enter a name"
                       />
                     </div>
@@ -656,7 +656,7 @@ export default function TicketDetail() {
                   saving={saving}
                   onSave={save}
                   onDiscard={discard}
-                  visible={canEditRequestDetails || (canClaim && isDirty)}
+                  visible={canEditRequestDetails || canEditPeople || (canClaim && isDirty)}
                 />
               </aside>
             </div>

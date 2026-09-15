@@ -4,6 +4,7 @@ import DashboardHeader from '../components/DashboardHeader.jsx';
 import { api, getUser } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
 import { safeUrl } from '../lib/url.js';
+import { parseApiDate } from '../lib/datetime.js';
 
 export default function KbArticle() {
   const { slug } = useParams();
@@ -92,7 +93,7 @@ export default function KbArticle() {
                 <h1 className="text-2xl font-bold tracking-tight text-brand-900 dark:text-white">{article.title}</h1>
                 <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                   {article.author && <span>By <span className="font-medium text-slate-700 dark:text-slate-200">{article.author}</span></span>}
-                  <span>Updated {new Date(article.updated_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                  <span>Updated {parseApiDate(article.updated_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
                 </div>
               </div>
 

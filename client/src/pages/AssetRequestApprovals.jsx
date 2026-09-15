@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
-import Modal from '../components/Modal.jsx';
 import { api } from '../lib/auth.js';
 
 const URGENCY_META = {
@@ -22,14 +21,7 @@ export default function AssetRequestApprovals() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState('');
-  const [banner, setBanner]     = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
-
-  // Review modal
-  const [reviewTarget, setReviewTarget] = useState(null);
-  const [reviewStatus, setReviewStatus] = useState('');
-  const [adminNotes, setAdminNotes]     = useState('');
-  const [reviewing, setReviewing]       = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -46,12 +38,6 @@ export default function AssetRequestApprovals() {
 
   useEffect(() => { load(); }, []);
 
-  useEffect(() => {
-    if (!banner) return;
-    const t = setTimeout(() => setBanner(null), 5000);
-    return () => clearTimeout(t);
-  }, [banner]);
-
   const filtered = useMemo(() => {
     if (statusFilter === 'all') return requests;
     return requests.filter((r) => r.status === statusFilter);
@@ -63,29 +49,6 @@ export default function AssetRequestApprovals() {
     approved:  requests.filter((r) => r.status === 'approved').length,
     fulfilled: requests.filter((r) => r.status === 'fulfilled').length,
   }), [requests]);
-
-  const openReview = (req) => {
-    setReviewTarget(req);
-    setReviewStatus(req.status);
-    setAdminNotes(req.admin_notes || '');
-  };
-
-  const handleReview = async () => {
-    setReviewing(true);
-    try {
-      const updated = await api(`/api/asset-requests/${reviewTarget.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: reviewStatus, admin_notes: adminNotes.trim() || null })
-      });
-      setRequests((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
-      setBanner({ text: `Request #${updated.id} updated to ${STATUS_META[updated.status].label}.` });
-      setReviewTarget(null);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setReviewing(false);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -110,15 +73,6 @@ export default function AssetRequestApprovals() {
           </div>
         </section>
 
-        {banner && (
-          <div className="flex items-start gap-2 rounded-md bg-accent-50 ring-1 ring-accent-200 px-3 py-2 text-sm text-accent-800">
-            <svg className="h-4 w-4 mt-0.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="9" /><path d="M8 12l3 3 5-6" />
-            </svg>
-            <span className="flex-1">{banner.text}</span>
-            <button onClick={() => setBanner(null)} className="text-accent-700 hover:text-accent-900 font-semibold text-xs">Dismiss</button>
-          </div>
-        )}
         {error && <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>}
 
         {/* Stats */}
@@ -199,15 +153,15 @@ export default function AssetRequestApprovals() {
                       </td>
                       <td className="px-5 py-3">
                         <div className="flex justify-end">
-                          <button
-                            onClick={() => openReview(req)}
+                          <Link
+                            to={`/assets/requests/${req.id}`}
                             title="Review"
                             className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:text-brand-900 hover:bg-slate-100 transition-colors"
                           >
                             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                               <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4z" />
                             </svg>
-                          </button>
+                          </Link>
                         </div>
                       </td>
                     </tr>
@@ -219,78 +173,6 @@ export default function AssetRequestApprovals() {
         </section>
       </main>
 
-      {/* Review modal */}
-      {reviewTarget && (
-        <Modal open onClose={() => setReviewTarget(null)} title={`Review Request #${reviewTarget.id}`} size="md">
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-              <div>
-                <span className="block text-xs font-semibold text-slate-500 mb-0.5">Requester</span>
-                <span className="text-slate-800">{reviewTarget.requester_name}</span>
-              </div>
-              <div>
-                <span className="block text-xs font-semibold text-slate-500 mb-0.5">Asset Type</span>
-                <span className="text-slate-800">{reviewTarget.asset_type}</span>
-              </div>
-              <div>
-                <span className="block text-xs font-semibold text-slate-500 mb-0.5">Quantity</span>
-                <span className="text-slate-800">{reviewTarget.quantity}</span>
-              </div>
-              <div>
-                <span className="block text-xs font-semibold text-slate-500 mb-0.5">Urgency</span>
-                <Pill meta={URGENCY_META} value={reviewTarget.urgency} />
-              </div>
-              <div className="col-span-2">
-                <span className="block text-xs font-semibold text-slate-500 mb-0.5">Justification</span>
-                <p className="text-slate-800 text-sm">{reviewTarget.justification}</p>
-              </div>
-            </div>
-
-            <hr className="border-slate-200" />
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Set Status</label>
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(STATUS_META).map(([key, meta]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setReviewStatus(key)}
-                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset transition-all ${
-                      reviewStatus === key ? meta.color + ' ring-2' : 'bg-white text-slate-500 ring-slate-200 hover:ring-slate-300'
-                    }`}
-                  >
-                    <span className={`h-1.5 w-1.5 rounded-full ${reviewStatus === key ? meta.dot : 'bg-slate-300'}`} />
-                    {meta.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Notes (optional)</label>
-              <textarea
-                value={adminNotes}
-                onChange={(e) => setAdminNotes(e.target.value)}
-                placeholder="Provide feedback or instructions..."
-                rows={2}
-                className="block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm shadow-sm placeholder:text-slate-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 bg-white resize-none"
-              />
-            </div>
-
-            <footer className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setReviewTarget(null)} className="btn-ghost !px-3.5 !py-2 text-xs">Cancel</button>
-              <button
-                onClick={handleReview}
-                disabled={reviewing}
-                className="btn-primary !px-4 !py-2 text-xs disabled:opacity-60"
-              >
-                {reviewing ? 'Saving...' : 'Update Request'}
-              </button>
-            </footer>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }

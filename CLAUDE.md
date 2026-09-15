@@ -188,7 +188,7 @@ row or under "Laravel backend port" above. All under `/api`:
 | `/api/tickets`         | `routes/tickets.js`         | Tickets, activity, KB links, attachments, self-assign (`POST /:id/claim` & `/release`), HR-approval decisions (`POST /:id/approve` & `/:id/deny`), watchers (`GET`/`POST`/`DELETE /:id/watchers` — self-subscribe open to anyone with read access, adding/removing another user requires edit rights, unavailable on 'HR Concerns') |
 | `/api/maintenance`     | `routes/maintenance.js`     | Recurring work orders (preventive maintenance); staff-only (`requireRole('admin','agent')`) |
 | `/api/assets`          | `routes/assets.js`          | Asset inventory                                  |
-| `/api/asset-requests`  | `routes/asset-requests.js`  | Asset request workflow (request → review)        |
+| `/api/asset-requests`  | `routes/asset-requests.js`  | Asset request workflow (request → review), dedicated detail (`GET /:id`), and timestamped IT follow-up notes (`POST /:id/notes`) |
 | `/api/kb`              | `routes/kb.js`              | KB articles (read by slug, list, CRUD). Reader feedback: `POST /:slug/feedback` (upsert 👍/👎 + optional comment, `kb.view`), `GET /feedback/report` (per-article tallies, `kb.manage`). Deflection: `GET /suggest?q=&category=` (top-5 published, title-token + helpful-vote ranked, `kb.view`). Versioning: `GET /:slug/versions`, `GET /:slug/versions/:n`, `POST /:slug/versions/:n/restore` (all `kb.manage`) |
 | `/api/departments`     | `routes/departments.js`     | Departments (list open; writes = `users.manage`) |
 | `/api/password-resets` | `routes/password-resets.js` | IT-mediated reset queue (`users.manage`)         |

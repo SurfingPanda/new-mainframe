@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import Avatar from '../components/Avatar.jsx';
-import { api, getUser } from '../lib/auth.js';
+import { api, getUser, isAssetReviewer } from '../lib/auth.js';
 
 const ASSET_TYPES = [
   'Laptop', 'Desktop', 'Monitor', 'Keyboard', 'Mouse',
@@ -17,6 +17,12 @@ const URGENCY_META = {
   high:   { label: 'High',   color: 'bg-amber-50 text-amber-700 ring-amber-200',   dot: 'bg-amber-400' },
   urgent: { label: 'Urgent', color: 'bg-rose-50 text-rose-700 ring-rose-200',      dot: 'bg-rose-400' },
 };
+const STATUS_META = {
+  pending:   { label: 'Pending',   color: 'bg-amber-50 text-amber-700 ring-amber-200', dot: 'bg-amber-400' },
+  approved:  { label: 'Approved',  color: 'bg-accent-50 text-accent-700 ring-accent-200', dot: 'bg-accent-500' },
+  denied:    { label: 'Denied',    color: 'bg-rose-50 text-rose-700 ring-rose-200', dot: 'bg-rose-400' },
+  fulfilled: { label: 'Fulfilled', color: 'bg-brand-50 text-brand-800 ring-brand-200', dot: 'bg-brand-400' },
+};
 
 // Display format for a requester's employee ID, derived from their account id
 // (there's no separate employee_id field on users). Example: id 6 -> "EMP-00006".
@@ -26,10 +32,13 @@ function formatEmployeeId(id) {
 
 export default function AssetRequest() {
   const me = getUser();
+  const canSeeAllRequests = isAssetReviewer(me);
 
   const [error, setError]           = useState('');
   const [banner, setBanner]         = useState(null);
   const [showForm, setShowForm]     = useState(false);
+  const [requests, setRequests]     = useState([]);
+  const [loadingRequests, setLoadingRequests] = useState(canSeeAllRequests);
 
   // Form state
   const [assetType, setAssetType]       = useState('');
@@ -43,6 +52,16 @@ export default function AssetRequest() {
     const t = setTimeout(() => setBanner(null), 5000);
     return () => clearTimeout(t);
   }, [banner]);
+
+  useEffect(() => {
+    if (!canSeeAllRequests) return;
+    let active = true;
+    api('/api/asset-requests?scope=all')
+      .then((rows) => { if (active) setRequests(Array.isArray(rows) ? rows : []); })
+      .catch((e) => { if (active) setError(e.message); })
+      .finally(() => { if (active) setLoadingRequests(false); });
+    return () => { active = false; };
+  }, [canSeeAllRequests]);
 
   const resetForm = () => {
     setAssetType('');
@@ -59,7 +78,7 @@ export default function AssetRequest() {
 
     setSaving(true);
     try {
-      await api('/api/asset-requests', {
+      const created = await api('/api/asset-requests', {
         method: 'POST',
         body: JSON.stringify({
           asset_type: assetType,
@@ -68,6 +87,7 @@ export default function AssetRequest() {
           justification: justification.trim()
         })
       });
+      if (canSeeAllRequests) setRequests((current) => [created, ...current]);
       setBanner({ text: 'Asset request submitted successfully.' });
       resetForm();
       setShowForm(false);
@@ -212,7 +232,91 @@ export default function AssetRequest() {
             </form>
           </section>
         )}
+
+        {canSeeAllRequests && (
+          <section className="rounded-lg border border-slate-200 bg-white shadow-card overflow-hidden">
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+              <div>
+                <h2 className="text-sm font-semibold text-brand-900">Asset requests routed to IT</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Requests submitted by users across all departments.</p>
+              </div>
+              <span className="text-xs text-slate-400">
+                {requests.length} request{requests.length === 1 ? '' : 's'}
+              </span>
+            </div>
+
+            {loadingRequests ? (
+              <div className="px-5 py-14 text-center text-sm text-slate-500">Loading requests...</div>
+            ) : requests.length === 0 ? (
+              <div className="px-5 py-14 text-center">
+                <p className="text-sm font-semibold text-slate-700">No requests yet</p>
+                <p className="mt-1 text-xs text-slate-500">Submitted asset requests will appear here.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50/80">
+                    <tr className="border-b border-slate-100 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                      <Th>ID</Th>
+                      <Th>Requester</Th>
+                      <Th>Asset Type</Th>
+                      <Th>Qty</Th>
+                      <Th>Urgency</Th>
+                      <Th>Justification</Th>
+                      <Th>Status</Th>
+                      <Th>Submitted</Th>
+                      <Th>Actions</Th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {requests.map((request) => (
+                      <tr key={request.id} className="hover:bg-slate-50/60">
+                        <td className="px-5 py-3 font-mono text-xs font-semibold text-brand-900">
+                          R-{String(request.id).padStart(4, '0')}
+                        </td>
+                        <td className="px-5 py-3 text-slate-700">{request.requester_name}</td>
+                        <td className="px-5 py-3 font-medium text-slate-800">{request.asset_type}</td>
+                        <td className="px-5 py-3 text-center text-slate-600">{request.quantity}</td>
+                        <td className="px-5 py-3"><Pill meta={URGENCY_META} value={request.urgency} /></td>
+                        <td className="max-w-[280px] truncate px-5 py-3 text-xs text-slate-600" title={request.justification}>
+                          {request.justification}
+                        </td>
+                        <td className="px-5 py-3"><Pill meta={STATUS_META} value={request.status} /></td>
+                        <td className="whitespace-nowrap px-5 py-3 text-xs text-slate-500">
+                          {request.created_at ? new Date(request.created_at).toLocaleDateString() : '—'}
+                        </td>
+                        <td className="px-5 py-3">
+                          <Link
+                            to={`/assets/requests/${request.id}`}
+                            className="whitespace-nowrap text-xs font-semibold text-accent-700 hover:text-accent-900"
+                          >
+                            View / Edit
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
       </main>
+
     </div>
   );
+}
+
+function Pill({ meta, value }) {
+  const item = meta[value] || meta[Object.keys(meta)[0]];
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${item.color}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${item.dot}`} />
+      {item.label}
+    </span>
+  );
+}
+
+function Th({ children }) {
+  return <th className="px-5 py-3 text-left">{children}</th>;
 }

@@ -274,6 +274,10 @@ class TicketController extends Controller
         'subcategory', 'subcategory2', 'department', 'requester', 'assignee',
     ];
 
+    // Routing and people may be corrected by any user who can view the work
+    // order. Other fields keep the manager/requester rules above.
+    private const PEOPLE_EDITABLE_FIELDS = ['department', 'requester', 'assignee'];
+
     public function update(Request $request, string $id)
     {
         $id = $this->intId($id);
@@ -292,7 +296,8 @@ class TicketController extends Controller
         $user = $request->authUser();
         $canManage = $this->canManageTicket($user, $before);
         $canRequesterEdit = $this->canRequesterEditTicket($user, $before);
-        if (!$canManage && !$canRequesterEdit) {
+        $canEditPeople = $this->canReadTicket($user, $before);
+        if (!$canManage && !$canRequesterEdit && !$canEditPeople) {
             return response()->json(['error' => 'Forbidden'], 403);
         }
 
@@ -325,7 +330,9 @@ class TicketController extends Controller
             if (!array_key_exists($field, $body)) {
                 continue;
             }
-            if (!$canManage && !in_array($field, self::REQUESTER_EDITABLE_FIELDS, true)) {
+            $requesterMayEdit = $canRequesterEdit && in_array($field, self::REQUESTER_EDITABLE_FIELDS, true);
+            $viewerMayEditPeople = $canEditPeople && in_array($field, self::PEOPLE_EDITABLE_FIELDS, true);
+            if (!$canManage && !$requesterMayEdit && !$viewerMayEditPeople) {
                 return response()->json(['error' => 'Forbidden'], 403);
             }
             $raw = $body[$field];
@@ -1070,9 +1077,11 @@ class TicketController extends Controller
             }
         }
 
-        $requesterName = TV::isStaff($user) ? $requester : ($user['name'] ?? $user['email'] ?? '');
+        // Any authenticated user may file on somebody else's behalf. Requester
+        // remains free text so the reported person need not have an account.
+        $requesterName = $requester;
 
-        if (!$title || !$requesterName) {
+        if (!$title || !trim((string) ($requesterName ?? ''))) {
             return response()->json(['error' => 'title and requester are required'], 400);
         }
         if (!in_array($priority, self::ALLOWED_PRIORITIES, true)) {

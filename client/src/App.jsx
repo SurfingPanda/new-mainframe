@@ -45,6 +45,7 @@ const KbCategory = lazy(() => import('./pages/KbCategory.jsx'));
 const ArticleEditor = lazy(() => import('./pages/ArticleEditor.jsx'));
 const AssetRequest = lazy(() => import('./pages/AssetRequest.jsx'));
 const AssetRequestApprovals = lazy(() => import('./pages/AssetRequestApprovals.jsx'));
+const AssetRequestDetail = lazy(() => import('./pages/AssetRequestDetail.jsx'));
 const NetworkMonitoring = lazy(() => import('./pages/NetworkMonitoring.jsx'));
 const NetworkReports = lazy(() => import('./pages/NetworkReports.jsx'));
 const NetworkReportEditor = lazy(() => import('./pages/NetworkReportEditor.jsx'));
@@ -375,6 +376,14 @@ export default function App() {
         element={
           <ProtectedRoute test={isAssetReviewer}>
             <AssetRequestApprovals />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/assets/requests/:id"
+        element={
+          <ProtectedRoute test={isAssetReviewer}>
+            <AssetRequestDetail />
           </ProtectedRoute>
         }
       />

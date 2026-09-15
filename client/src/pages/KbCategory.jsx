@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import Modal from '../components/Modal.jsx';
 import { api, hasPermission } from '../lib/auth.js';
+import { relativeTime } from '../lib/datetime.js';
 
 export default function KbCategory({ category, title, eyebrow, description, breadcrumb }) {
   const navigate = useNavigate();
@@ -330,16 +331,4 @@ function IconBtn({ children, label, onClick, tone = 'slate' }) {
       {children}
     </button>
   );
-}
-
-function relativeTime(ts) {
-  const diff = Date.now() - new Date(ts).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d ago`;
-  return new Date(ts).toLocaleDateString();
 }

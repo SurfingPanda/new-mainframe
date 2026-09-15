@@ -4,7 +4,6 @@ import { logout, getUser, hasPermission } from '../lib/auth.js';
 import NavDropdown from './NavDropdown.jsx';
 import NotificationBell from './NotificationBell.jsx';
 import Avatar from './Avatar.jsx';
-import FloatingChat from './FloatingChat.jsx';
 import GlobalSearch from './GlobalSearch.jsx';
 import { usePendingResetCount } from '../lib/usePendingResetCount.js';
 import { useWorkOrderNotifications } from '../lib/useWorkOrderNotifications.js';
@@ -209,9 +208,6 @@ export default function DashboardHeader() {
       </div>
     </Modal>
 
-    {/* Hovering chat launcher — on every authenticated page except the full
-        Chat Room view, which is itself the chat. */}
-    {user && location.pathname !== '/chat' && <FloatingChat />}
     </>
   );
 }
