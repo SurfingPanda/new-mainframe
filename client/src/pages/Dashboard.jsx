@@ -61,7 +61,7 @@ function StaffDashboard({ user }) {
       .catch(() => {});
   }, [canReviewAssets]);
 
-  const openTickets = tickets.filter((t) => t.status !== 'closed' && t.status !== 'resolved');
+  const openTickets = tickets.filter((t) => !['closed', 'resolved', 'cancelled'].includes(t.status));
   const highPriority = tickets.filter((t) => t.priority === 'high' || t.priority === 'urgent').length;
   const spaceItems = spaces.reduce((n, s) => n + (s.item_count || 0), 0);
   const greeting = getGreeting();
@@ -686,7 +686,8 @@ function StatusPill({ status }) {
     on_hold: 'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700',
     pending: 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-500/15 dark:text-violet-300 dark:ring-violet-500/30',
     resolved: 'bg-accent-50 text-accent-700 ring-accent-200 dark:bg-accent-500/15 dark:text-accent-300 dark:ring-accent-500/30',
-    closed: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:ring-slate-700'
+    closed: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:ring-slate-700',
+    cancelled: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30'
   };
   return (
     <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${map[status] || map.open}`}>
@@ -723,4 +724,3 @@ function EmptyState({ title, desc, cta }) {
     </div>
   );
 }
-

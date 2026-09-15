@@ -11,7 +11,8 @@ const STATUSES = [
   { key: 'on_hold', label: 'On Hold' },
   { key: 'pending', label: 'Pending' },
   { key: 'resolved', label: 'Resolved' },
-  { key: 'closed', label: 'Closed' }
+  { key: 'closed', label: 'Closed' },
+  { key: 'cancelled', label: 'Cancelled' }
 ];
 
 const PRIORITIES = ['urgent', 'high', 'normal', 'low'];
@@ -71,7 +72,7 @@ export default function MyQueue() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     let rows = myTickets.filter((t) => {
-      if (!showResolvedClosed && (t.status === 'resolved' || t.status === 'closed')) return false;
+      if (!showResolvedClosed && !ACTIVE_STATUSES.has(t.status)) return false;
       if (statusFilter.size && !statusFilter.has(t.status)) return false;
       if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
       if (!q) return true;
@@ -147,7 +148,7 @@ export default function MyQueue() {
   };
 
   const counts = useMemo(() => {
-    const c = { open: 0, in_progress: 0, on_hold: 0, pending: 0, resolved: 0, closed: 0 };
+    const c = { open: 0, in_progress: 0, on_hold: 0, pending: 0, resolved: 0, closed: 0, cancelled: 0 };
     myTickets.forEach((t) => { if (c[t.status] != null) c[t.status]++; });
     return c;
   }, [myTickets]);
@@ -252,7 +253,7 @@ export default function MyQueue() {
                   onChange={(e) => setShowResolvedClosed(e.target.checked)}
                   className="h-3.5 w-3.5 rounded border-slate-300 text-accent-600 focus:ring-accent-500"
                 />
-                Show resolved & closed
+                Show resolved, closed & cancelled
               </label>
               {hasActiveFilters && (
                 <button onClick={clearFilters} className="btn-ghost !px-3 !py-2 text-xs">Clear</button>
@@ -471,7 +472,8 @@ function StatusPill({ status }) {
     on_hold: 'bg-slate-100 text-slate-700 ring-slate-200',
     pending: 'bg-violet-50 text-violet-700 ring-violet-200',
     resolved: 'bg-accent-50 text-accent-700 ring-accent-200',
-    closed: 'bg-slate-100 text-slate-600 ring-slate-200'
+    closed: 'bg-slate-100 text-slate-600 ring-slate-200',
+    cancelled: 'bg-rose-50 text-rose-700 ring-rose-200'
   };
   return (
     <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${map[status] || map.open}`}>

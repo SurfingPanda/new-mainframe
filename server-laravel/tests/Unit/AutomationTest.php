@@ -77,8 +77,12 @@ class AutomationTest extends TestCase
             ['type' => 'set_field', 'field' => 'title', 'value' => 'nope'],
             ['type' => 'set_field', 'field' => 'priority', 'value' => 'critical'],
             ['type' => 'set_field', 'field' => 'status', 'value' => 'closed'],
+            ['type' => 'set_field', 'field' => 'status', 'value' => 'cancelled'],
         ]);
-        $this->assertSame([['type' => 'set_field', 'field' => 'status', 'value' => 'closed']], $out);
+        $this->assertSame([
+            ['type' => 'set_field', 'field' => 'status', 'value' => 'closed'],
+            ['type' => 'set_field', 'field' => 'status', 'value' => 'cancelled'],
+        ], $out);
     }
 
     public function test_normalize_actions_keeps_notes_and_drops_empty(): void

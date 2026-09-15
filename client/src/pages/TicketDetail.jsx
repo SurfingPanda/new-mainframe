@@ -5,7 +5,7 @@ import UserPicker from '../components/UserPicker.jsx';
 import Avatar from '../components/Avatar.jsx';
 import { api, getUser, updateStoredUser } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
-import { SLA_DAYS, RESOLVED_STATUSES, PAUSED_STATUSES as SLA_PAUSED_STATUSES } from '../lib/sla.js';
+import { SLA_DAYS, RESOLVED_STATUSES, TERMINAL_STATUSES, PAUSED_STATUSES as SLA_PAUSED_STATUSES } from '../lib/sla.js';
 import { CATEGORY_TREE } from '../lib/categories.js';
 import { parseApiDate, relativeTime as formatRelativeTime } from '../lib/datetime.js';
 
@@ -15,7 +15,8 @@ const STATUSES = [
   { key: 'on_hold', label: 'On Hold' },
   { key: 'pending', label: 'Pending - Waiting for Customer' },
   { key: 'resolved', label: 'Resolved' },
-  { key: 'closed', label: 'Closed' }
+  { key: 'closed', label: 'Closed' },
+  { key: 'cancelled', label: 'Cancelled' }
 ];
 const PRIORITIES = [
   { key: 'low', label: 'Low' },
@@ -232,7 +233,13 @@ export default function TicketDetail() {
       } else {
         throw new Error('You do not have permission to edit those fields.');
       }
-      const merged = { ...ticket, ...updated };
+      const merged = {
+        ...ticket,
+        ...updated,
+        can_requester_edit: TERMINAL_STATUSES.has(updated.status)
+          ? false
+          : ticket.can_requester_edit
+      };
       setTicket(merged);
       setDraft(makeDraft(merged));
       reloadActivity();
@@ -1397,6 +1404,7 @@ function pausedDurationMs(ticket, activity, opened, until) {
 }
 
 function computeSla(ticket, activity = []) {
+  if (ticket.status === 'cancelled') return null;
   const days = SLA_DAYS[ticket.priority];
   if (!days || !ticket.created_at) return null;
   const opened = parseApiDate(ticket.created_at).getTime();
@@ -1881,7 +1889,8 @@ function StatusPill({ status }) {
     on_hold: 'bg-slate-100 text-slate-700 ring-slate-200',
     pending: 'bg-violet-50 text-violet-700 ring-violet-200',
     resolved: 'bg-accent-50 text-accent-700 ring-accent-200',
-    closed: 'bg-slate-100 text-slate-600 ring-slate-200'
+    closed: 'bg-slate-100 text-slate-600 ring-slate-200',
+    cancelled: 'bg-rose-50 text-rose-700 ring-rose-200'
   };
   return (
     <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${map[status] || map.open}`}>

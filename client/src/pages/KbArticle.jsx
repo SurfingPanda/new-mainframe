@@ -367,7 +367,8 @@ const TICKET_STATUS_META = {
   on_hold: { label: 'On Hold', dot: 'bg-slate-400' },
   pending: { label: 'Pending', dot: 'bg-violet-500' },
   resolved: { label: 'Resolved', dot: 'bg-emerald-500' },
-  closed: { label: 'Closed', dot: 'bg-slate-500' }
+  closed: { label: 'Closed', dot: 'bg-slate-500' },
+  cancelled: { label: 'Cancelled', dot: 'bg-rose-500' }
 };
 
 const TICKET_PRIORITY_TONE = {

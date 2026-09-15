@@ -7,9 +7,10 @@
 
 export const SLA_DAYS = { low: 7, normal: 3, high: 2, urgent: 1 };
 export const RESOLVED_STATUSES = new Set(['resolved', 'closed']);
+export const TERMINAL_STATUSES = new Set([...RESOLVED_STATUSES, 'cancelled']);
 // Statuses during which the SLA clock pauses — waiting on the customer
-// (pending), parked (on_hold), or done (resolved/closed).
-export const PAUSED_STATUSES = new Set(['pending', 'on_hold', ...RESOLVED_STATUSES]);
+// (pending), parked (on_hold), or terminal (resolved/closed/cancelled).
+export const PAUSED_STATUSES = new Set(['pending', 'on_hold', ...TERMINAL_STATUSES]);
 
 const DAY = 86400000;
 
@@ -28,7 +29,8 @@ export function slaInfo(ticket) {
   if (!days || Number.isNaN(opened)) return null;
   const totalMs = days * DAY;
   const resolved = RESOLVED_STATUSES.has(ticket.status);
-  const ref = resolved ? new Date(ticket.updated_at || ticket.created_at).getTime() : Date.now();
+  const terminal = TERMINAL_STATUSES.has(ticket.status);
+  const ref = terminal ? new Date(ticket.updated_at || ticket.created_at).getTime() : Date.now();
   const elapsed = Math.max(0, ref - opened);
   return { resolved, elapsed, totalMs, remaining: totalMs - elapsed, overdue: elapsed > totalMs, days };
 }
@@ -36,6 +38,7 @@ export function slaInfo(ticket) {
 // Label + tone for an SLA badge, derived from slaInfo. `tone` is one of
 // accent | amber | rose so callers can map it to their own classes.
 export function slaPill(ticket) {
+  if (ticket?.status === 'cancelled') return null;
   const s = slaInfo(ticket);
   if (!s) return null;
   if (s.resolved) {

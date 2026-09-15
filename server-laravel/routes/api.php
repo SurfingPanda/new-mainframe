@@ -46,6 +46,7 @@ Route::prefix('auth')->group(function () {
 
     Route::middleware('auth.jwt')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
+        Route::get('/me/stats', [AuthController::class, 'stats']);
         Route::patch('/me', [AuthController::class, 'updateMe']);
         Route::post('/change-password', [AuthController::class, 'changePassword'])
             ->middleware('throttle:change-password');

@@ -100,6 +100,64 @@ class AuthTest extends TestCase
             ->assertJsonPath('email', 'auth-feature-test@example.com');
     }
 
+    public function test_me_stats_returns_assigned_ticket_counts_sla_breaches_and_rating(): void
+    {
+        $userId = $this->makeUser();
+        $login = $this->postJson('/api/auth/login', [
+            'email' => 'auth-feature-test@example.com',
+            'password' => 'CorrectHorse1!',
+        ]);
+        $token = $login->headers->getCookies()[0]->getValue();
+
+        $baseTicket = [
+            'title' => 'Scorecard test ticket',
+            'requester' => 'Requester',
+            'priority' => 'normal',
+            'assignee' => 'Feature Test User',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+        DB::table('tickets')->insert(array_merge($baseTicket, ['status' => 'on_hold']));
+        $resolvedId = DB::table('tickets')->insertGetId(array_merge($baseTicket, [
+            'status' => 'resolved',
+            'assignee' => 'auth-feature-test@example.com',
+        ]));
+        DB::table('tickets')->insert(array_merge($baseTicket, [
+            'status' => 'open',
+            'created_at' => now()->subHours(2),
+            'updated_at' => now()->subHours(2),
+            'sla_resolution_minutes' => 30,
+        ]));
+        DB::table('tickets')->insert(array_merge($baseTicket, [
+            'status' => 'closed',
+            'assignee' => 'Someone Else',
+        ]));
+
+        DB::table('ticket_surveys')->insert([
+            'ticket_id' => $resolvedId,
+            'technician' => 'Feature Test User',
+            'technician_id' => $userId,
+            'respondent_id' => $userId,
+            'respondent_name' => 'Requester',
+            'satisfaction' => 5,
+            'timeliness' => 4,
+            'professionalism' => 3,
+            'status' => 'completed',
+            'created_at' => now(),
+            'completed_at' => now(),
+        ]);
+
+        $this->withCookie('mf_token', $token)
+            ->getJson('/api/auth/me/stats')
+            ->assertOk()
+            ->assertJson([
+                'onHold' => 1,
+                'resolved' => 1,
+                'breached' => 1,
+                'rating' => ['average' => 4, 'count' => 1],
+            ]);
+    }
+
     public function test_change_password_invalidates_old_cookie_but_not_the_reissued_one(): void
     {
         $this->makeUser();

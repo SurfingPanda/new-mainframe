@@ -12,7 +12,8 @@ namespace App\Services;
 class Sla
 {
     public const RESOLVED_STATUSES = ['resolved', 'closed'];
-    public const PAUSED_STATUSES = ['pending', 'on_hold', 'resolved', 'closed'];
+    public const TERMINAL_STATUSES = ['resolved', 'closed', 'cancelled'];
+    public const PAUSED_STATUSES = ['pending', 'on_hold', 'resolved', 'closed', 'cancelled'];
     private const MINUTE = 60000;
 
     /**
@@ -42,7 +43,7 @@ class Sla
     {
         $latest = null;
         foreach ($changes as $c) {
-            if (in_array($c['status'], self::RESOLVED_STATUSES, true) && ($latest === null || $c['at'] > $latest)) {
+            if (in_array($c['status'], self::TERMINAL_STATUSES, true) && ($latest === null || $c['at'] > $latest)) {
                 $latest = $c['at'];
             }
         }
@@ -106,7 +107,8 @@ class Sla
         $changes = self::normalizeStatusChanges($changeRows);
         $cal = BusinessHours::getCalendarById(isset($ticket['sla_calendar_id']) ? (int) $ticket['sla_calendar_id'] : null);
         $resolved = in_array($ticket['status'] ?? null, self::RESOLVED_STATUSES, true);
-        $ref = $resolved ? self::resolvedAtMs($ticket, $changes) : (int) (microtime(true) * 1000);
+        $terminal = in_array($ticket['status'] ?? null, self::TERMINAL_STATUSES, true);
+        $ref = $terminal ? self::resolvedAtMs($ticket, $changes) : (int) (microtime(true) * 1000);
         $elapsed = self::activeElapsed($ticket, $changes, $opened, $ref, $cal);
         $totalMs = $resolutionMinutes * self::MINUTE;
 

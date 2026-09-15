@@ -3,12 +3,12 @@ import { Link } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import { ChartBar, ChartDoughnut } from '../components/DashboardCharts.jsx';
 import { api } from '../lib/auth.js';
-import { slaInfo, RESOLVED_STATUSES } from '../lib/sla.js';
+import { slaInfo, RESOLVED_STATUSES, TERMINAL_STATUSES } from '../lib/sla.js';
 
 const DAY = 86400000;
 
-const STATUS_ORDER = ['open', 'in_progress', 'on_hold', 'pending', 'resolved', 'closed'];
-const STATUS_LABEL = { open: 'Open', in_progress: 'In progress', on_hold: 'On hold', pending: 'Pending', resolved: 'Resolved', closed: 'Closed' };
+const STATUS_ORDER = ['open', 'in_progress', 'on_hold', 'pending', 'resolved', 'closed', 'cancelled'];
+const STATUS_LABEL = { open: 'Open', in_progress: 'In progress', on_hold: 'On hold', pending: 'Pending', resolved: 'Resolved', closed: 'Closed', cancelled: 'Cancelled' };
 const PRIORITY_ORDER = ['low', 'normal', 'high', 'urgent'];
 const REQ_ORDER = ['incident', 'service_request', 'question', 'change'];
 const REQ_LABEL = { incident: 'Incident', service_request: 'Service request', question: 'Question', change: 'Change' };
@@ -125,7 +125,7 @@ export default function WorkOrderReports() {
   }), [tickets, fromMs, toMs]);
 
   const incidents = useMemo(() => filtered.filter((t) => t.request_type === 'incident'), [filtered]);
-  const active = useMemo(() => filtered.filter((t) => !RESOLVED_STATUSES.has(t.status)), [filtered]);
+  const active = useMemo(() => filtered.filter((t) => !TERMINAL_STATUSES.has(t.status)), [filtered]);
   const resolved = useMemo(() => filtered.filter((t) => RESOLVED_STATUSES.has(t.status)), [filtered]);
 
   const stats = useMemo(() => {

@@ -26,7 +26,7 @@ class Automation
         'assignee', 'asset_id',
     ];
 
-    private const STATUSES = ['open', 'in_progress', 'on_hold', 'pending', 'resolved', 'closed'];
+    private const STATUSES = ['open', 'in_progress', 'on_hold', 'pending', 'resolved', 'closed', 'cancelled'];
     private const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
     private const REQUEST_TYPES = ['incident', 'service_request', 'question', 'change'];
 

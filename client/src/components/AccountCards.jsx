@@ -533,12 +533,13 @@ function PwField({ label, value, onChange, autoComplete }) {
 export function PerformanceCard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
     let active = true;
     api('/api/auth/me/stats')
       .then((data) => active && setStats(data))
-      .catch(() => {})
+      .catch(() => active && setLoadFailed(true))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
   }, []);
@@ -551,13 +552,15 @@ export function PerformanceCard() {
         <p className="text-xs text-slate-500 mt-0.5">Your work orders and technician rating.</p>
       </header>
       <div className="grid grid-cols-2 divide-x divide-y divide-slate-100 sm:grid-cols-4 sm:divide-y-0">
-        <Metric label="On hold" value={loading ? '—' : stats?.onHold ?? 0} tone="slate" />
-        <Metric label="Resolved" value={loading ? '—' : stats?.resolved ?? 0} tone="accent" />
-        <Metric label="SLA breaches" value={loading ? '—' : stats?.breached ?? 0} tone="rose" />
+        <Metric label="On hold" value={loading || loadFailed ? '—' : stats?.onHold ?? 0} tone="slate" />
+        <Metric label="Resolved" value={loading || loadFailed ? '—' : stats?.resolved ?? 0} tone="accent" />
+        <Metric label="SLA breaches" value={loading || loadFailed ? '—' : stats?.breached ?? 0} tone="rose" />
         <div className="px-5 py-4">
           <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Rating</div>
           {loading ? (
             <div className="mt-1.5 text-2xl font-bold text-slate-400 tabular-nums">—</div>
+          ) : loadFailed ? (
+            <div className="mt-1.5 text-xs text-rose-600">Unable to load</div>
           ) : rating?.count ? (
             <div className="mt-1.5">
               <div className="flex items-baseline gap-1">

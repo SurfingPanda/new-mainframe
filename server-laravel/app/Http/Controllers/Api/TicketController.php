@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\Storage;
 class TicketController extends Controller
 {
     public const ALLOWED_PRIORITIES = ['low', 'normal', 'high', 'urgent'];
-    public const ALLOWED_STATUSES = ['open', 'in_progress', 'on_hold', 'pending', 'resolved', 'closed'];
+    public const ALLOWED_STATUSES = ['open', 'in_progress', 'on_hold', 'pending', 'resolved', 'closed', 'cancelled'];
     public const ALLOWED_REQUEST_TYPES = ['incident', 'service_request', 'question', 'change'];
     public const ALLOWED_CATEGORIES = [
         'Hardware', 'Software', 'Network & Connectivity', 'Account & Access',
@@ -117,7 +117,7 @@ class TicketController extends Controller
      */
     private function canRequesterEditTicket(?array $user, array $ticket): bool
     {
-        if (!$user || in_array($ticket['status'] ?? null, ['resolved', 'closed'], true)) {
+        if (!$user || in_array($ticket['status'] ?? null, ['resolved', 'closed', 'cancelled'], true)) {
             return false;
         }
 

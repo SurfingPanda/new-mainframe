@@ -12,7 +12,7 @@ class EmailTemplates
 {
     private const STATUS_LABELS = [
         'open' => 'Open', 'in_progress' => 'In Progress', 'on_hold' => 'On Hold',
-        'pending' => 'Pending - Waiting for Customer', 'resolved' => 'Resolved', 'closed' => 'Closed',
+        'pending' => 'Pending - Waiting for Customer', 'resolved' => 'Resolved', 'closed' => 'Closed', 'cancelled' => 'Cancelled',
     ];
 
     private const URGENCY_LABELS = [
@@ -77,7 +77,7 @@ class EmailTemplates
         $map = [
             'open' => ['#fef9c3', '#a16207'], 'in_progress' => ['#dbeafe', '#1d4ed8'],
             'on_hold' => ['#e2e8f0', '#475569'], 'pending' => ['#ede9fe', '#6d28d9'],
-            'resolved' => ['#dcfce7', '#15803d'], 'closed' => ['#e2e8f0', '#475569'],
+            'resolved' => ['#dcfce7', '#15803d'], 'closed' => ['#e2e8f0', '#475569'], 'cancelled' => ['#ffe4e6', '#be123c'],
         ];
         [$bg, $fg] = $map[$s] ?? $map['open'];
         return self::pill(self::STATUS_LABELS[$s] ?? ($s ?: ''), $bg, $fg);

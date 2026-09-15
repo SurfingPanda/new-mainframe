@@ -58,7 +58,7 @@ class SlaMonitor
                     'sla_response_minutes', 'sla_resolution_minutes', 'sla_calendar_id',
                     'sla_response_breached_at', 'sla_resolution_breached_at'
                 )
-                ->whereNotIn('status', ['resolved', 'closed'])
+                ->whereNotIn('status', ['resolved', 'closed', 'cancelled'])
                 ->where(fn ($q) => $q->whereNull('category')->orWhere('category', '<>', TicketVisibility::HR_CONCERNS))
                 ->where(fn ($q) => $q->whereNull('sla_response_breached_at')->orWhereNull('sla_resolution_breached_at'))
                 ->get()

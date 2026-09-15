@@ -11,6 +11,7 @@ use App\Services\Mailer;
 use App\Services\PasswordPolicy;
 use App\Services\Permissions;
 use App\Services\SignatureUpload;
+use App\Services\Sla;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -22,8 +23,7 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  * /me (read + self-service name/job_title edit), change-password,
  * forgot/reset-password, logout.
  *
- * Still deferred (not yet ported): /me/stats (needs the SLA engine),
- * preferences, invalidate-sessions.
+ * Still deferred (not yet ported): preferences, invalidate-sessions.
  */
 class AuthController extends Controller
 {
@@ -91,6 +91,73 @@ class AuthController extends Controller
         }
 
         return response()->json($this->serializeMe($me));
+    }
+
+    /** Technician scorecard for the signed-in user. */
+    public function stats(Request $request)
+    {
+        $userId = $request->authUser()['sub'];
+        $me = DB::table('users')
+            ->select('name', 'email')
+            ->where('id', $userId)
+            ->where('is_active', 1)
+            ->first();
+
+        if (!$me) {
+            return response()->json(['error' => 'User not found'], 404);
+        }
+
+        $identities = array_values(array_unique(array_filter([$me->name, $me->email])));
+        $tickets = DB::table('tickets')
+            ->select(
+                'id', 'status', 'priority', 'created_at', 'updated_at',
+                'first_responded_at', 'sla_response_minutes',
+                'sla_resolution_minutes', 'sla_calendar_id'
+            )
+            ->whereIn('assignee', $identities)
+            ->get();
+
+        $onHold = $tickets->where('status', 'on_hold')->count();
+        $resolved = $tickets->whereIn('status', Sla::RESOLVED_STATUSES)->count();
+        $breached = 0;
+
+        if ($tickets->isNotEmpty()) {
+            $changes = DB::table('ticket_activity')
+                ->select('ticket_id', 'field', 'old_value', 'new_value', 'created_at')
+                ->whereIn('ticket_id', $tickets->pluck('id'))
+                ->where('type', 'change')
+                ->where('field', 'status')
+                ->orderBy('created_at')
+                ->get()
+                ->groupBy('ticket_id');
+
+            foreach ($tickets as $ticket) {
+                $standing = Sla::standing(
+                    (array) $ticket,
+                    ($changes->get($ticket->id) ?? collect())->all()
+                );
+                if ($standing['overdue'] ?? false) {
+                    $breached++;
+                }
+            }
+        }
+
+        $ratingRow = DB::table('ticket_surveys')
+            ->where('technician_id', $userId)
+            ->where('status', 'completed')
+            ->selectRaw('COUNT(*) AS count, AVG((satisfaction + timeliness + professionalism) / 3) AS average')
+            ->first();
+        $ratingCount = (int) ($ratingRow->count ?? 0);
+
+        return response()->json([
+            'onHold' => $onHold,
+            'resolved' => $resolved,
+            'breached' => $breached,
+            'rating' => [
+                'average' => $ratingCount ? round((float) $ratingRow->average, 1) : null,
+                'count' => $ratingCount,
+            ],
+        ]);
     }
 
     public function updateMe(Request $request)

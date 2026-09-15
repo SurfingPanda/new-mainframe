@@ -20,7 +20,7 @@ class NotificationController extends Controller
 {
     private const STATUS_LABELS = [
         'open' => 'Open', 'in_progress' => 'In Progress', 'on_hold' => 'On Hold',
-        'pending' => 'Pending - Waiting for Customer', 'resolved' => 'Resolved', 'closed' => 'Closed',
+        'pending' => 'Pending - Waiting for Customer', 'resolved' => 'Resolved', 'closed' => 'Closed', 'cancelled' => 'Cancelled',
     ];
 
     /** Turn a ticket_activity row into a human-readable notification. @return array{kind: string, message: string} */
