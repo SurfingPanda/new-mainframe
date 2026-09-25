@@ -25,13 +25,17 @@ use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
-// Mirrors GET /api/health in server/src/index.js.
+// Mirrors GET /api/health in server/src/index.js, plus `build` — the
+// { sha, time } stamp scripts/package-deploy.mjs writes into build.json, so
+// "is my fix live?" is answerable with one curl. null when run from a checkout.
 Route::get('/health', function () {
+    $buildFile = base_path('build.json');
+    $build = is_file($buildFile) ? json_decode((string) file_get_contents($buildFile), true) : null;
     try {
         DB::select('SELECT 1');
-        return response()->json(['status' => 'ok', 'db' => 'connected', 'time' => now()->toIso8601String()]);
+        return response()->json(['status' => 'ok', 'db' => 'connected', 'time' => now()->toIso8601String(), 'build' => $build]);
     } catch (\Throwable $e) {
-        return response()->json(['status' => 'degraded', 'db' => 'unreachable', 'error' => $e->getMessage()], 503);
+        return response()->json(['status' => 'degraded', 'db' => 'unreachable', 'error' => $e->getMessage(), 'build' => $build], 503);
     }
 });
 

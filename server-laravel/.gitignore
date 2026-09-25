@@ -6,6 +6,8 @@
 /storage/*.key
 /storage/pail
 /vendor
+# Deploy stamp — written into the package by scripts/package-deploy.mjs only
+/build.json
 .env
 .env.backup
 .env.production

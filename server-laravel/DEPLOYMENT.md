@@ -288,6 +288,48 @@ already lives under the domain that's already live:
    data to migrate back since both backends share the one MySQL database
    throughout).
 
+## Routine deploys (after the one-time setup above)
+
+There's no CI/CD, so every deploy is a manual upload — but packaging is
+scripted so the parts that have broken production before are checked, and
+the live site can tell you which build it's running. From the repo root:
+
+```bash
+node scripts/package-deploy.mjs            # add --vendor if the host has no Composer/SSH
+```
+
+It refuses to package when:
+- the working tree is dirty (commit first, or `--allow-dirty` → version gets `-dirty`);
+- `client/.env.production`'s `VITE_API_URL` isn't `https://hubly.eljincorp.com/backend`
+  (or a shell `VITE_API_URL` would override it);
+- `client/public/.htaccess` lost its `!^/backend/` rule;
+- `php artisan test` fails (`--skip-tests` to override);
+- the built JS doesn't contain the production API origin, or contains
+  `localhost:8000` / `127.0.0.1:8000` / the dead `api.eljincorp.com`.
+
+Output in `deploy-out/` (gitignored), both stamped with one version:
+
+| Zip | Extract into | Contents |
+|---|---|---|
+| `hubly-frontend-<sha>.zip` | `public_html/hubly/` | `client/dist/` incl. `.htaccess` + `version.json` |
+| `hubly-backend-<sha>.zip` | the Laravel app dir `backend/index.php` requires (see Step 5's note on the live path) | git-tracked `server-laravel/` files + `build.json` — never `.env`, `vendor/`, or `uploads/` contents |
+
+Then on the server: `composer install --no-dev --optimize-autoloader` (unless
+you used `--vendor`), `php artisan config:cache && php artisan route:cache`.
+
+**Verify it's live** — both should report the sha you just packaged:
+
+```bash
+curl https://hubly.eljincorp.com/backend/api/health   # …,"build":{"sha":"abc1234","time":"…"}
+curl https://hubly.eljincorp.com/version.json         # {"sha":"abc1234","time":"…"}
+```
+
+`build` is `null` if the backend was uploaded without the script (no
+`build.json`). Extracting a zip overwrites and adds files but never deletes
+ones removed from the repo — harmless for Laravel, but for the frontend old
+hashed `assets/*` files accumulate; clear `public_html/hubly/assets/` before
+extracting if that bothers you (don't touch `public_html/hubly/backend/`).
+
 ## What's intentionally different from the Node backend
 
 Carried over from the README's phase notes, for one place to check before
