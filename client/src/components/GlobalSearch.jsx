@@ -51,6 +51,7 @@ export default function GlobalSearch() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState(null); // { tickets, spaces, kb, assets, users }
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const [active, setActive] = useState(0);
 
   const inputRef = useRef(null);
@@ -82,6 +83,7 @@ export default function GlobalSearch() {
   useEffect(() => {
     if (open) {
       setActive(0);
+      setSearchError(false);
       setTimeout(() => inputRef.current?.focus(), 0);
     } else {
       setQuery('');
@@ -94,7 +96,8 @@ export default function GlobalSearch() {
   useEffect(() => {
     if (!open) return;
     const q = query.trim();
-    if (q.length < 2) { setResults(null); setLoading(false); return; }
+    if (q.length < 2) { setResults(null); setLoading(false); setSearchError(false); return; }
+    setSearchError(false);
     setLoading(true);
     const myReq = ++reqId.current;
     const t = setTimeout(async () => {
@@ -102,7 +105,7 @@ export default function GlobalSearch() {
         const data = await api(`/api/search?q=${encodeURIComponent(q)}`);
         if (myReq === reqId.current) { setResults(data); setActive(0); }
       } catch {
-        if (myReq === reqId.current) setResults(null);
+        if (myReq === reqId.current) { setResults(null); setSearchError(true); }
       } finally {
         if (myReq === reqId.current) setLoading(false);
       }
@@ -185,6 +188,8 @@ export default function GlobalSearch() {
             <div className="max-h-[60vh] overflow-y-auto p-2">
               {!hasQuery ? (
                 <p className="px-3 py-8 text-center text-sm text-slate-400">Type at least 2 characters to search.</p>
+              ) : searchError ? (
+                <p className="px-3 py-8 text-center text-sm text-rose-600">Search is unavailable. Please try again.</p>
               ) : flat.length === 0 ? (
                 <p className="px-3 py-8 text-center text-sm text-slate-400">{loading ? 'Searching…' : `No results for “${query.trim()}”.`}</p>
               ) : (

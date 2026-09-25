@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\NetworkController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PasswordResetRequestController;
+use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\SlaController;
 use App\Http\Controllers\Api\SpaceController;
 use App\Http\Controllers\Api\SpaceDocController;
@@ -31,6 +32,8 @@ Route::get('/health', function () {
         return response()->json(['status' => 'degraded', 'db' => 'unreachable', 'error' => $e->getMessage()], 503);
     }
 });
+
+Route::get('/search', [SearchController::class, 'index'])->middleware('auth.jwt');
 
 // Ported from server/src/routes/auth.js (phase 1 subset — see AuthController docblock).
 Route::prefix('auth')->group(function () {

@@ -111,6 +111,18 @@ class TicketController extends Controller
         return DepartmentManagers::managesDepartment($user['sub'] ?? null, $ticket['department'] ?? null);
     }
 
+    /** Requesters, assigned staff, and the routed department may add notes. */
+    private function canPostNote(?array $user, array $ticket): bool
+    {
+        if (!$this->canReadTicket($user, $ticket)) {
+            return false;
+        }
+
+        return $this->canManageTicket($user, $ticket)
+            || TV::ownsTicket($ticket, TV::userIdentities($user))
+            || DepartmentManagers::managesDepartment($user['sub'] ?? null, $ticket['approval_dept'] ?? null);
+    }
+
     /**
      * A requester may correct the information they supplied while their work
      * order is still active.
@@ -247,6 +259,7 @@ class TicketController extends Controller
 
         $ticket['can_edit'] = $this->canManageTicket($user, $ticket);
         $ticket['can_requester_edit'] = $this->canRequesterEditTicket($user, $ticket);
+        $ticket['can_post_note'] = $this->canPostNote($user, $ticket);
         $ticket['can_approve'] = $this->canApprove($user, $ticket);
 
         return response()->json($ticket);
@@ -706,7 +719,7 @@ class TicketController extends Controller
             return response()->json(['error' => 'note body or attachment is required'], 400);
         }
 
-        $exists = DB::table('tickets')->select('id', 'title', 'requester', 'assignee', 'department', 'approval_dept')
+        $exists = DB::table('tickets')->select('id', 'title', 'requester', 'assignee', 'department', 'category', 'approval_dept')
             ->where('id', $id)->first();
         if (!$exists) {
             return response()->json(['error' => 'Ticket not found'], 404);
@@ -714,15 +727,14 @@ class TicketController extends Controller
         $exists = (array) $exists;
 
         $user = $request->authUser();
-        $ids = TV::userIdentities($user);
         $staff = TV::isStaff($user);
         $managesDept = DepartmentManagers::managesDepartment($user['sub'] ?? null, $exists['department']);
         $managesApprovalDept = DepartmentManagers::managesDepartment($user['sub'] ?? null, $exists['approval_dept']);
-        $canNote = $staff || TV::ownsTicket($exists, $ids) || $managesDept || $managesApprovalDept;
-        if (!$canNote) {
+        if (!$this->canPostNote($user, $exists)) {
             return response()->json(['error' => 'Ticket not found'], 404);
         }
-        $isResponder = $staff || $managesDept || $managesApprovalDept
+        $ids = TV::userIdentities($user);
+        $isResponder = $staff || $managesDept || $managesApprovalDept || TV::sameDepartment($user, $exists)
             || (!empty($exists['assignee']) && in_array($exists['assignee'], $ids, true));
 
         $actor = $user['name'] ?? $user['email'] ?? 'system';

@@ -1,6 +1,6 @@
 // Backend origin for split deployments — the frontend is served from a static
 // host (Hostinger) while the API + uploads live on a separate origin (Railway).
-// Empty string in local dev, where Vite proxies /api (and /uploads) to :4000.
+// Empty string in local dev, where Vite proxies /api (and /uploads) to :8000.
 // Set VITE_API_URL at build time, e.g. VITE_API_URL=https://api.eljincorp.com.
 export const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
 

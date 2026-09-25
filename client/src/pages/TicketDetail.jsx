@@ -653,7 +653,7 @@ export default function TicketDetail() {
 
                 <ActivityPanel
                   activity={activity}
-                  canPost={!!me}
+                  canPost={!!ticket.can_post_note}
                   onAddNote={addNote}
                   ticketId={ticket.id}
                 />

@@ -175,6 +175,13 @@ side-by-side transition — decide this deliberately, not by accident.
 
 ## 5. Install dependencies + optimize
 
+> **Current production path:** recent production stack traces show the live app
+> at `/home/u818562152/domains/hubly.eljincorp.com/laravel_app`, rather than the
+> older `laravel/backend-f` example used elsewhere in this runbook. Run Artisan
+> commands and upload application files against the directory used by the live
+> `backend/index.php`; otherwise the frontend and backend will be on different
+> releases.
+
 ```bash
 composer install --no-dev --optimize-autoloader
 php artisan config:cache
