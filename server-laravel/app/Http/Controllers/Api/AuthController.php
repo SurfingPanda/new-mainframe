@@ -19,14 +19,28 @@ use Symfony\Component\HttpFoundation\Cookie;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
- * Ported (partial — phase 1) from server/src/routes/auth.js. Covers: login,
- * /me (read + self-service name/job_title edit), change-password,
- * forgot/reset-password, logout.
- *
- * Still deferred (not yet ported): preferences, invalidate-sessions.
+ * Ported from server/src/routes/auth.js. Covers: login, /me (read +
+ * self-service name/job_title edit), preferences, invalidate-sessions,
+ * change-password, forgot/reset-password, logout.
  */
 class AuthController extends Controller
 {
+    // Mirrors PREFERENCE_DEFAULTS in server/src/routes/auth.js. The 'chat'
+    // section is kept for response-shape parity even though chat itself was
+    // dropped from the port — old saved values just ride along untouched.
+    private const PREFERENCE_DEFAULTS = [
+        'notifications' => [
+            'email_assigned' => true,
+            'email_status_change' => true,
+            'email_new_comment' => true,
+            'email_hr_approval' => true,
+        ],
+        'chat' => [
+            'sound_enabled' => true,
+            'enter_to_send' => true,
+        ],
+    ];
+
     private const ME_COLUMNS = [
         'id', 'email', 'name', 'role', 'department', 'job_title',
         'avatar_url', 'signature_url', 'permissions', 'preferences',
@@ -180,6 +194,55 @@ class AuthController extends Controller
         }
 
         return response()->json($this->serializeMe($me));
+    }
+
+    public function preferences(Request $request)
+    {
+        $raw = DB::table('users')->where('id', $request->authUser()['sub'])->value('preferences');
+        return response()->json($this->mergedPreferences($this->decodePreferences($raw)));
+    }
+
+    /** Shallow-merges each known section (notifications, chat) into the saved JSON. */
+    public function updatePreferences(Request $request)
+    {
+        $patch = $request->json()->all();
+        if (!is_array($patch) || ($patch !== [] && array_is_list($patch))) {
+            return response()->json(['error' => 'Request body must be an object'], 400);
+        }
+
+        $userId = $request->authUser()['sub'];
+        $current = $this->decodePreferences(DB::table('users')->where('id', $userId)->value('preferences'));
+        foreach (array_keys(self::PREFERENCE_DEFAULTS) as $section) {
+            if (isset($patch[$section]) && is_array($patch[$section])) {
+                $current[$section] = array_merge($current[$section] ?? [], $patch[$section]);
+            }
+        }
+        DB::table('users')->where('id', $userId)->update(['preferences' => json_encode($current)]);
+
+        return response()->json($this->mergedPreferences($current));
+    }
+
+    /**
+     * "Sign out all other devices": bump token_version (killing every issued
+     * token), then re-issue one for THIS device so the caller stays signed in.
+     */
+    public function invalidateSessions(Request $request)
+    {
+        $authUser = $request->authUser();
+        $userId = $authUser['sub'];
+        DB::table('users')->where('id', $userId)->update(['token_version' => DB::raw('token_version + 1')]);
+        $tv = DB::table('users')->where('id', $userId)->value('token_version');
+
+        $token = JwtService::issue([
+            'sub' => $userId,
+            'email' => $authUser['email'],
+            'role' => $authUser['role'],
+            'name' => $authUser['name'],
+            'permissions' => $authUser['permissions'],
+            'tv' => (int) $tv,
+        ]);
+
+        return $this->withAuthCookie(response()->json(['ok' => true]), $token);
     }
 
     public function changePassword(Request $request)
@@ -432,6 +495,21 @@ class AuthController extends Controller
         $row = (array) $me;
         $row['permissions'] = Permissions::effective($row);
         return $row;
+    }
+
+    private function decodePreferences(mixed $raw): array
+    {
+        $saved = is_string($raw) ? json_decode($raw, true) : $raw;
+        return is_array($saved) ? $saved : [];
+    }
+
+    private function mergedPreferences(array $saved): array
+    {
+        $out = [];
+        foreach (self::PREFERENCE_DEFAULTS as $section => $defaults) {
+            $out[$section] = array_merge($defaults, is_array($saved[$section] ?? null) ? $saved[$section] : []);
+        }
+        return $out;
     }
 
     private function withAuthCookie(HttpResponse $response, string $token): HttpResponse

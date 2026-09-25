@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { api } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
-import { useSocketEvent } from '../lib/useSocket.jsx';
 
-const POLL_MS = 120_000; // Relaxed from 45s — socket pushes handle the fast path.
+const POLL_MS = 45_000;
 
 function timeAgo(value) {
   const t = new Date(value).getTime();
@@ -56,9 +55,6 @@ export default function NotificationBell() {
       setLoading(false);
     }
   };
-
-  // Real-time: the server pushes 'notification' when something changes.
-  useSocketEvent('notification', () => load());
 
   // Initial load + background polling + refresh when the tab regains focus.
   useEffect(() => {

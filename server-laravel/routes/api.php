@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AnnouncementController;
 use App\Http\Controllers\Api\AssetController;
 use App\Http\Controllers\Api\AssetRequestController;
 use App\Http\Controllers\Api\AuditController;
@@ -12,6 +13,7 @@ use App\Http\Controllers\Api\NetworkController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PasswordResetRequestController;
 use App\Http\Controllers\Api\SearchController;
+use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\SlaController;
 use App\Http\Controllers\Api\SpaceController;
 use App\Http\Controllers\Api\SpaceDocController;
@@ -51,6 +53,9 @@ Route::prefix('auth')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
         Route::get('/me/stats', [AuthController::class, 'stats']);
         Route::patch('/me', [AuthController::class, 'updateMe']);
+        Route::get('/me/preferences', [AuthController::class, 'preferences']);
+        Route::patch('/me/preferences', [AuthController::class, 'updatePreferences']);
+        Route::post('/me/invalidate-sessions', [AuthController::class, 'invalidateSessions']);
         Route::post('/change-password', [AuthController::class, 'changePassword'])
             ->middleware('throttle:change-password');
 
@@ -99,6 +104,22 @@ Route::prefix('tickets')->middleware('auth.jwt')->group(function () {
     Route::get('/{id}/watchers', [TicketController::class, 'watchersIndex'])->middleware('permission:tickets,view');
     Route::post('/{id}/watchers', [TicketController::class, 'watchersStore'])->middleware('permission:tickets,view');
     Route::delete('/{id}/watchers/{userId}', [TicketController::class, 'watchersDestroy'])->middleware('permission:tickets,view');
+});
+
+// Ported from server/src/routes/settings.js — flat per-priority SLA defaults.
+// Read is open to any signed-in user; write needs users.manage.
+Route::prefix('settings')->middleware('auth.jwt')->group(function () {
+    Route::get('/sla', [SettingsController::class, 'slaShow']);
+    Route::put('/sla', [SettingsController::class, 'slaUpdate'])->middleware('permission:users,manage');
+});
+
+// Ported from server/src/routes/announcements.js. Writes are gated inside the
+// controller (admin role or IT department), matching the Node canManage().
+Route::prefix('announcements')->middleware('auth.jwt')->group(function () {
+    Route::get('/', [AnnouncementController::class, 'index']);
+    Route::post('/', [AnnouncementController::class, 'store']);
+    Route::patch('/{id}', [AnnouncementController::class, 'update']);
+    Route::delete('/{id}', [AnnouncementController::class, 'destroy']);
 });
 
 // Ported from server/src/routes/sla.js (phase 3). requirePermission('users','manage').

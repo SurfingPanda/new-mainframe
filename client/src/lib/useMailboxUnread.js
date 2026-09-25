@@ -1,19 +1,13 @@
 import { useEffect, useState } from 'react';
 import { api } from './auth.js';
-import { useSocketEvent } from './useSocket.jsx';
 
-const POLL_MS = 120_000; // Relaxed from 30s — socket pushes handle the fast path.
+const POLL_MS = 30_000;
 
 // Unread inbox messages for the current user — drives the badge on the header
-// mailbox button. Real-time via Socket.IO ('mail' — pushed to the recipient on
-// every user-to-user or system message), with polling, tab focus, and the
-// `mailbox-read` event (the Mailbox view marks mail read) as fallbacks.
+// mailbox button. Refreshed by polling, tab focus, and the `mailbox-read` event
+// (the Mailbox view marks mail read).
 export function useMailboxUnread(enabled = true) {
   const [count, setCount] = useState(0);
-
-  // Refetch trigger — bumped by socket events as well as the polling interval.
-  const [tick, setTick] = useState(0);
-  useSocketEvent('mail', () => setTick((t) => t + 1));
 
   useEffect(() => {
     if (!enabled) {
@@ -41,7 +35,7 @@ export function useMailboxUnread(enabled = true) {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('mailbox-read', onRead);
     };
-  }, [enabled, tick]);
+  }, [enabled]);
 
   return count;
 }

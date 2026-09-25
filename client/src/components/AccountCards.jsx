@@ -819,66 +819,6 @@ export function SessionsSecurityCard({ me, loading: meLoading }) {
   );
 }
 
-/* -------- Chat Preferences -------- */
-
-const CHAT_OPTIONS = [
-  { key: 'sound_enabled', label: 'Notification sound',   desc: 'Play a sound when you receive a new chat message.' },
-  { key: 'enter_to_send', label: 'Enter to send',        desc: 'Press Enter to send messages. When off, use Shift+Enter to send.' }
-];
-
-export function ChatPreferencesCard() {
-  const [prefs, setPrefs] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    api('/api/auth/me/preferences')
-      .then((data) => setPrefs(data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  const toggle = async (key) => {
-    const current = prefs?.chat?.[key] ?? true;
-    setSaving(true);
-    try {
-      const updated = await api('/api/auth/me/preferences', {
-        method: 'PATCH',
-        body: JSON.stringify({ chat: { [key]: !current } })
-      });
-      setPrefs(updated);
-    } catch { /* ignore */ }
-    finally { setSaving(false); }
-  };
-
-  return (
-    <section className="rounded-lg border border-slate-200 bg-white shadow-card overflow-hidden">
-      <header className="border-b border-slate-100 px-5 py-3">
-        <h2 className="text-sm font-semibold text-slate-800">Chat preferences</h2>
-        <p className="text-xs text-slate-500 mt-0.5">Customize your chat experience.</p>
-      </header>
-      <ul className="divide-y divide-slate-100">
-        {CHAT_OPTIONS.map((opt) => {
-          const checked = prefs?.chat?.[opt.key] ?? true;
-          return (
-            <li key={opt.key} className="flex items-center justify-between gap-4 px-5 py-3">
-              <div>
-                <div className="text-sm font-medium text-slate-800">{opt.label}</div>
-                <div className="text-xs text-slate-500">{opt.desc}</div>
-              </div>
-              <ToggleSwitch
-                checked={checked}
-                disabled={loading || saving}
-                onChange={() => toggle(opt.key)}
-              />
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
-}
-
 /* -------- Toggle Switch -------- */
 
 function ToggleSwitch({ checked, disabled, onChange }) {

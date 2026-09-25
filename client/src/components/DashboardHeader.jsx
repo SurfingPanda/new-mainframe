@@ -30,18 +30,11 @@ function ticketsMenu(user, byView = {}) {
       ]
     });
   }
-  // Reports and recurring work orders (preventive maintenance) are staff-only.
+  // Reports are staff-only.
   if (user?.role === 'admin' || user?.role === 'agent') {
     sections[0].items.push(
       { to: '/tickets/reports', label: 'Reports', desc: 'Work order, incident & SLA analytics', icon: 'chart' }
     );
-    sections.push({
-      heading: 'Maintenance',
-      items: [
-        { to: '/tickets/maintenance', label: 'Recurring Work Orders', desc: 'Preventive maintenance schedules', icon: 'wrench' },
-        { to: '/tickets/maintenance/new', label: 'New Schedule', desc: 'Auto-generate work orders on a cadence', icon: 'plus', tone: 'accent' }
-      ]
-    });
   }
   return sections;
 }

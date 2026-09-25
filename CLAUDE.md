@@ -44,10 +44,11 @@ dev proxy (`/api`, `/uploads`) points at `:8000` (`php artisan serve`), not
 `:4000` (Node) — `server/` is not run locally day-to-day and isn't deployed
 anywhere either (see above). Run `cd server-laravel && php artisan serve`
 (not `cd server && npm run dev`) to develop against the client locally.
-`/socket.io` in the same proxy config still points at `:4000` since
-`server-laravel` dropped realtime/chat — it's simply inert now unless you
-run `server/` yourself for some other reason; leave it unless Team Chat is
-formally removed from the client.
+Team Chat, the Socket.IO client, the `/socket.io` proxy, and the
+recurring-maintenance pages have been **removed from the client** (2026-09-25)
+to match the scope cuts below; `/chat` and `/tickets/maintenance*` redirect to
+`/dashboard` / `/tickets/all`. Notification/mailbox badges are poll-only
+(45s / 30s).
 
 - **Status:** all 5 build phases done (auth → core ticketing → SLA/automation
   → everything else → parity-verified against the Node backend), plus a
@@ -56,6 +57,12 @@ formally removed from the client.
   processing on GD, see below) and `POST /api/auth/forgot-password` +
   `/reset-password`, and technician scorecard `GET /api/auth/me/stats`
   (assigned work-order counts, recorded SLA breaches, and survey rating).
+  A 2026-09-25 client↔backend route audit found four more endpoints the
+  client called but the port lacked, now ported: `GET`/`PATCH
+  /api/auth/me/preferences`, `POST /api/auth/me/invalidate-sessions`,
+  `GET`/`PUT /api/settings/sla` (`SettingsController`), and
+  `/api/announcements` CRUD (`AnnouncementController` — writes limited to
+  admins + the IT department). Tests in `tests/Feature/SelfServiceSettingsTest.php`.
   Full build log, phase-by-phase, in `server-laravel/README.md`; deployment
   runbook in `server-laravel/DEPLOYMENT.md`.
 - **Scope cuts** (deliberate product decisions, not gaps): no realtime/chat
@@ -238,7 +245,7 @@ Routes defined in `client/src/App.jsx`. Most routes wrap pages in `<ProtectedRou
 - `/dashboard`, `/settings`, `/chat` — any signed-in user (no `permission` prop)
 - `/`, `/signin`, `/forgot-password` — public
 
-`ProtectedRoute` is UX only — the server re-checks permissions on every request. Vite dev server proxies `/api/*` and `/uploads/*` to `:8000` (`server-laravel`, the local dev default — see the "Laravel backend port" section above), so the client can fetch without CORS configuration. `/socket.io` still proxies to `:4000` (Node) since `server-laravel` has no realtime/chat counterpart (a deliberate scope cut) — it's a no-op unless `server/` is also running.
+`ProtectedRoute` is UX only — the server re-checks permissions on every request. Vite dev server proxies `/api/*` and `/uploads/*` to `:8000` (`server-laravel`, the local dev default — see the "Laravel backend port" section above), so the client can fetch without CORS configuration.
 
 ## Permissions
 

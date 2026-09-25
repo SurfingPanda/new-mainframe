@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import { isAssetReviewer } from './lib/auth.js';
@@ -22,8 +22,6 @@ const CreateTicket = lazy(() => import('./pages/CreateTicket.jsx'));
 const CreateIncident = lazy(() => import('./pages/CreateIncident.jsx'));
 const TicketDetail = lazy(() => import('./pages/TicketDetail.jsx'));
 const WorkOrderReports = lazy(() => import('./pages/WorkOrderReports.jsx'));
-const MaintenanceSchedules = lazy(() => import('./pages/MaintenanceSchedules.jsx'));
-const MaintenanceScheduleEditor = lazy(() => import('./pages/MaintenanceScheduleEditor.jsx'));
 const Users = lazy(() => import('./pages/Users.jsx'));
 const UserReports = lazy(() => import('./pages/UserReports.jsx'));
 const SurveyReports = lazy(() => import('./pages/SurveyReports.jsx'));
@@ -50,7 +48,6 @@ const NetworkMonitoring = lazy(() => import('./pages/NetworkMonitoring.jsx'));
 const NetworkReports = lazy(() => import('./pages/NetworkReports.jsx'));
 const NetworkReportEditor = lazy(() => import('./pages/NetworkReportEditor.jsx'));
 const NetworkReportView = lazy(() => import('./pages/NetworkReportView.jsx'));
-const ChatRoom = lazy(() => import('./pages/ChatRoom.jsx'));
 const Spaces = lazy(() => import('./pages/Spaces.jsx'));
 const SpaceDetail = lazy(() => import('./pages/SpaceDetail.jsx'));
 
@@ -115,14 +112,11 @@ export default function App() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/chat"
-        element={
-          <ProtectedRoute>
-            <ChatRoom />
-          </ProtectedRoute>
-        }
-      />
+      {/* Team Chat and recurring work orders were dropped in the Laravel port
+          (no backend routes). Old bookmarks land somewhere useful instead of
+          a broken page. */}
+      <Route path="/chat" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/tickets/maintenance/*" element={<Navigate to="/tickets/all" replace />} />
       <Route
         path="/spaces"
         element={
@@ -224,30 +218,6 @@ export default function App() {
         element={
           <ProtectedRoute role={['admin', 'agent']}>
             <WorkOrderReports />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/tickets/maintenance"
-        element={
-          <ProtectedRoute role={['admin', 'agent']}>
-            <MaintenanceSchedules />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/tickets/maintenance/new"
-        element={
-          <ProtectedRoute role={['admin', 'agent']}>
-            <MaintenanceScheduleEditor />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/tickets/maintenance/:id"
-        element={
-          <ProtectedRoute role={['admin', 'agent']}>
-            <MaintenanceScheduleEditor />
           </ProtectedRoute>
         }
       />

@@ -4,8 +4,7 @@ import DashboardHeader from '../components/DashboardHeader.jsx';
 import {
   PasswordCard,
   NotificationPreferencesCard,
-  SessionsSecurityCard,
-  ChatPreferencesCard
+  SessionsSecurityCard
 } from '../components/AccountCards.jsx';
 import { api } from '../lib/auth.js';
 
@@ -48,7 +47,6 @@ export default function Settings() {
           <div className="lg:col-span-2 space-y-6">
             <PasswordCard />
             <NotificationPreferencesCard />
-            <ChatPreferencesCard />
           </div>
           <div className="space-y-6">
             <SessionsSecurityCard me={me} loading={loading} />
