@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import UserPicker from '../components/UserPicker.jsx';
 import Avatar from '../components/Avatar.jsx';
+import ImageLightbox from '../components/ImageLightbox.jsx';
 import { api, getUser, updateStoredUser } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
 import { SLA_DAYS, RESOLVED_STATUSES, TERMINAL_STATUSES, PAUSED_STATUSES as SLA_PAUSED_STATUSES } from '../lib/sla.js';
@@ -1686,12 +1687,15 @@ function ActivityItem({ item }) {
 
 function NoteAttachment({ attachment }) {
   const isImage = attachment.mime_type?.startsWith('image/');
+  const [preview, setPreview] = useState(null);
   return (
+    <>
     <a
       href={attachment.url}
       target="_blank"
       rel="noreferrer"
-      className="mt-2 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 hover:bg-slate-100 transition-colors max-w-full"
+      onClick={isImage ? (e) => { e.preventDefault(); setPreview({ url: attachment.url, name: attachment.filename }); } : undefined}
+      className={`mt-2 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 hover:bg-slate-100 transition-colors max-w-full ${isImage ? 'cursor-zoom-in' : ''}`}
     >
       {isImage ? (
         <img
@@ -1712,6 +1716,8 @@ function NoteAttachment({ attachment }) {
         <span className="block text-[10px] text-slate-500">{formatSize(attachment.size_bytes)}</span>
       </span>
     </a>
+    <ImageLightbox image={preview} onClose={() => setPreview(null)} />
+    </>
   );
 }
 
@@ -1816,14 +1822,27 @@ function AttachmentRow({ attachment, canRemove, onRemove }) {
     }
   };
 
+  const isImage = attachment.mime_type?.startsWith('image/');
+  const [preview, setPreview] = useState(null);
+  const openPreview = isImage
+    ? (e) => { e.preventDefault(); setPreview({ url: attachment.url, name: attachment.filename }); }
+    : undefined;
+
   return (
     <li className="flex items-center gap-3 rounded-md border border-slate-200 bg-white p-2 pr-3">
-      <AttachmentThumb attachment={attachment} />
+      {isImage ? (
+        <button type="button" onClick={openPreview} className="flex-none cursor-zoom-in" aria-label={`Preview ${attachment.filename}`}>
+          <AttachmentThumb attachment={attachment} />
+        </button>
+      ) : (
+        <AttachmentThumb attachment={attachment} />
+      )}
       <div className="min-w-0 flex-1">
         <a
           href={attachment.url}
           target="_blank"
           rel="noreferrer"
+          onClick={openPreview}
           className="block text-sm font-medium text-accent-700 hover:text-accent-800 truncate"
         >
           {attachment.filename}
@@ -1858,6 +1877,7 @@ function AttachmentRow({ attachment, canRemove, onRemove }) {
           </svg>
         </button>
       )}
+      <ImageLightbox image={preview} onClose={() => setPreview(null)} />
     </li>
   );
 }
