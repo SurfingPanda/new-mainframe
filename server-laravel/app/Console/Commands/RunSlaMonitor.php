@@ -23,7 +23,7 @@ class RunSlaMonitor extends Command
     public function handle(): int
     {
         $fired = SlaMonitor::run();
-        $this->info("SLA monitor: escalated {$fired} breach(es).");
+        $this->info("SLA monitor: {$fired} breach(es)/at-risk warning(s) processed.");
         return self::SUCCESS;
     }
 }

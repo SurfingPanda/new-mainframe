@@ -266,6 +266,71 @@ class EmailTemplates
         ];
     }
 
+    /** "2d 3h" / "3h 20m" / "45m" from milliseconds (SLA working time). */
+    private static function fmtDuration(int $ms): string
+    {
+        $mins = max(0, (int) round($ms / 60000));
+        $d = intdiv($mins, 1440);
+        $h = intdiv($mins % 1440, 60);
+        $m = $mins % 60;
+        if ($d) {
+            return $d . 'd' . ($h ? " {$h}h" : '');
+        }
+        if ($h) {
+            return $h . 'h' . ($m ? " {$m}m" : '');
+        }
+        return "{$m}m";
+    }
+
+    /**
+     * SLA "at risk" warning or breach notice for one clock.
+     * $kind = 'warning' | 'breach'; $clock = 'response' | 'resolution';
+     * $standing = that clock's Sla::standing() entry (target/elapsed/remaining, ms);
+     * $asManager = the recipient is the department manager, not the assignee.
+     */
+    public static function slaAlert(array $ticket, string $clock, string $kind, array $standing, ?string $recipientName, bool $asManager): array
+    {
+        $code = self::ticketCode($ticket['id']);
+        $clockLabel = $clock === 'response' ? 'Response' : 'Resolution';
+        $goal = $clock === 'response' ? 'send a first response' : 'resolve it';
+        $target = self::fmtDuration((int) $standing['target']);
+        $greet = self::firstName($recipientName);
+        $who = $asManager
+            ? 'A work order routed to your department' . (!empty($ticket['assignee']) ? ' (assigned to ' . $ticket['assignee'] . ')' : ' (currently unassigned)')
+            : 'A work order assigned to you';
+
+        if ($kind === 'breach') {
+            $over = self::fmtDuration((int) $standing['elapsed'] - (int) $standing['target']);
+            $heading = "{$clockLabel} SLA breached";
+            $subject = "[{$code}] {$clockLabel} SLA breached: " . ($ticket['title'] ?? '');
+            $line = "{$who} has breached its {$clockLabel} SLA target of {$target} — it is {$over} over. Please action it as soon as possible.";
+            $pill = self::pill('Breached', '#fee2e2', '#b91c1c');
+        } else {
+            $left = self::fmtDuration((int) $standing['remaining']);
+            $heading = "{$clockLabel} SLA at risk";
+            $subject = "[{$code}] {$clockLabel} SLA due in {$left}: " . ($ticket['title'] ?? '');
+            $line = "{$who} has used 75% of its {$clockLabel} SLA target of {$target}. About {$left} of working time is left to {$goal}.";
+            $pill = self::pill('At risk', '#fef3c7', '#b45309');
+        }
+
+        $details = array_merge(
+            [['label' => "{$clockLabel} SLA", 'html' => $pill . ' &nbsp;' . self::esc($target) . ' target']],
+            self::ticketDetails($ticket)
+        );
+
+        return [
+            'subject' => $subject,
+            'text' => "Hi" . ($greet ? " {$greet}" : '') . ",\n\n{$line}\n\n"
+                . self::ticketTextDetails($ticket) . "\n\nOpen it: " . ($ticket['url'] ?? ''),
+            'html' => self::layout(
+                $heading,
+                '<p style="margin:0 0 6px;">Hi' . ($greet ? ' ' . self::esc($greet) : '') . ',</p>
+       <p style="margin:0;">' . self::esc($line) . '</p>',
+                ['kicker' => 'SLA', 'preheader' => "{$code} — {$heading}", 'cta' => ['label' => 'Open work order', 'url' => $ticket['url'] ?? ''], 'details' => $details]
+            ),
+        ];
+    }
+
     public static function ticketNote(array $ticket, string $body, ?string $author): array
     {
         $code = self::ticketCode($ticket['id']);

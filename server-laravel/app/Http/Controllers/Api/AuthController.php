@@ -34,6 +34,7 @@ class AuthController extends Controller
             'email_status_change' => true,
             'email_new_comment' => true,
             'email_hr_approval' => true,
+            'email_sla_alerts' => true,
         ],
         'chat' => [
             'sound_enabled' => true,

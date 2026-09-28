@@ -701,7 +701,8 @@ const NOTIF_OPTIONS = [
   { key: 'email_assigned',      label: 'Work order assigned to me',     desc: 'Get notified when a work order is assigned to you.' },
   { key: 'email_status_change', label: 'Status changes',                desc: 'Get notified when a work order you\'re involved in changes status.' },
   { key: 'email_new_comment',   label: 'New comments or notes',         desc: 'Get notified when someone adds a comment to your work order.' },
-  { key: 'email_hr_approval',   label: 'HR approval requests',          desc: 'Get notified when an HR concern needs your approval.' }
+  { key: 'email_hr_approval',   label: 'HR approval requests',          desc: 'Get notified when an HR concern needs your approval.' },
+  { key: 'email_sla_alerts',    label: 'SLA warnings',                  desc: 'Email me when a work order I\'m assigned (or my department\'s) reaches 75% of its SLA or breaches it. Mailbox alerts are always sent.' }
 ];
 
 export function NotificationPreferencesCard() {

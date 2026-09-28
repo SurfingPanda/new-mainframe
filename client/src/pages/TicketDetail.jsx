@@ -1571,6 +1571,8 @@ function ActivityItem({ item }) {
   const isKbLink = item.type === 'change' && (item.field === 'kb_link' || item.field === 'kb_unlink');
   const isAttachmentRemoved = item.type === 'change' && item.field === 'attachment_removed';
   const isSurveySent = item.type === 'change' && item.field === 'survey_sent';
+  const isSlaAlert = item.type === 'change' && (item.field === 'sla_warning' || item.field === 'sla_breach');
+  const isSlaBreach = item.field === 'sla_breach';
 
   let icon;
   let iconWrap;
@@ -1601,6 +1603,14 @@ function ActivityItem({ item }) {
     icon = (
       <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14l-5-4.87 6.91-1.01L12 2z" />
+      </svg>
+    );
+  } else if (isSlaAlert) {
+    iconWrap = isSlaBreach ? 'bg-rose-50 text-rose-700 ring-rose-200' : 'bg-amber-50 text-amber-700 ring-amber-200';
+    icon = (
+      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
       </svg>
     );
   } else {
@@ -1669,7 +1679,14 @@ function ActivityItem({ item }) {
           </p>
         )}
 
-        {!isNote && !isCreation && !isKbLink && !isAttachmentRemoved && !isSurveySent && (
+        {isSlaAlert && (
+          <p className={`mt-1 text-xs leading-snug ${isSlaBreach ? 'text-rose-700' : 'text-amber-700'}`}>
+            <span className="font-semibold capitalize">{item.new_value || 'resolution'} SLA</span>
+            {isSlaBreach ? ' breached — the target time has passed.' : ' at risk — 75% of the target time used.'}
+          </p>
+        )}
+
+        {!isNote && !isCreation && !isKbLink && !isAttachmentRemoved && !isSurveySent && !isSlaAlert && (
           <p className="mt-1 text-xs text-slate-600 leading-snug">
             changed <span className="font-semibold text-slate-800">{labelForField(item.field)}</span>
             {' '}from{' '}

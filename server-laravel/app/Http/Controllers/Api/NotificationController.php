@@ -47,6 +47,8 @@ class NotificationController extends Controller
             $row->field === 'kb_unlink' => "{$actor} unlinked a KB article",
             $row->field === 'watcher_added' => "{$actor} added a watcher",
             $row->field === 'watcher_removed' => "{$actor} removed a watcher",
+            $row->field === 'sla_warning' => ucfirst((string) $row->new_value) . ' SLA at risk — 75% of the target used',
+            $row->field === 'sla_breach' => ucfirst((string) $row->new_value) . ' SLA breached',
             !empty($row->field) => "{$actor} updated the " . str_replace('_', ' ', $row->field),
             default => "{$actor} updated this work order",
         };

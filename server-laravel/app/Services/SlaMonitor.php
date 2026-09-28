@@ -13,7 +13,10 @@ use Illuminate\Support\Facades\Log;
  *
  * Each clock breaches at most once: a marker column is set atomically
  * (UPDATE ... WHERE col IS NULL), so a concurrent/overlapping run can't
- * double-fire. HR Concerns are excluded (their targets aren't routed until
+ * double-fire. The same pattern gives each clock one "at risk" warning once
+ * it has used SlaAlerts::WARN_RATIO (75%) of its target
+ * (sla_*_warned_at). Warnings and breaches both notify the assignee and the
+ * routed department's manager via SlaAlerts (email + Mailbox). HR Concerns are excluded (their targets aren't routed until
  * approved). Self-contained and never throws.
  *
  * Node runs this on an in-process setInterval (lib/job-lock.js guards
@@ -28,19 +31,27 @@ class SlaMonitor
 {
     private const SYSTEM_ACTOR = 'System';
 
-    /** Atomically claim a breach: true only for the run that flips the marker. */
+    /** Atomically claim a breach/warning: true only for the run that flips the marker. */
     private static function claimBreach(int $ticketId, string $column): bool
     {
         $affected = DB::table('tickets')->where('id', $ticketId)->whereNull($column)->update([$column => now()]);
         return $affected > 0;
     }
 
-    private static function logBreach(int $ticketId, string $kind): void
+    /** $field = 'sla_breach' | 'sla_warning'; $clock = 'response' | 'resolution'. */
+    private static function logBreach(int $ticketId, string $clock, string $field = 'sla_breach'): void
     {
         DB::table('ticket_activity')->insert([
             'ticket_id' => $ticketId, 'type' => 'change', 'actor' => self::SYSTEM_ACTOR,
-            'field' => 'sla_breach', 'new_value' => $kind, 'created_at' => now(),
+            'field' => $field, 'new_value' => $clock, 'created_at' => now(),
         ]);
+    }
+
+    /** Past the warning threshold but not yet breached. */
+    private static function atRisk(?array $clock): bool
+    {
+        return $clock && empty($clock['breached']) && empty($clock['met'])
+            && $clock['target'] > 0 && $clock['elapsed'] >= $clock['target'] * SlaAlerts::WARN_RATIO;
     }
 
     public static function run(): int
@@ -56,7 +67,8 @@ class SlaMonitor
                     'id', 'title', 'priority', 'status', 'request_type', 'category', 'department', 'requester', 'assignee',
                     'created_at', 'updated_at', 'first_responded_at',
                     'sla_response_minutes', 'sla_resolution_minutes', 'sla_calendar_id',
-                    'sla_response_breached_at', 'sla_resolution_breached_at'
+                    'sla_response_breached_at', 'sla_resolution_breached_at',
+                    'sla_response_warned_at', 'sla_resolution_warned_at'
                 )
                 ->whereNotIn('status', ['resolved', 'closed', 'cancelled'])
                 ->where(fn ($q) => $q->whereNull('category')->orWhere('category', '<>', TicketVisibility::HR_CONCERNS))
@@ -81,30 +93,38 @@ class SlaMonitor
             }
 
             $fired = 0;
+            $warned = 0;
             foreach ($tickets as $t) {
                 $s = Sla::standing($t, $byTicket[$t['id']] ?? []);
                 if (!$s) {
                     continue;
                 }
 
-                if (($s['resolution']['breached'] ?? false) && !$t['sla_resolution_breached_at']
-                    && self::claimBreach($t['id'], 'sla_resolution_breached_at')) {
-                    self::logBreach($t['id'], 'resolution');
-                    Automation::run('sla.resolution_breached', $t);
-                    $fired++;
-                }
-                if (($s['response']['breached'] ?? false) && !$t['sla_response_breached_at']
-                    && self::claimBreach($t['id'], 'sla_response_breached_at')) {
-                    self::logBreach($t['id'], 'response');
-                    Automation::run('sla.response_breached', $t);
-                    $fired++;
+                foreach (['resolution', 'response'] as $clock) {
+                    $standing = $s[$clock] ?? null;
+                    if (!$standing) {
+                        continue;
+                    }
+                    $breachCol = "sla_{$clock}_breached_at";
+                    $warnCol = "sla_{$clock}_warned_at";
+
+                    if (!empty($standing['breached']) && !$t[$breachCol] && self::claimBreach($t['id'], $breachCol)) {
+                        self::logBreach($t['id'], $clock);
+                        Automation::run("sla.{$clock}_breached", $t);
+                        SlaAlerts::notify($t, $clock, 'breach', $standing);
+                        $fired++;
+                    } elseif (self::atRisk($standing) && !$t[$warnCol] && self::claimBreach($t['id'], $warnCol)) {
+                        self::logBreach($t['id'], $clock, 'sla_warning');
+                        SlaAlerts::notify($t, $clock, 'warning', $standing);
+                        $warned++;
+                    }
                 }
             }
 
-            if ($fired) {
-                Log::info("[sla-monitor] escalated {$fired} SLA breach(es)");
+            if ($fired || $warned) {
+                Log::info("[sla-monitor] escalated {$fired} SLA breach(es), sent {$warned} at-risk warning(s)");
             }
-            return $fired;
+            return $fired + $warned;
         } catch (\Throwable $e) {
             Log::error("[sla-monitor] run failed: {$e->getMessage()}");
             return 0;
