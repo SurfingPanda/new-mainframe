@@ -5,261 +5,164 @@ This file gives Claude codebase-specific instructions for working in this reposi
 ## Project overview
 
 - **Project name:** Hubly
-- **Purpose:** Internal IT operations platform combining ticketing, IT asset inventory, and a knowledge base in one app.
-- **Primary stack:** React 18 + Vite + Tailwind (client); **Laravel 11 / PHP 8.2** (`server-laravel/`) is the only deployed backend, ported from a now-historical Node.js + Express + mysql2 app (`server/`, kept as reference only)
-- **Database:** MySQL 8 / MariaDB (XAMPP on `localhost:3306`) — both backends share the same `mainframe_app` schema
-- **Runtime(s):** PHP 8.2 (backend); Node.js 18+ (client build, `server/` reference, backend tests)
-- **Package manager(s):** Composer for `server-laravel/`; npm for `client/` and the legacy `server/` (separate workspaces — no monorepo tooling)
+- **Purpose:** Internal IT operations platform combining ticketing (work orders), IT asset inventory, a knowledge base, and project Spaces in one app.
+- **Primary stack:** React 18 + Vite + Tailwind (`client/`); **Laravel 11 / PHP 8.2** API (`server-laravel/`) — the only backend
+- **Database:** MySQL 8 / MariaDB (XAMPP on `localhost:3306` locally), database `mainframe_app` (utf8mb4_unicode_ci)
+- **Runtime(s):** PHP 8.2 (backend); Node.js 18+ (client build + the deploy packaging script)
+- **Package manager(s):** Composer for `server-laravel/`; npm for `client/` (separate — no monorepo tooling)
 
-## Laravel backend port (`server-laravel/`)
+## History you need to know
 
-A **feature-complete parallel port** of `server/` to Laravel 11 (PHP 8.2),
-built so the team can move backend hosting off Railway onto **Hostinger
-shared hosting** for cost reasons (shared hosting can't run a persistent
-Node process).
-
-**Cutover is done: `server-laravel/` is the only backend — Railway has been
-decommissioned.** `server/` (Node/Express) is no longer deployed anywhere;
-`api.eljincorp.com` (its old Railway custom domain) is dead (confirmed
-404/`x-railway-fallback` as of 2026-08-20). **`server-laravel/` is therefore
-the source of truth for current *and* production backend behavior** — treat
-`server/` as historical reference only, not something to keep in parity with
-going forward.
-
-**Production is live on Hostinger and the migration is essentially
-complete.** `hubly.eljincorp.com` serves the SPA, the path-mounted API at
-`hubly.eljincorp.com/backend/api/health` returns `{"status":"ok"}`, and
-login + core flows work. Caveats: there is **no CI/CD on either leg**, so a
-committed change is not live until someone rebuilds/re-uploads by hand (see
-Deployment below), and the `VITE_API_URL` wiring has drifted more than
-once — so **verify live** (`curl https://hubly.eljincorp.com/backend/api/health`,
-or exercise the affected endpoint) before assuming a given fix has shipped.
-Full topology + runbook in `server-laravel/DEPLOYMENT.md`.
-
-All new backend work should target `server-laravel/` only — there is no
-`server/` to keep updated in parallel anymore.
-
-**Local dev targets `server-laravel` by default.** `client/vite.config.js`'s
-dev proxy (`/api`, `/uploads`) points at `:8000` (`php artisan serve`), not
-`:4000` (Node) — `server/` is not run locally day-to-day and isn't deployed
-anywhere either (see above). Run `cd server-laravel && php artisan serve`
-(not `cd server && npm run dev`) to develop against the client locally.
-Team Chat, the Socket.IO client, the `/socket.io` proxy, and the
-recurring-maintenance pages have been **removed from the client** (2026-09-25)
-to match the scope cuts below; `/chat` and `/tickets/maintenance*` redirect to
-`/dashboard` / `/tickets/all`. Notification/mailbox badges are poll-only
-(45s / 30s).
-
-- **Status:** all 5 build phases done (auth → core ticketing → SLA/automation
-  → everything else → parity-verified against the Node backend), plus a
-  later pass finishing the self-service auth endpoints the initial port had
-  stubbed out: `POST`/`DELETE /api/auth/me/avatar` + `/me/signature` (image
-  processing on GD, see below) and `POST /api/auth/forgot-password` +
-  `/reset-password`, and technician scorecard `GET /api/auth/me/stats`
-  (assigned work-order counts, recorded SLA breaches, and survey rating).
-  A 2026-09-25 client↔backend route audit found four more endpoints the
-  client called but the port lacked, now ported: `GET`/`PATCH
-  /api/auth/me/preferences`, `POST /api/auth/me/invalidate-sessions`,
-  `GET`/`PUT /api/settings/sla` (`SettingsController`), and
-  `/api/announcements` CRUD (`AnnouncementController` — writes limited to
-  admins + the IT department). Tests in `tests/Feature/SelfServiceSettingsTest.php`.
-  Full build log, phase-by-phase, in `server-laravel/README.md`; deployment
-  runbook in `server-laravel/DEPLOYMENT.md`.
-- **Scope cuts** (deliberate product decisions, not gaps): no realtime/chat
-  (Socket.IO + Team Chat dropped entirely), no idle-triggered automation +
-  its scheduler, no recurring-maintenance work orders. Everything else in
-  this file's Domain model / API surface has a Laravel counterpart. The
-  production API is expected to maintain this parity as endpoints are ported.
-- **Shares the same MySQL database** as `server/` (`mainframe_app`) — same
-  `server/sql/schema.sql`, no Eloquent migrations of its own, and it must
-  **never** run `artisan migrate` against it.
-- **Conventions differ from `server/` on purpose**: raw `DB::table()` query
-  builder (no Eloquent/ORM) to stay close to the hand-tuned parameterized
-  SQL this file documents; JWT auth ported 1:1 (same cookie name/shape);
-  image processing (avatars, space icons, e-signatures — `app/Services/AvatarUpload.php`
-  + `SignatureUpload.php`) uses `gd` via Intervention Image instead of `sharp`,
-  decoding-then-re-encoding every upload to WebP just like the Node path, but
-  **rejecting** HEIC/AVIF on that host since GD can't decode them (PNG/JPEG/GIF/WebP
-  go through). Node rate limiters become named `throttle:*` limiters registered in
-  `app/Providers/AppServiceProvider.php` (same windows/keys).
-- Two Node bugs were found and fixed during the port rather than reproduced
-  — see `server-laravel/README.md`'s Phase 4 notes (a silently-dropped
-  `ticket_activity` entry on resolution-survey send, and KB article images
-  being unviewable due to a missing `upload-access.js` category) and Phase 5
-  notes (an env-var boolean-casting bug affecting `UNIFI_OS`/
-  `UNIFI_INSECURE_TLS`, found while wiring up `TRUST_PROXY`).
-- If you're asked to change backend behavior and both directories exist,
-  **confirm with the user whether the change should land in `server/`,
-  `server-laravel/`, or both** — don't assume silently.
+- The backend was originally Node.js + Express (`server/`) on Railway. It was **ported 1:1 to Laravel** so it could run on **Hostinger shared hosting** (cheaper; can't run a persistent Node process). Cutover finished 2026-08-20; Railway and `api.eljincorp.com` are gone.
+- **`server/` has been deleted from the repo** (commit `a18c71a`). If you need to see how something used to work, read it from git history, e.g. `git show afe5d05:server/src/routes/tickets.js`. Don't recreate it or keep anything "in parity" with it.
+- **Deliberate scope cuts in the port** (product decisions, not gaps): no Team Chat / realtime (Socket.IO), no recurring-maintenance work orders, no idle-triggered automation (`ticket.idle`), and no daily SLA-breach Mailbox digest. The client no longer has chat, socket, or maintenance screens (`/chat` and `/tickets/maintenance*` redirect). The old tables (`chat_*`, `maintenance_schedules`) may still exist in the database but nothing reads or writes them. A few dead client files (`ChatRoom.jsx`, `FloatingChat.jsx`, `useChat*.js`, `useSocket.jsx`, `MaintenanceSchedule*.jsx`) and the `socket.io-client` dependency are still in the tree, unreferenced — safe to delete.
+- `server-laravel/README.md` is the phase-by-phase port log (useful for "why is it like this").
 
 ## Repository structure
 
 ```
 new-mainframe/
 ├── client/                    React + Vite + Tailwind frontend
-│   ├── public/images/         Logo and screenshots
+│   ├── public/                .htaccess (SPA fallback + /backend exclusion), images
 │   └── src/
 │       ├── App.jsx            Router (react-router-dom v7)
 │       ├── main.jsx           Entry
-│       ├── components/        Shared UI: Navbar, NavDropdown, Modal, ProtectedRoute,
-│       │                      MarkdownEditor, UserPicker, NotificationBell, DashboardHeader, etc.
-│       ├── lib/               Client helpers (e.g. networkReports.js — localStorage-backed)
-│       └── pages/             Route views: Landing, SignIn, ForgotPassword, Dashboard, Settings,
-│                              AllTickets, MyQueue, SubmittedTickets, CreateTicket, CreateIncident,
-│                              TicketDetail, Users, Departments, PasswordResetRequests, AllAssets,
-│                              AssignedAssets, AddAsset, AssetRequest, AllArticles, KbArticle,
-│                              KbCategory, ArticleEditor, ChatRoom, NetworkMonitoring, NetworkReports,
-│                              NetworkReportEditor, NetworkReportView, ModulePlaceholder,
-│                              MaintenanceSchedules, MaintenanceScheduleEditor, Spaces, SpaceDetail,
-│                              Automation (automation rule builder)
-├── server-laravel/            Laravel 11 (PHP 8.2) API — the ONLY deployed
-│   │                          backend (see "Laravel backend port" above).
-│   ├── README.md              Phase-by-phase build log
-│   ├── DEPLOYMENT.md          Hostinger path-mounted runbook
-│   ├── uploads/               avatars/ signatures/ tickets/ messages/ kb/ spaces/ (served via /uploads)
+│       ├── components/        Shared UI: DashboardHeader, NavDropdown, Modal, ProtectedRoute,
+│       │                      MarkdownEditor, UserPicker, NotificationBell, Avatar, ImageLightbox,
+│       │                      AccountCards (Settings/Profile cards), AnnouncementsBanner, GlobalSearch, …
+│       ├── lib/               auth.js (api()), config.js (API_BASE), categories.js (useTaxonomy),
+│       │                      sla.js, ticket.js, url.js (safeUrl), networkReports.js (localStorage)
+│       └── pages/             Route views (Dashboard, CreateTicket, CreateIncident, TicketDetail,
+│                              AllTickets, MyQueue, SubmittedTickets, WorkOrderReports, Users,
+│                              Departments, SlaSettings, TicketTaxonomy, Automation, AuditLog,
+│                              AllAssets, AssetRequest*, AllArticles, KbArticle, ArticleEditor,
+│                              Spaces, SpaceDetail, NetworkMonitoring, NetworkReports*, Mailbox,
+│                              Profile, Settings, Survey, …)
+├── server-laravel/            Laravel 11 API
+│   ├── README.md              Port build log
+│   ├── DEPLOYMENT.md          Hostinger runbook (one-time setup + "Routine deploys")
+│   ├── deploy-hostinger-backend/  Pre-edited front-controller files for public_html/hubly/backend/
+│   ├── sql/                   Hand-run SQL migrations (see "Database and migrations")
+│   ├── uploads/               avatars/ signatures/ tickets/ messages/ kb/ spaces/ (gitignored contents)
 │   ├── app/
-│   │   ├── Http/Controllers/Api/   one controller per resource (Auth, Ticket, User, Asset,
-│   │   │                           Kb, Space*, Sla, Automation, Audit, Notification, …)
-│   │   ├── Http/Middleware/        JwtAuthenticate (auth.jwt), EnsurePermission (permission:m,a),
+│   │   ├── Http/Controllers/Api/   one controller per resource (Auth, Ticket, User, Asset, AssetRequest,
+│   │   │                           Kb, Space*, Sla, Settings, Taxonomy, Automation, Audit, Announcement,
+│   │   │                           Notification, Message, Survey, Search, Department, PasswordResetRequest, Network)
+│   │   ├── Http/Middleware/        JwtAuthenticate (auth.jwt), EnsurePermission (permission:module,action),
 │   │   │                           EnsureRole (role:…), SecurityHeaders
-│   │   ├── Services/               ports of server/src/lib/* — Permissions, Sla*, BusinessHours,
-│   │   │                           Automation, Audit, TicketVisibility, AvatarUpload, SignatureUpload,
-│   │   │                           Mailer, EmailTemplates, JwtService, Unifi, …
-│   │   └── Console/Commands/       RunSlaMonitor, RunSpaceDueReminders (driven by routes/cron.php + host cron)
-│   ├── config/                hubly.php (app-specific), filesystems.php (upload disks), hashing.php
-│   └── routes/                api.php (/api/*), uploads.php (/uploads/*), cron.php, console.php, web.php
-├── server/                    Node.js + Express API — HISTORICAL REFERENCE ONLY,
-│   │                          not deployed anywhere. Still the canonical home of
-│   │                          sql/schema.sql and the backend unit tests.
-│   ├── sql/schema.sql         Database schema + seed data (both backends build from this)
-│   ├── uploads/               Ticket + chat attachments (served via /uploads; chat/ subdir)
-│   └── src/
-│       ├── index.js           App bootstrap, route mounting, /api/health
-│       ├── config/db.js       mysql2 pool, pingDb, ensureSchema (idempotent migrations)
-│       ├── lib/               permissions.js (per-module access), unifi.js (UniFi client),
-│       │                      ticket-emails.js, email-templates.js, maintenance-scheduler.js,
-│       │                      automation.js + automation-idle.js (work-order automation engine),
-│       │                      audit.js (app-wide admin audit trail),
-│       │                      sla.js + sla-config.js + sla-policies.js + business-hours.js + sla-monitor.js (SLA engine)
-│       ├── middleware/        auth.js (JWT auth + role/permission gates), rateLimit.js
-│       └── routes/            auth, users, tickets, maintenance, assets, kb, asset-requests,
-│                              departments, password-resets, chat, network, notifications, automation, audit, sla
+│   │   ├── Services/               domain logic — Permissions, TicketVisibility, DepartmentManagers,
+│   │   │                           Sla, SlaConfig, SlaPolicies, BusinessHours, SlaMonitor, SlaAlerts,
+│   │   │                           TicketTaxonomy, Automation, Audit, HrApproval, ResolutionSurvey,
+│   │   │                           TicketNotifications, TicketEmails, EmailTemplates, Mailer, SystemMessage,
+│   │   │                           AvatarUpload, SignatureUpload, Spaces*, JwtService, JobLock, Unifi, …
+│   │   └── Console/Commands/       RunSlaMonitor (sla:monitor), RunSpaceDueReminders (spaces:due-reminders)
+│   ├── config/                hubly.php (app-specific env), filesystems.php (upload disks)
+│   ├── routes/                api.php (/api/*), uploads.php (/uploads/*), cron.php (/cron/*), console.php
+│   └── tests/                 Unit/ (pure helpers) + Feature/ (HTTP against the real DB, rolled back)
+├── scripts/package-deploy.mjs Builds + checks + zips a deploy (see Deployment)
 └── README.md
 ```
 
+## Laravel conventions
+
+- **Raw query builder only** (`DB::table()`), no Eloquent models — keeps the hand-tuned, parameterized SQL style. Never string-concatenate user input into SQL.
+- **No Eloquent migrations, and never run `php artisan migrate`** against `mainframe_app`. Schema changes are hand-written SQL files (see below).
+- Controllers are thin-ish and validate at the boundary; shared logic lives in `app/Services/` as static methods. Services that are called fire-and-forget (notifications, emails, audit, alerts) **never throw** — they catch and `Log::error`.
+- Auth: `$request->authUser()` (a request macro from `AppServiceProvider`) returns the array `JwtAuthenticate` loaded — `sub` (user id), `email`, `name`, `role`, `department`, `permissions`.
+- Route gates: `auth.jwt`, then `permission:module,action` (preferred for module access) or `role:admin,agent`. Fine-grained rules (ticket visibility, space membership) are checked inside controllers.
+- Rate limits are named limiters in `AppServiceProvider` (`login-ip`, `login-email`, `change-password`, `forgot-password`, `ticket-write`, `avatar-admin`, `avatar-self`, `user-import`, `message-send`), applied as `throttle:<name>`. Per-IP buckets need `TRUST_PROXY` set behind a proxy.
+- Caches (SLA config, SLA policies, taxonomy) use Laravel's cache (file store in prod) and are cleared on every admin write — PHP-FPM has no long-lived process to hold them.
+- Scheduled work runs from host cron, not in-process timers: `php artisan sla:monitor` (~10 min) and `spaces:due-reminders` (hourly), or the secret-gated `/cron/*` HTTP fallback (`CRON_SECRET`). `JobLock` (MySQL advisory lock) prevents overlapping runs.
+- Image uploads (avatars, signatures, space icons) are validated by decoding and re-encoding to WebP with Intervention Image on **GD** — HEIC/AVIF are rejected (GD can't decode them).
+
 ## Domain model (database)
 
-`server/sql/schema.sql` is the canonical build (tables + seed). `ensureSchema()` in `config/db.js` applies idempotent migrations on boot, so an existing DB is patched up to the current shape. Key tables:
+Key tables (all in `mainframe_app`):
 
-- **users** — id, email (unique), password_hash, name, `role` ENUM('admin','agent','user'), department, job_title (admin- or self-managed), avatar_url (profile picture path under `/uploads/avatars`), signature_url (e-signature image under `/uploads/signatures` — drawn or uploaded on the Profile page, transparent WebP), is_active, `permissions` (JSON, per-module overrides — see [Permissions](#permissions)), last_login_at, last_seen_at (chat presence), notifications_seen_at
-- **tickets** — title, description, `status` ENUM('open','in_progress','on_hold','pending','resolved','closed','cancelled'), `priority` ENUM('low','normal','high','urgent'), `request_type` ENUM('incident','service_request','question','change'), category, department, requester, assignee, asset_id, schedule_id (set when auto-generated by a maintenance schedule). `cancelled` is terminal, pauses SLA monitoring, and does not send a resolution survey. **Manager-approval workflow** (`approval_status` ENUM('not_required','pending','approved','denied'), `approval_dept`, `approver_name`, `approver_signature_url` (the approver's e-signature, snapshotted at approval time so the printed "Approved by" block renders it), `approval_note`, `approval_decided_at`): a **'HR Concerns'** ticket is held `pending` and routed to the manager of the requester's department for approval while kept **UNROUTED** (`department` NULL, so coworkers can't see it — HR concerns are need-to-know); on **approve** it's forwarded to the HR department (`is_hr`), on **deny** it's `closed` with a required reason. With no manager (or the requester is the manager) it auto-approves straight to HR. See the visibility rules below.
-- **maintenance_schedules** — recurring work orders (preventive maintenance): work-order template fields (title, description, priority, request_type, category, department, assignee, asset_id) + `cadence` ENUM('daily','weekly','monthly','quarterly','yearly'), interval_count, start_date, next_run_at, last_run_at, is_active. An in-process scheduler (`server/src/lib/maintenance-scheduler.js`, started after `ensureSchema()`) generates a ticket when `next_run_at <= today` and rolls the date forward (one WO per due schedule, no backfill). Staff-only.
-- **ticket_activity** — append-only audit log: type ('change'|'note'), field, old_value, new_value, body, attachment_id (also the source for notifications)
-- **ticket_kb_links** — many-to-many between tickets and KB articles
-- **ticket_watchers** — third parties (a manager, a coworker who reported an issue secondhand) who opted in, or were added by someone with edit rights, to follow a ticket's activity without being its requester/assignee. Composite PK `(ticket_id, user_id)`, `added_by` (actor name), `added_at`. No FK (same no-FK-to-tickets/no-FK-to-users convention as `ticket_kb_links`/`space_members`). Self-subscribe is gated on `canReadTicket`; adding/removing *another* user is gated on `canManageTicket`. Blocked entirely on **'HR Concerns'** tickets (need-to-know — `category` is immutable after creation, so this never needs to react to approval/routing changes). A watched ticket's activity surfaces in the watcher's `/api/notifications` feed even though they're not assigned/requester/department-routed.
-- **ticket_attachments** — uploaded files (stored on disk under `server/uploads/`, served via `/uploads/...`)
-- **assets** — asset_tag (unique), type, model, serial_no, assignee, location, `status` ENUM('in_use','in_storage','repair','retired'), purchased_at
-- **asset_requests** — requester, asset_type, quantity, urgency, justification, department, `status` ENUM('pending','approved','denied','fulfilled'), reviewed_by, admin_notes
-- **kb_articles** — title, slug (unique), category, body (markdown, MEDIUMTEXT), author, published flag, `version` (current revision counter)
-- **kb_feedback** — reader "was this helpful?" votes: one **revisable** vote per user per article (`UNIQUE (article_id, user_id)`, upserted via `ON DUPLICATE KEY UPDATE`), `helpful` (1/0) + optional `comment` (captured on a 👎 — "what was missing?"). `ON DELETE CASCADE` from the article. Aggregates (`helpful_count`/`not_helpful_count`) + the caller's `my_vote` are folded into `GET /api/kb/:slug`; the helpful count also ranks deflection suggestions (below)
-- **kb_article_versions** — article **version history**: one snapshot per content-changing save (`title`/`category`/`body`/`published` + `edited_by`, optional `change_note`), keyed `UNIQUE (article_id, version)`, `ON DELETE CASCADE`. Written on create (v1) and on each edit where the content actually changed (a bare publish toggle doesn't version); legacy articles get a "Baseline" snapshot on their first post-migration edit. **Restore is non-destructive** — it re-applies an old snapshot as a *new* version
-- **sla_policies / sla_calendars / sla_holidays** — the **SLA engine** (`lib/sla-policies.js`, `lib/business-hours.js`, `lib/sla.js`, `lib/sla-monitor.js`). **sla_policies** are scoped targets: a matcher (`priority` / `request_type` / `category` / `department`, each NULL = wildcard) + **response & resolution targets in MINUTES** + an optional `calendar_id`. The most specific active policy wins (ties → `rank` desc, id asc; `pickPolicy`/`effectiveTargets` are pure + tested); with no match, the per-priority `app_settings.sla_days` default applies. **Targets are pinned at ticket creation** — snapshotted onto `tickets` (`sla_response_minutes`, `sla_resolution_minutes`, `sla_calendar_id`) so later policy edits never move an existing work order's SLA; the 4 priority defaults are seeded from `sla_days` on first boot. **sla_calendars** are business-hours definitions (`timezone` + weekly `hours` JSON `{ mon:[["09:00","18:00"]], … }`, `is_default`) with **sla_holidays** (`ON DELETE CASCADE`); `lib/business-hours.js` `businessMsBetween()` (pure, `Intl`-based, no dep, unit-tested) counts only working time. A NULL calendar = 24/7. `slaStanding(ticket, statusChanges)` (in `lib/sla.js`) is **pause-aware** (clock pauses while pending/on_hold/resolved) **and business-hours-aware**, returning **two clocks** — `response` (until `tickets.first_responded_at`, stamped on the first staff reply) and `resolution` — plus the legacy flat fields for older callers. **tickets** also carries breach markers (`sla_response_breached_at`, `sla_resolution_breached_at`); **`lib/sla-monitor.js`** (a ~10-min scheduler) detects a breach, **atomically claims** it (set marker `WHERE … IS NULL`, once-only), logs a `sla_breach` activity, and fires the automation engine's **`sla.response_breached` / `sla.resolution_breached`** triggers — so escalation (reassign, bump priority, notify) is written as ordinary automation rules. The daily breach **digest** (`lib/sla-reminders.js`) is separate and still runs.
-- **audit_log** — app-wide **admin audit trail** (`server/src/lib/audit.js`), distinct from `ticket_activity` (per-ticket, user-visible). Records sensitive admin actions: `actor_id`/`actor_name`, `action` (e.g. `user.update`, `user.reset_password`, `dept.delete`, `password_reset.decide`), `entity_type`/`entity_id`/`entity_label`, a `changes` JSON ( `{ field: { from, to } }` diff), and `ip`. **Denormalized labels + no FKs** so rows survive renames/deletes of the actor or target. `recordAudit(req, {...})` is **fire-and-forget and error-swallowing** (an audit-write failure never breaks the audited operation); `diffChanges(before, after, fields, redact)` builds the field diff and redacts secrets (passwords/hashes are never logged — `reset_password` records the action only). Instrumented in `routes/users.js` (create/update/reset-password/import), `routes/departments.js` (create/update/delete), and `routes/password-resets.js` (decide/delete). Read-only and **admin-role-gated**. Grows unbounded (a retention/prune job is a later phase) and is application-level (not tamper-evident against DB access)
-- **departments** — name (unique), description, is_active, `manager_id` (the single user who heads the department — a department head, orthogonal to `users.role`), `is_hr` (marks the single department that approved 'HR Concerns' requests route to — set on the Departments page; setting it clears the flag on every other department). The manager must be an active user already labelled with this department (`users.department = departments.name`), which also keeps a user from heading more than one department. Assigned on the Departments admin page; `/api/departments` returns `manager_id` + denormalized `manager_name`. Foundation for department-scoped manager powers (oversee dept work orders, approve dept requests, manage dept members, dept reports) — being built in phases.
-- **password_reset_requests** — user_id, email, `status` ENUM('pending','resolved','denied'), resolved_by, admin_notes (IT-mediated reset queue; no reset email is sent)
-- **chat_rooms / chat_room_members / chat_messages** — team chat. Messages carry denormalized author fields, an optional attachment, and soft-delete (`is_unsent`/`unsent_at`); the client polls (~5s) for new messages
-- **messages** — internal user-to-user mail (the Mailbox: Inbox / Sent). Denormalized `sender_name`/`recipient_name` (survive renames), `subject`, `body`, optional in-app CTA (`link_url`/`link_label`), `is_read`/`read_at`, and per-side soft-delete (`sender_deleted`/`recipient_deleted`; row hard-deleted once both sides remove it). Header mailbox badge = unread inbox count. System messages use `sender_id = 0` / `sender_name = 'Hubly'` (no real account)
-- **ticket_surveys** — post-resolution technician survey (one row per work order, `ticket_id` unique). Created `status='pending'` when a WO transitions to `resolved` (see `lib/resolution-survey.js`), which also sends the requester a system Mailbox message linking to `/survey/:id`. Holds `technician`(+`technician_id`), `respondent_id`/`respondent_name`, three 1–5 ratings (`satisfaction`, `timeliness`, `professionalism`), `comment`, `completed_at`. Only sent when the requester maps to an active user and the WO has an assignee (and the requester isn't the technician)
-- **spaces / space_members / space_items** — Jira-style project **Spaces**, deliberately separate from IT work orders (tickets). A **space** has a unique short `space_key` (e.g. `MKS`, auto-derived from the name), an `owner` (denormalized `owner_name`), and an `item_seq` counter used to mint per-space item keys (`MKS-1`, `MKS-2`…). **space_members** is the membership table (PK `(space_id, user_id)`, `role` ENUM('owner','project_owner','member')) — a space is **private to its members** (admins with `spaces.manage` see all). Roles: **owner** = the space creator, shown as **"Project Manager"** (sole full admin — rename/archive/delete, manage members; the role is immutable and there's only one); **project_owner** = a promoted **read-only stakeholder** ("Project Owner") confined to the **Summary** view (no item/comment/doc/goal writes, can't reach other tabs) whom the manager can demote or remove; **member** = a regular contributor with access to all tabs. Promotion/demotion (member ⇄ project_owner) is via `PATCH /:id/members/:userId`; `canContribute()` in `routes/spaces.js` gates all write routes (excludes project_owner), `canAdminister()` gates admin/membership actions (owner or `spaces.manage`). **space_items** are the board cards: `type` ENUM('epic','task','subtask'), `status` ENUM('todo','in_progress','done'), `priority` ENUM('low','normal','high','urgent'), assignee (denormalized), reporter, `position` (board order), Jira-style detail fields (`start_date` DATE, `labels` comma-separated string ⇄ array in the API, `team`), an optional **manual SLA** (`sla_days` + derived `due_at` DATE = creation date + N days, recomputed server-side whenever `sla_days` changes; the board/list show a due chip and flag overdue), and `completed_at` (set/cleared as status crosses 'done'). **Subtasks** are just items with `parent_id` set to another item (the detail modal lists/creates them and shows a % done bar). **space_item_comments** (the Activity feed — author denormalized, an optional single file attachment (`attachment_url`/`filename`/`mime`/`size`, stored under `/uploads/spaces` via the shared `docUpload`; comment may be file-only), `ON DELETE CASCADE` from the item), **space_item_links** (symmetric many-to-many "linked work items"; a single row per pair, queried in both directions), and **space_item_history** (an audit log: `field` + `old_value`/`new_value` + actor, written by `recordHistory()` on every item create/edit — drives the Activity → History tab) back the detail modal. Date columns are normalized to `YYYY-MM-DD` strings in the API (`dateOnly()` in `routes/spaces.js`) to avoid a UTC off-by-one. **space_docs** (Markdown notes — title + body, author denormalized) and **space_goals** (objectives: title, description, `status` ENUM('on_track','at_risk','off_track','done'), `progress` 0–100, `target_date`) back the Documents and Goals tabs. All child tables `ON DELETE CASCADE` from `spaces`/`space_items`. Views: Summary (charts computed client-side from items), Board (Kanban), List, **Calendar** + **Timeline** (both derived client-side from item `due_at`/`start_date` — no extra tables), **Goals**, **Documents** (reuses `MarkdownEditor`), Members. Clicking a card opens a two-column Jira-style detail modal (Description, Subtasks, Linked items, Activity/Comments + a Details panel). No Development/Automation.
-- **chat_reads** — per-user, per-room read cursor (PK `(user_id, room_key)`, `last_read_id`). Unread for a room = messages from someone else, not unsent, with `id > last_read_id`. Drives the Chat Room nav badge and per-conversation unread counts. The cursor only advances (`GREATEST`), so out-of-order polls can't mark a room unread again. No seed/backfill: a user with no row sees prior history as unread until they open the room once.
-- **automation_rules / automation_runs** — the work-order **automation engine** (`server/src/lib/automation.js`). A rule is a WHEN/IF/THEN triple: `trigger_event` ENUM('ticket.created','ticket.updated','ticket.idle'), `conditions` JSON (`{ match:'all'|'any', rules:[{ field, op, value }] }`), `actions` JSON (`[{ type:'set_field', field, value } | { type:'add_note', value }]`), plus `is_active`, `priority` (lower runs first), `stop_on_match` (short-circuit later rules), and `idle_minutes` (for the idle trigger). `runAutomations(trigger, ticket)` is invoked fire-and-forget from the ticket create/update routes (after the response, like `emitTicketNotifications`); it evaluates active rules in order, applies matched changes in **one direct UPDATE** (so a 'ticket.updated' action can't recurse back through the route), and logs every field change/note to `ticket_activity` (actor `Automation: <rule>`, which drives the normal notification feed) — **HR Concerns are excluded** (they have their own intake/approval routing). Each rule that fires is recorded in **automation_runs** (`rule_id`, `ticket_id`, `actions_applied`) for audit. Pure helpers `matchesConditions` / `normalizeActions` / `sanitizeConditions` (allowlisted fields/ops/enums) are unit-tested in `server/test/automation.test.js`. The **`ticket.idle`** trigger is driven by a scheduler (`lib/automation-idle.js`, started after `ensureSchema()`): every ~15 min it fires idle rules on non-closed work orders untouched (by **non-automation** activity) past `idle_minutes`, deduped via `automation_runs` so a rule fires at most once per idle stretch. Admin-managed (the `automation` permission, admin-only).
+- **users** — email (unique), password_hash (bcrypt), name, `role` ENUM('admin','agent','user'), department, job_title, avatar_url, signature_url (transparent WebP e-signature, auto-fills printed work orders), is_active, `permissions` (JSON per-module overrides — see [Permissions](#permissions)), `preferences` (JSON — `notifications.*` email toggles), `token_version` (session invalidation), last_login_at, notifications_seen_at
+- **tickets** (work orders; the UI says "Work Order" and shows `WO00000000` ids, code/DB say "ticket") — title, description, `status` ENUM('open','in_progress','on_hold','pending','resolved','closed','cancelled'), `priority` ENUM('low','normal','high','urgent'), `request_type` **VARCHAR(50)** (a `ticket_request_types.type_key`), `category` / `subcategory` / `subcategory2` (plain names from the taxonomy), department, requester, assignee (both free text: a user's name or email), asset_id, `overtime_report` (JSON, HR form). `cancelled` is terminal, pauses SLA, and sends no survey. SLA fields: `sla_response_minutes`, `sla_resolution_minutes`, `sla_calendar_id` (pinned at creation), `first_responded_at`, breach markers `sla_{response,resolution}_breached_at`, warning markers `sla_{response,resolution}_warned_at`. **HR approval** fields: `approval_status` ENUM('not_required','pending','approved','denied'), `approval_dept`, `approver_name`, `approver_signature_url`, `approval_note`, `approval_decided_at` — see HR Concerns below.
+- **ticket_request_types / ticket_categories** — the **admin-editable work-order taxonomy** (Users → Manage → *Categories & Request Types*, `/users/categories`, `users.manage`). `ticket_request_types`: `type_key` (immutable), `label`, `description`, `sort_order`, `is_active`, `is_system`. `ticket_categories`: 3-level tree (`parent_id` = 0 for top level, `depth` 1–3, unique `(parent_id, name)`). Tickets store **names**, so these tables are the allowlist (`TicketTaxonomy`, cached — used by `TicketController`, `Automation`, `SlaPolicies`) and the form source (`GET /api/taxonomy` → client `useTaxonomy()`). New work orders need an **active** entry; edits may keep a hidden one. Renaming a category rewrites work orders at that exact path (and, for top-level names, SLA policies + automation rules); anything in use can only be hidden, not deleted. `is_system` entries are matched by name in code and can't be renamed/deleted: categories **HR Concerns**, **ERP Access**, the leave/overtime/manpower/schedule sub-subcategories, ERP "New access request"/"Modify access / role"; request types `incident` and `service_request`.
+- **ticket_activity** — append-only per-ticket log: `type` ('change'|'note'), field, old_value, new_value, body, attachment_id, actor. Drives the activity feed **and** the notification bell. System fields include `created`, `sla_warning`, `sla_breach`, `survey_sent`, `approval_requested`/`approved`/`denied`, `kb_link`/`kb_unlink`, `watcher_added`/`watcher_removed`, `attachment_removed`.
+- **ticket_attachments** — files under `server-laravel/uploads/tickets/`, served by `GET /uploads/tickets/{file}` (auth + ticket visibility).
+- **ticket_kb_links** — tickets ↔ KB articles.
+- **ticket_watchers** — PK `(ticket_id, user_id)`, `added_by`, `added_at`; people following a work order. Self-subscribe needs read access; adding/removing someone else needs edit rights. **Not allowed on HR Concerns.** Watched tickets appear in the watcher's notifications.
+- **ticket_surveys** — one post-resolution technician survey per work order (`ticket_id` unique). Created `pending` when a work order becomes `resolved` (`ResolutionSurvey`), which Mailboxes the requester a `/survey/:id` link. Three 1–5 ratings + comment. Only sent when the requester is an active user, there's an assignee, and they differ.
+- **sla_policies / sla_calendars / sla_holidays / app_settings** — the SLA engine. Policies match on `priority` / `request_type` / `category` / `department` (NULL = any) with response + resolution targets **in minutes** and an optional business-hours calendar; the most specific active policy wins (`SlaPolicies::pickPolicy`), else the per-priority day defaults in `app_settings.sla_days` (`SlaConfig`, `GET/PUT /api/settings/sla`). **Targets are pinned onto the ticket at creation.** Calendars = timezone + weekly hours JSON + holidays; NULL calendar = 24/7 (`BusinessHours`). `Sla::standing()` is pause-aware (pending/on_hold/resolved stop the clock) and business-hours-aware, returning `response` and `resolution` clocks. **`SlaMonitor`** (cron) marks each clock's breach once (atomic `UPDATE … WHERE marker IS NULL`), logs `sla_breach`, and fires automation triggers `sla.response_breached` / `sla.resolution_breached`. **`SlaAlerts`**: at **75%** of a target it marks `sla_*_warned_at` once and logs `sla_warning`; for warnings **and** breaches it sends the assignee + the routed department's manager a Mailbox message and an email (email skipped if their `notifications.email_sla_alerts` preference is off). HR Concerns are excluded from monitoring.
+- **automation_rules / automation_runs** — WHEN/IF/THEN rules: `trigger_event` (`ticket.created`, `ticket.updated`, `sla.response_breached`, `sla.resolution_breached`), `conditions` JSON (`{ match: 'all'|'any', rules: [{ field, op, value }] }`, ops `eq`/`neq`/`contains`/`in`/`is_empty`/`is_not_empty`), `actions` JSON (`set_field` status/priority/request_type/category/department/assignee, or `add_note`), `priority`, `stop_on_match`. `Automation::run()` applies matched changes in one direct UPDATE (no recursion), logs them to `ticket_activity` as `Automation: <rule>`, and records `automation_runs`. Automation changes do **not** send ticket emails. HR Concerns are excluded.
+- **audit_log** — admin audit trail (`Audit::record($request, [...])`, fire-and-forget): actor, `action` (e.g. `user.update`, `dept.delete`, `taxonomy.category.update`), entity type/id/label, `changes` JSON diff (secrets never logged), ip. Denormalized, no FKs. Read-only, admin-role gated. Grows unbounded (no prune job yet).
+- **departments** — name (unique), description, is_active, `manager_id` (one head per department; must be an active user in that department), `is_hr` (the single department approved HR Concerns route to).
+- **password_reset_requests** — IT-mediated reset queue (`pending`/`resolved`/`denied`); self-service forgot/reset-password by email also exists.
+- **messages** — internal Mailbox (Inbox/Sent): denormalized sender/recipient names, subject, body, optional in-app link (`link_url`/`link_label`), read state, per-side soft delete. System messages use `sender_id = 0` / `sender_name = 'Hubly'` (`SystemMessage::send`).
+- **announcements** — site-wide banners (`info`/`maintenance`/`warning`) with an optional start/end window. Everyone reads active ones; admins and the IT department manage them.
+- **assets / asset_requests** — inventory (`asset_tag` unique, `status` in_use/in_storage/repair/retired) and the request → review workflow with IT follow-up notes.
+- **kb_articles / kb_feedback / kb_article_versions** — Markdown articles (unique `slug`, `version`), one revisable 👍/👎 vote per user per article (+ optional comment), and a snapshot per content-changing save. Restore re-applies an old snapshot as a **new** version.
+- **spaces / space_members / space_items (+ comments, links, history, docs, goals)** — Jira-style project Spaces, separate from work orders. Private to members (`spaces.manage` sees all). Roles: `owner` ("Project Manager", sole admin), `project_owner` (read-only stakeholder, Summary tab only), `member`. Items are epics/tasks/subtasks with per-space keys (`MKS-1`), board position, optional manual SLA (`sla_days` → `due_at`). Only the assignee or the PM/admins can move/edit an item; (re)assigning and deleting are PM/admin-only. Dates are returned as `YYYY-MM-DD` strings.
 
-Database name: `mainframe_app` (utf8mb4_unicode_ci).
-
-> Daily **network reports** are currently stored client-side in `localStorage` (`client/src/lib/networkReports.js`) — there is no server table or route for them yet.
+> Daily **network reports** are stored only in the browser's `localStorage` (`client/src/lib/networkReports.js`) — there is no server table for them yet.
 
 ## API surface
 
-Route paths + semantics below are shared by both backends: Node mounts them in
-`server/src/index.js`, Laravel in `server-laravel/routes/api.php` (`routes/uploads.php`
-for `/uploads/*`). The `File` column names the Node source; the Laravel equivalent is
-`app/Http/Controllers/Api/<Resource>Controller.php`. Divergences are called out in the
-row or under "Laravel backend port" above. All under `/api`:
+All routes are in `server-laravel/routes/api.php` (under `/api`), plus `routes/uploads.php` (`/uploads/*`) and `routes/cron.php` (`/cron/*`). Controllers are `app/Http/Controllers/Api/<Name>Controller.php`.
 
-| Prefix                 | File                        | Purpose                                          |
-| ---------------------- | --------------------------- | ------------------------------------------------ |
-| `/api/health`          | `index.js`                  | Service + DB ping                                |
-| `/api/auth`            | `routes/auth.js`            | Login, JWT issue, `/me`, change / forgot / reset password, self-service profile edit (`PATCH /me` name + job_title, `POST`/`DELETE /me/avatar`, `POST`/`DELETE /me/signature`), technician scorecard (`GET /me/stats` — on-hold/resolved counts, SLA breaches, avg survey rating) |
-| `/api/users`           | `routes/users.js`           | User CRUD (incl. job_title) + permission overrides + bulk import (`POST /import`) + avatar (`POST`/`DELETE /:id/avatar`) (`users.manage`)|
-| `/api/tickets`         | `routes/tickets.js`         | Tickets, activity, KB links, attachments, self-assign (`POST /:id/claim` & `/release`), HR-approval decisions (`POST /:id/approve` & `/:id/deny`), watchers (`GET`/`POST`/`DELETE /:id/watchers` — self-subscribe open to anyone with read access, adding/removing another user requires edit rights, unavailable on 'HR Concerns') |
-| `/api/maintenance`     | `routes/maintenance.js`     | Recurring work orders (preventive maintenance); staff-only (`requireRole('admin','agent')`) |
-| `/api/assets`          | `routes/assets.js`          | Asset inventory                                  |
-| `/api/asset-requests`  | `routes/asset-requests.js`  | Asset request workflow (request → review), dedicated detail (`GET /:id`), and timestamped IT follow-up notes (`POST /:id/notes`) |
-| `/api/kb`              | `routes/kb.js`              | KB articles (read by slug, list, CRUD). Reader feedback: `POST /:slug/feedback` (upsert 👍/👎 + optional comment, `kb.view`), `GET /feedback/report` (per-article tallies, `kb.manage`). Deflection: `GET /suggest?q=&category=` (top-5 published, title-token + helpful-vote ranked, `kb.view`). Versioning: `GET /:slug/versions`, `GET /:slug/versions/:n`, `POST /:slug/versions/:n/restore` (all `kb.manage`) |
-| `/api/departments`     | `routes/departments.js`     | Departments (list open; writes = `users.manage`) |
-| `/api/password-resets` | `routes/password-resets.js` | IT-mediated reset queue (`users.manage`)         |
-| `/api/chat`            | `routes/chat.js`            | Team chat rooms, messages, attachments, unread tracking (`GET /unread`, `POST /read`, `POST /read-all`), typing indicators (`POST`/`GET /typing`) |
-| `/api/messages`        | `routes/messages.js`        | Internal user-to-user mail (Mailbox). List by box (`?box=inbox\|sent`), `GET /unread-count`, send (`POST /`), `POST /:id/read`, `POST /read-all`, `DELETE /:id` (per-side soft delete) |
-| `/api/surveys`         | `routes/surveys.js`         | Post-resolution technician survey: `GET /` (all surveys for the Survey Reports page, `users.manage`), `GET /:ticketId` (respondent or staff), `POST /:ticketId` (respondent submits 1–5 ratings + comment, once) |
-| `/api/spaces`          | `routes/spaces.js`          | Jira-style project Spaces: space CRUD, members (`/:id/members`), work items (`/:id/items`, incl. `parent_id` subtasks + SLA/detail fields), single-item detail bundle (`GET /:id/items/:itemId` → item + parent + subtasks + links + comments + history), comments (`/:id/items/:itemId/comments`), links (`/:id/items/:itemId/links`), documents (`/:id/docs`), and goals (`/:id/goals`). Gated by `requirePermission('spaces','view')`; per-space access checked per request (member/owner, or `spaces.manage` for oversight). Moving/editing a work item (status, fields, subtasks, links) is restricted to its **assignee** plus the PM (owner)/admins via `canEditItem`; **(re)assigning** and **deleting** items are PM/admin-only; commenting and creating top-level items stay open to all members (board/detail-modal controls are disabled client-side for non-assignees) |
-| `/api/network`         | `routes/network.js`         | UniFi monitoring dashboard (live or mock)        |
-| `/api/search`          | `routes/search.js`          | Global search (⌘K palette): `GET /?q=` fans out across work orders, KB, spaces/items, assets, and users — each group gated by its module permission + the module's visibility rules (ticket visibility, space membership, etc.), capped per group |
-| `/api/notifications`   | `routes/notifications.js`   | Per-user notifications from ticket activity (assigned to them, **routed to their department, or on a ticket they watch**) plus chat activity (messages from others in the user's DMs/groups/Team Chat, one item per room); returns unread `count` + work-order-only `workOrders` count (drives the Work Orders nav badge) + `workOrdersByView` (`{ myQueue, submitted, all }`, the same total split by destination view so the dropdown badges each item: assigned→My Queue, you-filed→Submitted, else→All) |
-| `/api/automation`      | `routes/automation.js`      | Work-order automation rules (`automation.manage`): rule CRUD (`GET`/`POST /`, `PATCH`/`DELETE /:id`), `GET /meta` (builder dropdown data — triggers, condition fields/ops, settable fields + enums, categories), `GET /runs` (recent fire audit, optional `?rule_id=`). Triggers: `ticket.created`/`ticket.updated`/`ticket.idle` + SLA-breach `sla.response_breached`/`sla.resolution_breached` (fired by `lib/sla-monitor.js`). Payloads re-validated server-side via the engine's pure helpers |
-| `/api/audit`           | `routes/audit.js`           | App-wide admin audit trail, **read-only, admin-role gated**: `GET /` (paginated + filterable by `action`/`entity_type`/`entity_id`/`actor_id`/`from`/`to`/`q`), `GET /meta` (distinct actions + entity types for filter dropdowns). Writes happen via `lib/audit.js` from the instrumented routes, not here |
-| `/api/sla`             | `routes/sla.js`             | SLA engine config (`users.manage`): policy CRUD (`GET`/`POST /policies`, `PATCH`/`DELETE /policies/:id`), business-hours calendar CRUD (`/calendars`, `/calendars/:id`) + holidays (`POST /calendars/:id/holidays`, `DELETE …/:holidayId`), `GET /meta` (matcher dropdowns). The flat per-priority defaults stay on `/api/settings/sla`. Cache reloads on every write |
+| Prefix | Purpose |
+| --- | --- |
+| `/api/health` | DB ping + `build: { sha, time }` (from `build.json`, written by the deploy script; `null` in a checkout) |
+| `/api/auth` | Login/logout (httpOnly cookie), `/me` (+ `PATCH` name/job_title), `/me/stats` (technician scorecard), `/me/preferences` (GET/PATCH), `/me/invalidate-sessions`, `/me/avatar` + `/me/signature` (POST/DELETE), change / forgot / reset password |
+| `/api/tickets` | Work orders: list/create/detail/update, bulk update, activity + notes, attachments, KB links, watchers, self-claim/release, HR approve/deny. `GET /:id` returns `can_edit`, `can_post_note`, `can_approve` |
+| `/api/taxonomy` | `GET /` (active request types + category tree, any signed-in user); `users.manage`: `GET /manage` (all + usage counts), CRUD `/request-types`, `/categories`, `POST /reorder` |
+| `/api/settings` | `GET`/`PUT /sla` — flat per-priority SLA day defaults (read: anyone; write: `users.manage`) |
+| `/api/sla` | SLA policies, business-hours calendars + holidays, `/meta` (`users.manage`) |
+| `/api/automation` | Rule CRUD, `/meta` (builder dropdowns), `/runs` (`automation.manage`) |
+| `/api/users` | User CRUD, permission overrides, bulk import (`POST /import`), admin avatar (`users.manage`); `/directory` + `/assignable` lists |
+| `/api/departments` | List (open); writes `users.manage` |
+| `/api/password-resets` | IT reset queue (`users.manage`) |
+| `/api/announcements` | Active banners (everyone); CRUD for admins + IT department |
+| `/api/notifications` | Bell feed from ticket activity (assigned, department-routed, watched, pending approvals) + unread counts split by view (`myQueue`/`submitted`/`all`) |
+| `/api/messages` | Mailbox: list by box, unread count, send, mark read, per-side delete |
+| `/api/surveys` | Survey reports (`users.manage`), fetch/submit a survey |
+| `/api/assets`, `/api/asset-requests` | Inventory; request → review workflow, detail, follow-up notes |
+| `/api/kb` | Articles, feedback + report, `/suggest` (deflection on Create Work Order), version history + restore |
+| `/api/spaces` | Spaces, members, items (+ detail bundle, comments, links), docs, goals, join requests |
+| `/api/search` | Global ⌘K search across work orders, KB, spaces/items, assets, users — each group permission- and visibility-filtered |
+| `/api/network` | UniFi dashboard (mock data when `UNIFI_HOST` is unset) |
+| `/api/audit` | Audit log list + `/meta` (admin role) |
+| `/uploads/{tickets,avatars,signatures,messages,kb,spaces}/…` | Auth-gated file serving; each category re-checks the owning record's visibility (avatars/signatures: any signed-in user) |
+| `/cron/{sla-monitor,space-due-reminders}` | HTTP cron fallback, 404 unless `?token=` matches `CRON_SECRET` |
 
-Auth: JSON Web Tokens via `jsonwebtoken`, password hashing via `bcryptjs`. Middleware in `server/src/middleware/auth.js` enforces `requireAuth`, `requireRole(...)`, and `requirePermission(module, action)`. `requireAuth` re-loads the user from the DB on every request (including `department`, used for work-order visibility), so role/permission/active-status changes take effect immediately (no waiting for token expiry).
+### Access rules worth knowing
 
-Work-order visibility & self-assign: in `routes/tickets.js`, `canViewTicket(user, ticket)` = staff (admin/agent) OR requester/assignee OR **same department** (`tickets.department === users.department`). So a plain user sees work orders they own *and* any routed to their department, and can pick one up via `POST /api/tickets/:id/claim` (assign self) / `/release` (unassign self) — guarded so they can only (un)assign themselves, only within their department, and can't take one already assigned to someone else. Full edits (status, priority, reassigning others) live on `PATCH /:id`, open to staff, **the ticket's assignee**, **any member of the department the work order is routed to**, or **the manager of that department** (`canManageTicket(user, ticket)` = `isStaff` OR assignee OR `sameDepartment` OR `managesDepartment` from `lib/department-managers.js`). The same rule gates per-ticket writes — activity notes, attachment delete, KB link/unlink — and `GET /:id` returns a `can_edit` flag so the client shows the staff-style edit UI to anyone it applies to. A department's manager is `departments.manager_id` (see the departments entry above).
+**Work-order visibility** (`TicketVisibility`, `TicketController`): staff (admin/agent), the requester, the assignee, or anyone in the department the work order is routed to can see it. Plain users can self-claim/release within their department (`/claim`, `/release`) but can't take one assigned to someone else. **Editing** (`canManageTicket`) = staff, the assignee, members of the routed department, or that department's manager. **Notes** (`canPostNote`) = those plus the requester and the approving manager.
 
-**'HR Concerns' visibility (need-to-know).** Ordinary work orders are open-read to any signed-in user; **'HR Concerns'** are restricted. `canReadTicket(user, ticket)` (async, in `routes/tickets.js`) allows only: staff (admin/agent), the requester/assignee, the **manager of the requester's department** (`approval_dept`, whole lifecycle), and — once routed — the department it now sits in (HR staff via same-department). This is enforced on every leak surface: `GET /:id` + `/activity` + `/kb`, the list (`GET /` filters non-staff results via `hrConcernVisibleToList`, backstopping `?scope=all`), `routes/search.js` (safe by construction — a pending HR concern is unrouted so non-owners never match), `routes/notifications.js` (coworkers aren't notified since `department` is NULL; the approving manager is surfaced via an `approval_status='pending' AND approval_dept` clause), and `lib/upload-access.js` (attachment access). Self-claim (`/claim`,`/release`) is blocked for HR concerns **until they're approved** (while pending/denied they move through approval, not claiming); once approved and routed to HR, regular HR staff claim them like any other same-department work order. Approve/deny live on `POST /api/tickets/:id/approve` and `/:id/deny` (reason required), gated by `canApprove` (manager of `approval_dept`, or staff); `GET /:id` returns a `can_approve` flag, and `lib/hr-approval.js` sends the manager a Mailbox notice on request and the requester one on the decision.
+**HR Concerns (need-to-know).** A work order in category **HR Concerns** is held `pending` and sent to the manager of the requester's department for approval, while kept **unrouted** (`department` NULL) so coworkers can't see it. Approve → routed to the `is_hr` department; deny → closed with a required reason; no manager (or requester is the manager) → auto-approved. Only staff, requester/assignee, the approving manager, and (once routed) HR can read it — enforced on detail, activity, list, search, notifications and attachments. No watchers, no self-claim until approved, excluded from automation and SLA monitoring. `HrApproval` sends the Mailbox notices.
 
-Chat unread badges: two **deliberately decoupled** indicators. The **Chat Room nav badge** + per-conversation counts come from `GET /api/chat/unread` (backed by `chat_reads`) and only clear when the user opens/reads a room (`POST /api/chat/read`, or `/read-all` to clear everything). The **notification bell** instead surfaces chat messages as activity items via `/api/notifications`, flagged unread by the same `notifications_seen_at` mark as tickets — so opening the bell acknowledges the feed *without* clearing the unread-message badge. The client (`client/src/lib/useChatUnread.js`) polls `/unread` (~20s), refetches on a `chat-read` window event, and excludes muted rooms.
+**Auth/session.** JWT in an httpOnly `mf_token` cookie (`SameSite=Lax`, `Secure` in production), also accepted as a `Bearer` header. `JwtAuthenticate` reloads the user on every request, so role/permission/active changes apply immediately. `users.token_version` is embedded as `tv`; password change/reset and "sign out all other devices" bump it (the current device gets a fresh cookie).
 
-Typing indicators: an **in-memory, single-process** signal (no DB write) in `routes/chat.js` — `typingByRoom` maps a room to `userId → { name, expiresAt }`. The composer sends a throttled `POST /api/chat/typing` heartbeat (≤1 / 2.5s) while the user types; the active room polls `GET /api/chat/typing?room=…` (~2.5s) to show who else is typing. Entries self-expire after a ~6s TTL (pruned on read), so no explicit "stopped typing" call is needed. State is ephemeral — lost on restart and not shared across instances (fine for the single-process setup). Unsend is author-only: `DELETE /api/chat/messages/:id` rejects anyone but the message author (not even admins).
+## Frontend
 
-Rate limiting: `server/src/middleware/rateLimit.js` — an in-memory, single-process fixed-window limiter. It accepts an optional `keyGenerator(req)` to bucket by something other than `req.ip` (return null to skip). Applied to: login (twice — per-IP **and** per-email so IP-rotating attacks can't target one account), forgot/reset-password, change-password (keyed per user id — caps brute-forcing the current password), and avatar uploads. A `userWriteLimit({ max, windowMs })` helper (per-authenticated-user, mounted after `requireAuth`) throttles the abuse-prone write endpoints — chat send, internal mail send, ticket create + activity notes (placed **before** the multer upload so a throttled request never writes a file), and bulk user import (tighter cap). Per-IP buckets only work if `req.ip` is the real client IP, so set **`TRUST_PROXY`** (→ `app.set('trust proxy', …)` in `index.js`) when running behind a reverse proxy — otherwise all clients share the proxy's IP and one bucket.
-
-File uploads: `multer` for ticket attachments (`server/uploads/`) and chat attachments (`server/uploads/chat/`), served statically under `/uploads`. The whole `/uploads` tree is gated by `requireAuth` + `authorizeUpload` (`lib/upload-access.js`): first a valid, non-revoked session (the browser auto-sends the httpOnly cookie with `<img>`/`<video>`/download requests, so inline previews still render), then **per-resource** authorization. `canAccessUpload(user, path)` maps the file back to its owning row by the stored `/uploads/<category>/<file>` path (ticket attachments key off the bare `stored_filename`) and re-applies that resource's visibility rules: **avatars** / **signatures** → any signed-in user; **chat** → room membership (DM party / group member / Team Chat); **messages** → sender or recipient; **spaces** → space member or `spaces.manage`; **tickets** → `canViewTicket` (staff / requester / assignee / same department). Default-deny for unknown categories or orphaned files.
-
-Profile pictures & e-signatures: `server/src/lib/avatar-upload.js` takes the upload in memory and runs it through `sharp` — this both **validates** the bytes (a spoofed MIME or an SVG/script payload fails to decode and is rejected 400) and **normalizes** it to a 256×256 WebP saved under `server/uploads/avatars/` (served via `/uploads/avatars`). HEIC/AVIF are accepted (libvips decodes them) and re-encoded so they render everywhere. Replacing or removing an avatar deletes the old file; uploads are rate-limited. Used by both the self-service (`/api/auth/me/avatar`) and admin (`/api/users/:id/avatar`) routes. **E-signatures** follow the same validate-by-re-encode pattern via `server/src/lib/signature-upload.js` (self-service only, `/api/auth/me/signature`) but keep transparency and fit the mark inside a 600×240 banner instead of cropping to a square, saved under `server/uploads/signatures/`; the saved signature auto-fills the requester/technician blocks on printed work orders. Avatars surface app-wide via the shared `client/src/components/Avatar.jsx` (image, else initials) — header, Users directory, chat messages/people lists, and the assignee `UserPicker` (the `/api/users/directory` + `/assignable` lists return `avatar_url`). **Laravel port:** `app/Services/AvatarUpload.php` + `SignatureUpload.php` (Intervention Image on GD) mirror both, output WebP, and are served by auth-gated routes in `routes/uploads.php` (`/uploads/avatars/*`, `/uploads/signatures/*` — any signed-in user, matching `lib/upload-access.js`); HEIC/AVIF are rejected there since GD can't decode them.
-
-Bulk user import: the Users page parses a CSV/XLSX **client-side** with `xlsx` (SheetJS — the one non-trivial client dependency, added for spreadsheet parsing) and POSTs the rows as JSON to `POST /api/users/import`. The server validates per-row (name+email required, email format, role allowlist, in-file + existing-email dedupe), generates a random password per created user, and returns it once in the response so the admin can distribute it (never stored in plaintext).
-
-KB feedback / deflection / versioning (client integration): the **article page** (`pages/KbArticle.jsx`) renders an `ArticleFeedback` widget ("Was this helpful?" 👍/👎 with live counts; a 👎 reveals an optional comment box). The **Create Work Order** form (`pages/CreateTicket.jsx`) shows a debounced `KbSuggestions` panel under the Title field — it calls `GET /api/kb/suggest` (≥4 chars, passes the selected category) and lists matching published articles (opened in a new tab so the half-filled form is preserved) to deflect tickets before they're filed. The **article editor** (`pages/ArticleEditor.jsx`) has a "Revision note" field (sent as `change_note` on save) and a `VersionHistory` modal that lists snapshots, diffs a chosen version against the current draft (dependency-free LCS `lineDiff`), and restores. No new dependencies — the diff and markdown rendering are hand-rolled.
-
-## Frontend routing
-
-Routes defined in `client/src/App.jsx`. Most routes wrap pages in `<ProtectedRoute>`. Gating is now permission-based via the `permission={[module, action]}` prop (not raw roles):
-
-- `permission={['users', 'manage']}` — `/users`, `/users/reports`, `/users/surveys`, `/users/departments`, `/users/sla`, `/users/password-resets`
-- `permission={['automation', 'manage']}` — `/users/automation` (the automation rule builder; linked from the Users → Manage menu)
-- `role={['admin']}` — `/users/audit` (the admin audit-log viewer; the nav item shows only to admins). Note: gated by **role**, not a permission module, to avoid maintaining a client `ROLE_DEFAULTS` mirror for a read-only admin page
-- `permission={['assets', 'manage']}` — `/assets/new`, `/assets/edit/:id`
-- `permission={['kb', 'manage']}` — `/kb/new`, `/kb/edit/:slug`
-- `permission={['network', 'view' | 'manage']}` — `/network`, `/network/reports*` (manage to create/edit reports)
-- `permission={['spaces', 'view']}` — `/spaces` (Spaces list) and `/spaces/:id` (space detail: Summary/Board/List/Members)
-- `permission={['tickets' | 'assets' | 'kb', 'view']}` — the corresponding list/detail/category pages
-- `role={['admin', 'agent']}` — `/tickets/reports` (work order / incident / SLA analytics) and `/tickets/maintenance*` (recurring work orders); staff-only, gated by role, not a permission module
-- `/dashboard`, `/settings`, `/chat` — any signed-in user (no `permission` prop)
-- `/`, `/signin`, `/forgot-password` — public
-
-`ProtectedRoute` is UX only — the server re-checks permissions on every request. Vite dev server proxies `/api/*` and `/uploads/*` to `:8000` (`server-laravel`, the local dev default — see the "Laravel backend port" section above), so the client can fetch without CORS configuration.
+- Routes in `client/src/App.jsx`, wrapped in `<ProtectedRoute permission={[module, action]}>` (or `role={[...]}` for staff/admin-only pages). This is UX only — the server re-checks everything.
+  - `users.manage`: `/users`, `/users/reports`, `/users/surveys`, `/users/departments`, `/users/sla`, `/users/categories`, `/users/password-resets`
+  - `automation.manage`: `/users/automation`; admin role: `/users/audit`; admin/agent role: `/tickets/reports`
+  - module `view`/`manage`/`create` gates for tickets, assets, kb, network, spaces pages
+  - any signed-in user: `/dashboard`, `/profile`, `/settings`, `/mailbox`, `/survey/:id`; public: `/`, `/signin`, `/forgot-password`, `/reset-password`
+- `api()` in `lib/auth.js` wraps fetch (`credentials: 'include'`, throws `Error(data.error)`); only the non-sensitive profile is cached in `localStorage` (`mf_user`).
+- `lib/config.js` prefixes API/upload URLs with `VITE_API_URL` in production; empty in dev (Vite proxies `/api` and `/uploads` to `:8000`).
+- Request types and categories come from `useTaxonomy()` (`lib/categories.js`) — never hard-code them in pages. The names in `CreateTicket.jsx` that switch in special forms (HR Concerns, ERP Access, the leave/overtime/manpower/schedule forms) must match the `is_system` taxonomy entries.
+- Notification bell / Work Orders badge / Mailbox badge poll (45s / 45s / 30s); there's no realtime push.
+- User-authored URLs (Markdown links/images in KB articles and notes) must go through `lib/url.js` `safeUrl()`.
 
 ## Permissions
 
-Per-module access control lives in `server/src/lib/permissions.js`. Modules → actions:
+`app/Services/Permissions.php`. Modules → actions:
 
 - `tickets`: view, create
 - `assets`: view, manage
 - `kb`: view, manage
-- `users`: manage
+- `users`: manage (also gates SLA settings, categories & request types, departments, surveys, password resets)
 - `network`: view, manage
-- `spaces`: view, manage — Jira-style project Spaces. `view` (default: all roles) = use the Spaces feature + see spaces you own/belong to; `manage` (default: admin only) = oversight of **every** space regardless of membership. Per-space authorization (membership + owner role) lives in `routes/spaces.js`, not in this module.
-- `automation`: manage — the work-order automation engine (`routes/automation.js`, `lib/automation.js`). `manage` (default: admin only) = create/edit/run automation rules. The engine itself runs server-side regardless of who triggered the work order.
+- `spaces`: view (use Spaces; see your own), manage (see every space)
+- `automation`: manage (admin only by default)
 
-`ROLE_DEFAULTS` defines the baseline grant per role (admin / agent / user). A user's `permissions` JSON column overrides individual module/action flags; omitted keys fall back to the role default. `effectivePermissions(user)` merges the two and `hasPermission(user, module, action)` is the gate behind `requirePermission`. Login and `/api/auth/me` return the merged `permissions` object so the client can drive UI gating from the same source. When adding a new module/action, update `MODULES` and `ROLE_DEFAULTS` together — `sanitizePermissions` strips any keys not in `MODULES`.
+`ROLE_DEFAULTS` gives each role (admin/agent/user) its baseline; a user's `permissions` JSON overrides individual flags. Login and `/api/auth/me` return the merged result so the client gates UI from the same source. When adding a module/action, update `MODULES` and `ROLE_DEFAULTS` together (unknown keys are stripped).
 
 ## Goals for Claude
 
@@ -283,126 +186,83 @@ When helping in this repository, prioritize:
 
 ## Code conventions
 
-### General
+### Backend (`server-laravel/`)
 
-- ES modules everywhere (`"type": "module"` in both `client/` and `server/`). Use `import`, not `require`.
-- Keep functions focused and reasonably small.
-- Prefer descriptive names.
-- Add comments only when intent is non-obvious.
+- Validate inputs at the controller boundary before touching the DB; return `response()->json(['error' => '…'], 4xx)`.
+- Parameterized queries only (query builder bindings / `?` placeholders).
+- Gate every protected route with `auth.jwt` + `permission:` (preferred) or `role:`; add per-record checks in the controller.
+- Put reusable logic in `app/Services/`; keep fire-and-forget services non-throwing.
+- Record sensitive admin actions with `Audit::record()`.
 
-### Backend (server/)
+### Frontend (`client/`)
 
-- Validate inputs at route boundaries before touching the DB.
-- Use the shared mysql2 pool from `config/db.js`; do not create new connections per request.
-- Use parameterized queries (`?` placeholders) — never string-concatenate user input into SQL.
-- Handle errors explicitly; let the central error handler in `index.js` catch unexpected ones.
-- Apply `requireAuth` plus `requireRole(...)` or `requirePermission(module, action)` on protected routes (prefer permission gates for module access).
-- Keep route handlers thin; if logic grows, extract helpers near the route file.
-
-### Frontend (client/)
-
-- Functional React components with hooks. No class components.
-- Tailwind utility classes for styling — match patterns already in `components/` and `pages/`.
-- Reuse `Modal`, `MarkdownEditor`, `Navbar`, `DashboardHeader`, `ProtectedRoute` rather than duplicating.
-- Wrap protected pages in `<ProtectedRoute>` (pass `permission={[module, action]}` for module-gated pages).
+- ES modules, functional React components with hooks.
+- Tailwind utility classes — match patterns already in `components/` and `pages/`.
+- Reuse `Modal`, `MarkdownEditor`, `DashboardHeader`, `ProtectedRoute`, `UserPicker`, `Avatar`, `ImageLightbox` rather than duplicating.
 - Handle loading, empty, and error states for any data fetched from `/api/*`.
 - Use `react-router-dom` v7 patterns (`useNavigate`, `useParams`, `<Link>`).
 
 ## Commands
 
-### Install
-
 ```bash
-# backend
-cd server && npm install
-
-# frontend
+# install
+cd server-laravel && composer install
 cd client && npm install
-```
 
-### Database setup
+# run locally
+cd server-laravel && php artisan serve     # http://localhost:8000
+cd client && npm run dev                   # http://localhost:5173 (proxies /api, /uploads to :8000)
 
-```bash
-mysql -u root < server/sql/schema.sql
-```
+# test (backend)
+cd server-laravel && php artisan test
 
-This creates `mainframe_app` with a seed admin user, sample assets, departments, and KB articles. The server also calls `ensureSchema()` on boot to apply incremental migrations to an existing DB.
-
-### Run locally
-
-```bash
-# backend — server-laravel is the local dev default (http://localhost:8000)
-cd server-laravel && php artisan serve
-
-# frontend (http://localhost:5173)
-cd client && npm run dev
-```
-
-`server/` (Node, `http://localhost:4000`) still exists as historical
-reference and as the home of `sql/schema.sql` + the backend unit tests, but
-is **not deployed anywhere** — `cd server && npm run dev` only if you
-specifically need to compare behavior against it. The client's Vite proxy
-does not target it (see the "Laravel backend port" section above).
-
-### Build
-
-```bash
+# build (frontend)
 cd client && npm run build
+
+# package a deploy (from repo root)
+node scripts/package-deploy.mjs            # --allow-dirty, --vendor, --skip-tests
 ```
 
-### Test / Lint
-
-Backend unit tests use Node's built-in runner (`node:test`) — no extra dependency. Test files live in `server/test/` as `*.test.js`. Run them with:
-
-```bash
-cd server && npm test
-```
-
-Currently covers the permission logic (`src/lib/permissions.js`), ticket visibility, spaces helpers, the automation engine's pure helpers (`src/lib/automation.js` — condition matching + action/condition normalization), the SLA policy resolution (`src/lib/sla-policies.js` — `pickPolicy`/`effectiveTargets`/`sanitizePolicy`), and the business-hours math (`src/lib/business-hours.js` — `businessMsBetween`, incl. weekends/holidays/clipping). No linter is configured yet, and there is no frontend test runner — propose the framework before installing one.
-
-## Deployment
-
-**Railway has been decommissioned.** Production is a **single Hostinger account, both legs same-origin** — a change from the old split-origin Hostinger+Railway setup. `server/` (Node/Express) is no longer deployed anywhere; `api.eljincorp.com` (its old Railway domain) 404s. The migration is **essentially complete and live**: `hubly.eljincorp.com` serves the SPA and `hubly.eljincorp.com/backend/api/health` returns `{"status":"ok"}`. But there is **no CI/CD on either leg**, so a merged commit is not necessarily deployed — always confirm a change is actually live (`curl https://hubly.eljincorp.com/backend/api/health`, or exercise the affected endpoint) before assuming it shipped.
-
-**Topology: path-mounted, not split-origin.** The Laravel backend (`server-laravel/`) is **path-mounted under the frontend site**, reachable at `hubly.eljincorp.com/backend/*`, rather than on its own `api.*` subdomain — see `server-laravel/DEPLOYMENT.md`'s topology note and Step 2 for the full folder layout (`public_html/hubly/backend/` front controller → sibling `domains/eljincorp.com/laravel/backend-f/` app), and `server-laravel/deploy-hostinger-backend/` for the pre-edited files that go in `backend/`. This makes frontend↔API same-origin (simpler than any same-site cookie setup) and means redeploying the backend never touches DNS.
-
-- **Frontend — Hostinger** (`hubly.eljincorp.com`, docroot `public_html/hubly`): build with `cd client && npm run build`, then upload the contents of `client/dist/` into `public_html/hubly`. `client/public/.htaccess` (copied into `dist/` by the build) handles SPA fallback routing **and must keep its `RewriteCond %{REQUEST_URI} !^/backend/` exclusion** — without it, every `/backend/*` request 404s into `index.html` instead of ever reaching Laravel. There is no CI/CD for this leg — it's a manual build + upload.
-- **Backend — Hostinger, path-mounted** (`hubly.eljincorp.com/backend/*`): see `server-laravel/DEPLOYMENT.md` for the full runbook (PHP extensions, `.env`, `composer install`, cron jobs). No separate deploy trigger — files are uploaded by hand (no CI/CD on this leg either).
-- **Client → API wiring:** the client is origin-aware via `client/src/lib/config.js` (`API_BASE` from `VITE_API_URL`, `apiUrl()`, `rewriteUploadUrls()` for `/uploads/...` URLs in API responses), used by `api()` in `lib/auth.js` and `io()` in `lib/useSocket.jsx`. `client/.env.production` should set `VITE_API_URL=https://hubly.eljincorp.com/backend` (the client appends `/api/...`/`/uploads/...` itself) — **verify this value is actually correct before trusting it**, it has drifted to wrong/empty values more than once during this migration. In dev, `VITE_API_URL` is unset so calls stay same-origin through the Vite proxy (which points at `server-laravel` on `:8000` — see "Laravel backend port" above).
-- **Packaging + version check:** `node scripts/package-deploy.mjs` pre-flights `VITE_API_URL`, the `.htaccess` `/backend` rule, and backend tests, builds, checks the bundle's API origin, and writes `deploy-out/hubly-{frontend,backend}-<sha>.zip`. Each build is stamped: `GET /backend/api/health` returns `build: { sha, time }` (from `server-laravel/build.json`, written only by the script) and the frontend serves `/version.json`. Use those to answer "is it live?". Runbook: `server-laravel/DEPLOYMENT.md` → "Routine deploys".
-- Any change to `server-laravel/` needs a manual re-upload to `laravel/backend-f/` (see `DEPLOYMENT.md`); changing client code needs a rebuild + re-upload to `public_html/hubly/` — do both when a change touches `client/`.
+**Tests:** `tests/Unit/` covers pure helpers (Permissions, TicketVisibility, SlaPolicies, BusinessHours, SpacesHelpers, Automation). `tests/Feature/` makes real HTTP calls against the local `mainframe_app` database inside rolled-back transactions (`DatabaseTransactions`), so they need the DB up and every `sql/` migration applied. Tests that trigger mail fake the Resend endpoint (`Http::fake`) so nothing is ever sent, even if run on a server with real mail credentials. No frontend test runner and no linter are configured — propose one before installing.
 
 ## Database and migrations
 
-- Schema is a single file (`server/sql/schema.sql`) using `CREATE TABLE IF NOT EXISTS`. There is no migration tool yet.
-- When changing schema: update `schema.sql`, ensure `ensureSchema()` in `config/db.js` still works on a fresh DB, and call out any manual migration steps for existing databases.
-- Avoid destructive schema changes (DROP COLUMN, type narrowing) unless explicitly requested.
-- Keep seed inserts idempotent (`ON DUPLICATE KEY UPDATE ...`).
+- **There is no single up-to-date schema file in the repo.** The original `server/sql/schema.sql` was deleted with `server/`; its last version is in git history (`git show afe5d05:server/sql/schema.sql`). A fresh database = that file, then every file in `server-laravel/sql/` in order.
+- **Schema changes are hand-written SQL files in `server-laravel/sql/`**, run once per database (locally and on production) **before** deploying the code that needs them. Current files: `add-cancelled-ticket-status.sql`, `add-sla-warning-markers.sql`, `add-ticket-taxonomy.sql`. There's no runner or applied-migrations table yet, so always tell the user exactly which file(s) must be run on production.
+- Make migrations additive and safe to re-run where possible (`CREATE TABLE IF NOT EXISTS`, `INSERT IGNORE` against a unique key). Plain `ADD COLUMN` (no `IF NOT EXISTS`) keeps MySQL 8 compatibility; say in the file header that a second run will just fail with "Duplicate column".
+- Avoid destructive changes (DROP COLUMN, type narrowing) unless explicitly requested.
+- Never run `php artisan migrate`.
 
 ## API changes
 
-- Preserve existing response shapes unless asked to change them — pages in `client/src/pages/` consume them directly.
+- Preserve existing response shapes unless asked — pages in `client/src/pages/` consume them directly.
 - If a response shape changes, update the consuming page(s) in the same change.
-- Document any new endpoint in this file or the README.
+- Document new endpoints in this file.
+
+## Deployment
+
+**Production: one Hostinger account, same origin.** `hubly.eljincorp.com` serves the SPA (docroot `public_html/hubly`); the Laravel API is **path-mounted** at `hubly.eljincorp.com/backend/*` (front controller in `public_html/hubly/backend/`, app in a sibling non-public folder — confirm which one `backend/index.php` requires; `DEPLOYMENT.md` names both `laravel/backend-f` and `domains/hubly.eljincorp.com/laravel_app`). Full runbook: `server-laravel/DEPLOYMENT.md`.
+
+- **No CI/CD.** A commit is not live until someone packages and uploads it. Before claiming something shipped, check: `curl https://hubly.eljincorp.com/backend/api/health` (→ `build.sha`) and `curl https://hubly.eljincorp.com/version.json`.
+- **Deploy flow:** run any new `server-laravel/sql/` files on production → `node scripts/package-deploy.mjs` → extract `hubly-frontend-<sha>.zip` into `public_html/hubly/` and `hubly-backend-<sha>.zip` into the Laravel app folder → on the server `composer install --no-dev --optimize-autoloader` (unless packaged with `--vendor`), `php artisan config:cache && php artisan route:cache` → verify both version endpoints.
+- The packaging script refuses to build if the tree is dirty, if `client/.env.production` doesn't set `VITE_API_URL=https://hubly.eljincorp.com/backend`, if `client/public/.htaccess` lost its `RewriteCond %{REQUEST_URI} !^/backend/` line (without it every API call returns `index.html`), if backend tests fail, or if the built bundle points at the wrong API.
+- Host cron must run `sla:monitor` (~10 min) and `spaces:due-reminders` (hourly) — see `DEPLOYMENT.md` step 7.
+- Email only works if production `.env` has `RESEND_API_KEY` (preferred) or `SMTP_HOST`; otherwise sends are logged no-ops.
 
 ## Security
 
-- Never hardcode secrets. The server reads `JWT_SECRET`, `JWT_EXPIRES_IN`, `DB_*`, and `PORT` from `.env` (see `server/.env.example`). The UniFi integration adds `UNIFI_HOST`, `UNIFI_OS`, `UNIFI_INSECURE_TLS`, and either `UNIFI_COOKIE` or `UNIFI_USERNAME`/`UNIFI_PASSWORD`; when `UNIFI_HOST` is unset the network module falls back to mock data.
-- Always hash passwords with `bcryptjs` — never store plaintext.
-- Always use parameterized SQL queries.
-- Validate role/permission on the server even when the client already gates the UI; `ProtectedRoute` is UX, not security.
-- Sanitize/validate file uploads (size, mime) before persisting (ticket and chat uploads both enforce a mime allowlist + size cap).
-- The server **refuses to start without `JWT_SECRET`** (warns if < 32 chars) — see the guard in `index.js`.
-- **Session invalidation:** `users.token_version` is embedded in the JWT (`tv`) and checked in `requireAuth`; every password change/reset bumps it, invalidating other sessions. Self-service change-password re-issues a fresh token to the current device so it stays signed in. Tokens predating the column (no `tv`) are treated as version 0.
-- **Auth token is an httpOnly cookie** (`mf_token`), set by `routes/auth.js` on login / change-password and cleared by `POST /api/auth/logout`. It is **not** readable from JS, so XSS can't exfiltrate it. `requireAuth` reads the cookie (falling back to a `Bearer` header for non-browser clients). The client sends it via `credentials: 'include'` in `lib/auth.js` `api()`; only the non-sensitive user profile is cached in `localStorage` (`mf_user`). `SameSite=Lax` + `secure` in production (`NODE_ENV`) are the CSRF/transport defenses, so CORS runs with `credentials: true` and reflects the request origin rather than `*`.
-- **Session invalidation** (above) re-sets the cookie on self-service change-password so the current device stays signed in while other sessions are invalidated.
-- **CORS** is locked to `CORS_ORIGINS` (comma-separated allowlist) when set; unset = permissive + a startup warning (dev only). **Security headers** (`nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, a strict CSP, and HSTS in production) are applied globally via `middleware/securityHeaders.js`.
-- **User-authored URLs** (markdown links/images in KB articles & notes) must be passed through `client/src/lib/url.js` `safeUrl()` before use as an `href`/`src` — React doesn't sanitize these, so `javascript:`/`data:` URLs would otherwise be an XSS vector (the httpOnly cookie blocks token theft, but injected script can still act as the user).
+- Never hardcode secrets. Backend env (`server-laravel/.env`, see `.env.example`): `APP_KEY`, `JWT_SECRET` (32+ chars), `JWT_EXPIRES_IN`, `DB_*`, `CORS_ORIGINS`, `TRUST_PROXY`, `APP_BASE_URL` (links in emails), `CRON_SECRET`, `RESEND_API_KEY` or `SMTP_*`, `MAIL_FROM`, `UNIFI_*`, `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL`.
+- Passwords are bcrypt-hashed (`Hash::make`); never stored or logged in plaintext (bulk import returns generated passwords once).
+- Validate role/permission on the server even when the client gates the UI.
+- Validate uploads (MIME allowlist + size cap; images are re-encoded). Every `/uploads/*` file is auth-gated and re-checks visibility of its owning record.
+- `SecurityHeaders` middleware sets nosniff, `X-Frame-Options: DENY`, Referrer-Policy, CSP, and HSTS in production; CORS is limited to `CORS_ORIGINS`.
+- Pass user-authored URLs through `safeUrl()` on the client.
+- The seed admin accounts from the original schema (`admin@bwsuperbakeshop.ph`, `admin@mainframe.local`) have publicly known default passwords — make sure they're changed or deactivated on production.
 
 ## Performance
 
-- Use indexes already defined in `schema.sql` (status, role, category, etc.) — match them in WHERE clauses.
-- Avoid N+1 patterns in ticket detail / activity loading; prefer a single JOIN when listing.
+- Match existing indexes (status, priority, category, department, etc.) in WHERE clauses.
+- Avoid N+1 patterns in ticket detail / activity loading; prefer a single JOIN or grouped query.
 - Paginate list endpoints if result sets grow.
 
 ## Pull request expectations
@@ -410,7 +270,7 @@ Currently covers the permission logic (`src/lib/permissions.js`), ticket visibil
 When summarizing changes, include:
 
 - What changed and why
-- Any schema migrations or manual DB steps required
+- Any SQL files that must be run on production (and in what order)
 - Assumptions made
 - Tests / manual checks run
 - Follow-up work or risks
@@ -421,8 +281,9 @@ When summarizing changes, include:
 - Rewriting working code without reason
 - Adding dependencies for small tasks (especially in `client/` — the dependency list is intentionally minimal)
 - Changing formatting unrelated to the task
-- Editing files under `node_modules/`
-- Touching `.env` or `.env.local`
+- Editing files under `node_modules/` or `vendor/`
+- Touching `.env` or `.env.local` files
+- Running `php artisan migrate`
 - Making assumptions about product requirements without stating them
 
 ## Preferred response format
