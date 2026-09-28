@@ -7,7 +7,7 @@ import ImageLightbox from '../components/ImageLightbox.jsx';
 import { api, getUser, updateStoredUser } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
 import { SLA_DAYS, RESOLVED_STATUSES, TERMINAL_STATUSES, PAUSED_STATUSES as SLA_PAUSED_STATUSES } from '../lib/sla.js';
-import { CATEGORY_TREE } from '../lib/categories.js';
+import { useTaxonomy, requestTypeLabel } from '../lib/categories.js';
 import { parseApiDate, relativeTime as formatRelativeTime } from '../lib/datetime.js';
 
 const STATUSES = [
@@ -24,24 +24,6 @@ const PRIORITIES = [
   { key: 'normal', label: 'Normal' },
   { key: 'high', label: 'High' },
   { key: 'urgent', label: 'Urgent' }
-];
-const REQUEST_TYPES = [
-  { key: 'incident', label: 'Incident' },
-  { key: 'service_request', label: 'Service Request' },
-  { key: 'question', label: 'Question / How-to' },
-  { key: 'change', label: 'Change Request' }
-];
-const CATEGORIES = [
-  'Hardware',
-  'Software',
-  'Network & Connectivity',
-  'Account & Access',
-  'Email & Communication',
-  'Security',
-  'Printing & Peripherals',
-  'ERP Access',
-  'HR Concerns',
-  'Other'
 ];
 
 // SLA rules live in lib/sla.js. TicketDetail computes the EXACT figure below
@@ -72,6 +54,8 @@ function makeDraft(ticket) {
 }
 
 export default function TicketDetail() {
+  const taxonomy = useTaxonomy();
+  const CATEGORY_TREE = taxonomy.tree;
   const { id } = useParams();
   const me = getUser();
   const isStaff = me?.role === 'admin' || me?.role === 'agent';
@@ -158,8 +142,19 @@ export default function TicketDetail() {
   // Cascading sub-categories (mirrors the create form) + the structured overtime
   // report, both driven off the loaded ticket / current draft.
   const overtime = parseOvertime(ticket?.overtime_report);
-  const subOpts = draft.category ? Object.keys(CATEGORY_TREE[draft.category] || {}) : [];
-  const sub2Opts = draft.category && draft.subcategory ? (CATEGORY_TREE[draft.category]?.[draft.subcategory] || []) : [];
+  // Options come from the admin-editable taxonomy; the work order's current
+  // value is kept selectable even if it has since been hidden or renamed.
+  const withCurrent = (list, value) => (value && !list.includes(value) ? [...list, value] : list);
+  const REQUEST_TYPES = (() => {
+    const opts = taxonomy.requestTypes.map((t) => ({ key: t.key, label: t.label }));
+    const cur = draft.request_type;
+    return cur && !opts.some((o) => o.key === cur) ? [...opts, { key: cur, label: requestTypeLabel(taxonomy.requestTypes, cur) }] : opts;
+  })();
+  const CATEGORIES = withCurrent(taxonomy.categories, draft.category);
+  const subOpts = draft.category ? withCurrent(Object.keys(CATEGORY_TREE[draft.category] || {}), draft.subcategory) : [];
+  const sub2Opts = draft.category && draft.subcategory
+    ? withCurrent(CATEGORY_TREE[draft.category]?.[draft.subcategory] || [], draft.subcategory2)
+    : [];
   const onCategoryEdit = (v) => setDraft((d) => ({ ...d, category: v, subcategory: '', subcategory2: '' }));
   const onSubcategoryEdit = (v) => setDraft((d) => ({ ...d, subcategory: v, subcategory2: '' }));
 

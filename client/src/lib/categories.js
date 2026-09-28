@@ -1,64 +1,82 @@
-// Cascading work-order categories: Category → Subcategory → Sub-subcategory.
-// Each level's options are unique to its parent. Shared by the create form and
-// the work-order detail view so the taxonomy lives in one place.
-export const CATEGORY_TREE = {
-  'Hardware': {
-    'Desktops & Laptops': ['Won’t power on', 'Performance / slowness', 'Screen / display'],
-    'Peripherals & Accessories': ['Keyboard / mouse', 'Docking station', 'External monitor']
-  },
-  'Software': {
-    'Applications': ['Installation / update', 'Crashes / errors', 'Licensing / activation'],
-    'Operating System': ['Updates / patching', 'Boot / startup', 'Configuration']
-  },
-  'Network & Connectivity': {
-    'Wired / LAN': ['No connection', 'Slow speed', 'Cabling / port'],
-    'Wireless / Wi-Fi': ['Cannot connect', 'Weak signal', 'Authentication']
-  },
-  'Account & Access': {
-    'Login & Authentication': ['Password reset', 'Account locked', 'MFA / 2FA'],
-    'Permissions & Roles': ['Access request', 'Role change', 'Shared drive / folder']
-  },
-  'Email & Communication': {
-    'Email': ['Cannot send / receive', 'Spam / phishing', 'Mailbox full'],
-    'Collaboration Tools': ['Chat / Teams', 'Video conferencing', 'Calendar']
-  },
-  'Security': {
-    'Threats & Incidents': ['Malware / virus', 'Phishing report', 'Suspected breach'],
-    'Policy & Compliance': ['Access review', 'Encryption', 'Audit request']
-  },
-  'Printing & Peripherals': {
-    'Printers': ['Not printing', 'Paper jam', 'Toner / ink'],
-    'Scanners & Copiers': ['Scan to email', 'Hardware fault', 'Driver issue']
-  },
-  'ERP Access': {
-    'Finance & Accounting': ['New access request', 'Modify access / role', 'Revoke access'],
-    'Sales & POS': ['New access request', 'Modify access / role', 'Revoke access'],
-    'Inventory & Warehouse': ['New access request', 'Modify access / role', 'Revoke access'],
-    'Purchasing & Procurement': ['New access request', 'Modify access / role', 'Revoke access'],
-    'Production / Manufacturing': ['New access request', 'Modify access / role', 'Revoke access'],
-    'HR & Payroll': ['New access request', 'Modify access / role', 'Revoke access']
-  },
-  'HR Concerns': {
-    'Leave & Attendance': [
-      'Overtime and Accomplishment Report Form',
-      'Application for Vacation/Sick/Undertime Leave',
-      'Request for Manpower Personnel',
-      'Change Time Schedule / Cancel Restday / Change Restday'
-    ],
-    'Employee Records': ['Personal info update', 'Document request', 'Payroll query']
-  },
-  'Other': {
-    'General Request': ['Information', 'Feedback', 'Other'],
-    'Needs Triage': ['Uncategorized', 'Follow-up', 'Other']
+// Work-order request types + the cascading Category → Subcategory →
+// Sub-subcategory tree. Admin-editable (Users → Manage → Categories & Request
+// Types), served by GET /api/taxonomy — this module fetches it once per page
+// load and shares it between the create forms, the detail view, and reports.
+import { useEffect, useState } from 'react';
+import { api } from './auth.js';
+
+let cache = null;     // { requestTypes, tree } once loaded
+let inflight = null;  // shared promise while loading
+const listeners = new Set();
+
+// API nodes ({ name, children }) → the { Category: { Sub: [leaf] } } shape
+// the pages were written against.
+function toTree(nodes) {
+  const tree = {};
+  for (const cat of nodes || []) {
+    const subs = {};
+    for (const sub of cat.children || []) subs[sub.name] = (sub.children || []).map((l) => l.name);
+    tree[cat.name] = subs;
   }
-};
+  return tree;
+}
+
+function load() {
+  if (!inflight) {
+    inflight = api('/api/taxonomy')
+      .then((data) => {
+        cache = { requestTypes: data?.requestTypes || [], tree: toTree(data?.categories) };
+        listeners.forEach((fn) => fn(cache));
+        return cache;
+      })
+      .finally(() => { inflight = null; });
+  }
+  return inflight;
+}
+
+// Call after the admin page changes something so open forms pick it up.
+export function invalidateTaxonomy() {
+  cache = null;
+  return load().catch(() => {});
+}
+
+// { requestTypes: [{ key, label, description }], tree, categories: [names],
+//   loading, error }
+export function useTaxonomy() {
+  const [state, setState] = useState(cache);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const onChange = (next) => setState(next);
+    listeners.add(onChange);
+    if (!cache) load().catch((e) => setError(e.message || 'Could not load categories'));
+    return () => listeners.delete(onChange);
+  }, []);
+
+  const tree = state?.tree || {};
+  return {
+    requestTypes: state?.requestTypes || [],
+    tree,
+    categories: Object.keys(tree),
+    loading: !state && !error,
+    error
+  };
+}
+
+// Label for a stored request_type key (falls back to a prettified key for
+// types that were since deleted or hidden).
+export function requestTypeLabel(requestTypes, key) {
+  const hit = (requestTypes || []).find((t) => t.key === key);
+  if (hit) return hit.label;
+  return key ? String(key).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '';
+}
 
 // Subcategory keys for a main category.
-export function subcategoriesOf(category) {
-  return category ? Object.keys(CATEGORY_TREE[category] || {}) : [];
+export function subcategoriesOf(tree, category) {
+  return category ? Object.keys(tree?.[category] || {}) : [];
 }
 
 // Sub-subcategory options for a category + subcategory pair.
-export function subSubcategoriesOf(category, subcategory) {
-  return category && subcategory ? (CATEGORY_TREE[category]?.[subcategory] || []) : [];
+export function subSubcategoriesOf(tree, category, subcategory) {
+  return category && subcategory ? (tree?.[category]?.[subcategory] || []) : [];
 }

@@ -46,6 +46,7 @@ function usersMenu(pendingResets = 0, isAdmin = false) {
     { to: '/users/surveys', label: 'Survey Reports', desc: 'Technician feedback & ratings', icon: 'star' },
     { to: '/users/departments', label: 'Departments', desc: 'Create and edit departments', icon: 'building' },
     { to: '/users/sla', label: 'SLA Settings', desc: 'Resolution time targets per priority', icon: 'clock' },
+    { to: '/users/categories', label: 'Categories & Request Types', desc: 'Options on the work order form', icon: 'list' },
     { to: '/users/automation', label: 'Automation Rules', desc: 'Auto-route and triage work orders', icon: 'bolt' },
     { to: '/users/password-resets', label: 'Password Resets', desc: 'Review and resolve reset requests', icon: 'key', badge: pendingResets }
   ];

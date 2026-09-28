@@ -4,25 +4,13 @@ import DashboardHeader from '../components/DashboardHeader.jsx';
 import UserPicker from '../components/UserPicker.jsx';
 import { api, getUser } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
+import { useTaxonomy } from '../lib/categories.js';
 
 const TITLE_MAX = 200;
 const TEXT_MAX = 2000;
 const MAX_FILES = 5;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const ACCEPTED = '.png,.jpg,.jpeg,.gif,.webp,.heic,.pdf,.txt,.log,.doc,.docx,.xls,.xlsx,.zip,image/*';
-
-const CATEGORIES = [
-  'Hardware',
-  'Software',
-  'Network & Connectivity',
-  'Account & Access',
-  'Email & Communication',
-  'Security',
-  'Printing & Peripherals',
-  'ERP Access',
-  'HR Concerns',
-  'Other'
-];
 
 const AFFECTED_SERVICES = [
   'Email / Outlook',
@@ -91,6 +79,7 @@ function localNowForInput() {
 }
 
 export default function CreateIncident() {
+  const { categories: CATEGORIES } = useTaxonomy();
   const navigate = useNavigate();
   const user = getUser();
 

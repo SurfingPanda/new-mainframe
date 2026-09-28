@@ -4,7 +4,7 @@ import DashboardHeader from '../components/DashboardHeader.jsx';
 import UserPicker from '../components/UserPicker.jsx';
 import { api, getUser } from '../lib/auth.js';
 import { formatTicketId } from '../lib/ticket.js';
-import { CATEGORY_TREE } from '../lib/categories.js';
+import { useTaxonomy } from '../lib/categories.js';
 
 const TITLE_MAX = 200;
 const DESC_MAX = 4000;
@@ -12,25 +12,9 @@ const MAX_FILES = 5;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const ACCEPTED = '.png,.jpg,.jpeg,.gif,.webp,.heic,.pdf,.txt,.doc,.docx,.xls,.xlsx,.zip,image/*';
 
-const REQUEST_TYPES = [
-  { key: 'service_request', label: 'Service Request', desc: 'Need access, equipment, or a setup.' },
-  { key: 'question', label: 'Question / How-to', desc: 'You need information or guidance.' },
-  { key: 'change', label: 'Change Request', desc: 'Request a configuration or system change.' }
-];
-
-const CATEGORIES = [
-  'Hardware',
-  'Software',
-  'Network & Connectivity',
-  'Account & Access',
-  'Email & Communication',
-  'Security',
-  'Printing & Peripherals',
-  'ERP Access',
-  'HR Concerns',
-  'Other'
-];
-
+// Request types and the category tree are admin-editable (useTaxonomy). The
+// names below are the system entries whose selection switches in a special
+// form — they're locked against rename/delete on the admin page.
 // Picking "HR Concerns" swaps the free-text Description for this structured
 // leave-request form; its fields are serialized into the ticket description.
 const HR_CONCERNS = 'HR Concerns';
@@ -62,6 +46,9 @@ const PRIORITY_OPTIONS = [
 ];
 
 export default function CreateTicket() {
+  const { requestTypes, tree: CATEGORY_TREE, categories: CATEGORIES } = useTaxonomy();
+  // Incidents are filed from their own page (Create Incident).
+  const REQUEST_TYPES = requestTypes.filter((t) => t.key !== 'incident');
   const navigate = useNavigate();
   const user = getUser();
   const defaultRequester = user?.name || user?.email || '';
@@ -573,7 +560,7 @@ export default function CreateTicket() {
                     ))}
                   </select>
                   <p className="mt-1 text-[11px] text-slate-500">
-                    {REQUEST_TYPES.find((r) => r.key === requestType)?.desc}
+                    {REQUEST_TYPES.find((r) => r.key === requestType)?.description}
                   </p>
                 </Field>
 

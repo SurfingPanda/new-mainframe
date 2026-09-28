@@ -7,6 +7,7 @@ use App\Services\DepartmentManagers;
 use App\Services\Sla;
 use App\Services\SlaPolicies;
 use App\Services\TicketNotifications;
+use App\Services\TicketTaxonomy;
 use App\Services\TicketVisibility as TV;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -22,12 +23,7 @@ class TicketController extends Controller
 {
     public const ALLOWED_PRIORITIES = ['low', 'normal', 'high', 'urgent'];
     public const ALLOWED_STATUSES = ['open', 'in_progress', 'on_hold', 'pending', 'resolved', 'closed', 'cancelled'];
-    public const ALLOWED_REQUEST_TYPES = ['incident', 'service_request', 'question', 'change'];
-    public const ALLOWED_CATEGORIES = [
-        'Hardware', 'Software', 'Network & Connectivity', 'Account & Access',
-        'Email & Communication', 'Security', 'Printing & Peripherals',
-        'ERP Access', 'HR Concerns', 'Other',
-    ];
+    // Request types + categories are admin-editable — see App\Services\TicketTaxonomy.
 
     private const ALLOWED_MIME = [
         'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/heic',
@@ -270,8 +266,9 @@ class TicketController extends Controller
         'description' => ['max' => 4000],
         'status' => ['enum' => self::ALLOWED_STATUSES],
         'priority' => ['enum' => self::ALLOWED_PRIORITIES],
-        'request_type' => ['enum' => self::ALLOWED_REQUEST_TYPES],
-        'category' => ['enum' => self::ALLOWED_CATEGORIES, 'nullable' => true],
+        // 'taxonomy': validated against TicketTaxonomy (hidden entries allowed on edits).
+        'request_type' => ['taxonomy' => true],
+        'category' => ['taxonomy' => true, 'nullable' => true],
         'subcategory' => ['max' => 120, 'nullable' => true],
         'subcategory2' => ['max' => 120, 'nullable' => true],
         'department' => ['max' => 80, 'nullable' => true],
@@ -369,6 +366,9 @@ class TicketController extends Controller
                 if (!empty($rules['enum']) && !in_array($next, $rules['enum'], true)) {
                     return response()->json(['error' => "invalid {$field}"], 400);
                 }
+                if (!empty($rules['taxonomy']) && !TicketTaxonomy::isAllowed($field, $next, false)) {
+                    return response()->json(['error' => "invalid {$field}"], 400);
+                }
             }
 
             $prev = $before[$field] ?? null;
@@ -437,6 +437,9 @@ class TicketController extends Controller
                 $nextValue = mb_substr($nextValue, 0, $rules['max']);
             }
             if (!empty($rules['enum']) && !in_array($nextValue, $rules['enum'], true)) {
+                return response()->json(['error' => "invalid {$field}"], 400);
+            }
+            if (!empty($rules['taxonomy']) && !TicketTaxonomy::isAllowed($field, $nextValue, false)) {
                 return response()->json(['error' => "invalid {$field}"], 400);
             }
         }
@@ -1102,10 +1105,10 @@ class TicketController extends Controller
         if (!in_array($status, self::ALLOWED_STATUSES, true)) {
             return response()->json(['error' => 'invalid status'], 400);
         }
-        if (!in_array($requestType, self::ALLOWED_REQUEST_TYPES, true)) {
+        if (!TicketTaxonomy::isAllowed('request_type', $requestType, true)) {
             return response()->json(['error' => 'invalid request type'], 400);
         }
-        if ($category && !in_array($category, self::ALLOWED_CATEGORIES, true)) {
+        if ($category && !TicketTaxonomy::isAllowed('category', $category, true)) {
             return response()->json(['error' => 'invalid category'], 400);
         }
 

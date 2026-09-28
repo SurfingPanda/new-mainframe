@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\SpaceController;
 use App\Http\Controllers\Api\SpaceDocController;
 use App\Http\Controllers\Api\SpaceGoalController;
 use App\Http\Controllers\Api\SpaceItemController;
+use App\Http\Controllers\Api\TaxonomyController;
 use App\Http\Controllers\Api\SurveyController;
 use App\Http\Controllers\Api\TicketController;
 use App\Http\Controllers\Api\UserController;
@@ -115,6 +116,22 @@ Route::prefix('tickets')->middleware('auth.jwt')->group(function () {
 Route::prefix('settings')->middleware('auth.jwt')->group(function () {
     Route::get('/sla', [SettingsController::class, 'slaShow']);
     Route::put('/sla', [SettingsController::class, 'slaUpdate'])->middleware('permission:users,manage');
+});
+
+// Admin-editable work-order request types + category tree. GET / is what the
+// create/edit forms read (any signed-in user); the rest is users.manage.
+Route::prefix('taxonomy')->middleware('auth.jwt')->group(function () {
+    Route::get('/', [TaxonomyController::class, 'index']);
+    Route::middleware('permission:users,manage')->group(function () {
+        Route::get('/manage', [TaxonomyController::class, 'manage']);
+        Route::post('/reorder', [TaxonomyController::class, 'reorder']);
+        Route::post('/request-types', [TaxonomyController::class, 'storeRequestType']);
+        Route::patch('/request-types/{id}', [TaxonomyController::class, 'updateRequestType'])->whereNumber('id');
+        Route::delete('/request-types/{id}', [TaxonomyController::class, 'destroyRequestType'])->whereNumber('id');
+        Route::post('/categories', [TaxonomyController::class, 'storeCategory']);
+        Route::patch('/categories/{id}', [TaxonomyController::class, 'updateCategory'])->whereNumber('id');
+        Route::delete('/categories/{id}', [TaxonomyController::class, 'destroyCategory'])->whereNumber('id');
+    });
 });
 
 // Ported from server/src/routes/announcements.js. Writes are gated inside the

@@ -4,20 +4,22 @@ import DashboardHeader from '../components/DashboardHeader.jsx';
 import { ChartBar, ChartDoughnut } from '../components/DashboardCharts.jsx';
 import { api } from '../lib/auth.js';
 import { slaInfo, RESOLVED_STATUSES, TERMINAL_STATUSES } from '../lib/sla.js';
+import { useTaxonomy, requestTypeLabel } from '../lib/categories.js';
 
 const DAY = 86400000;
 
 const STATUS_ORDER = ['open', 'in_progress', 'on_hold', 'pending', 'resolved', 'closed', 'cancelled'];
 const STATUS_LABEL = { open: 'Open', in_progress: 'In progress', on_hold: 'On hold', pending: 'Pending', resolved: 'Resolved', closed: 'Closed', cancelled: 'Cancelled' };
 const PRIORITY_ORDER = ['low', 'normal', 'high', 'urgent'];
-const REQ_ORDER = ['incident', 'service_request', 'question', 'change'];
-const REQ_LABEL = { incident: 'Incident', service_request: 'Service request', question: 'Question', change: 'Change' };
+// Request types are admin-editable (useTaxonomy); these seeded ones keep their
+// familiar colours, anything added later cycles through REQ_EXTRA_COLORS.
 
 const C = {
   brand: '#3f5b95', accent: '#22a23e', amber: '#f59e0b', rose: '#e11d48', slate: '#94a3b8', violet: '#7c3aed'
 };
 const PRIORITY_COLORS = { low: C.slate, normal: C.brand, high: C.amber, urgent: C.rose };
 const REQ_COLORS = { incident: C.rose, service_request: C.brand, question: C.slate, change: C.accent };
+const REQ_EXTRA_COLORS = [C.violet, C.amber, '#0891b2', '#db2777', '#65a30d', '#ea580c'];
 
 const PRESETS = [
   { key: 'all', label: 'All time' },
@@ -93,6 +95,7 @@ function monthSeries(rows, fromMs, toMs) {
 
 
 export default function WorkOrderReports() {
+  const { requestTypes } = useTaxonomy();
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -137,7 +140,17 @@ export default function WorkOrderReports() {
 
   const byStatus = useMemo(() => ({ labels: STATUS_ORDER.map((s) => STATUS_LABEL[s]), values: countBy(filtered, STATUS_ORDER, 'status') }), [filtered]);
   const byPriority = useMemo(() => ({ labels: PRIORITY_ORDER.map((p) => p[0].toUpperCase() + p.slice(1)), values: countBy(filtered, PRIORITY_ORDER, 'priority'), colors: PRIORITY_ORDER.map((p) => PRIORITY_COLORS[p]) }), [filtered]);
-  const byReqType = useMemo(() => ({ labels: REQ_ORDER.map((r) => REQ_LABEL[r]), values: countBy(filtered, REQ_ORDER, 'request_type'), colors: REQ_ORDER.map((r) => REQ_COLORS[r]) }), [filtered]);
+  const byReqType = useMemo(() => {
+    // Configured order first, then any type still on old work orders but since hidden/deleted.
+    const order = requestTypes.map((t) => t.key);
+    for (const t of filtered) if (t.request_type && !order.includes(t.request_type)) order.push(t.request_type);
+    let extra = 0;
+    return {
+      labels: order.map((k) => requestTypeLabel(requestTypes, k)),
+      values: countBy(filtered, order, 'request_type'),
+      colors: order.map((k) => REQ_COLORS[k] || REQ_EXTRA_COLORS[extra++ % REQ_EXTRA_COLORS.length])
+    };
+  }, [filtered, requestTypes]);
   const byDept = useMemo(() => { const d = aggregate(filtered, 'department', 'Unassigned').slice(0, 8); return { labels: d.map((x) => x.label), values: d.map((x) => x.value) }; }, [filtered]);
   const openByAssignee = useMemo(() => { const d = aggregate(active, 'assignee', 'Unassigned').slice(0, 8); return { labels: d.map((x) => x.label), values: d.map((x) => x.value) }; }, [active]);
   const woByMonth = useMemo(() => monthSeries(filtered, fromMs, toMs), [filtered, fromMs, toMs]);

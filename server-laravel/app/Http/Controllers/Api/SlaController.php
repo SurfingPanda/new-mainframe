@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Services\BusinessHours;
 use App\Services\SlaPolicies;
+use App\Services\TicketTaxonomy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -31,8 +32,8 @@ class SlaController extends Controller
         $depts = DB::table('departments')->where('is_active', 1)->orderBy('name')->pluck('name');
         return response()->json([
             'priorities' => ['low', 'normal', 'high', 'urgent'],
-            'requestTypes' => TicketController::ALLOWED_REQUEST_TYPES,
-            'categories' => TicketController::ALLOWED_CATEGORIES,
+            'requestTypes' => TicketTaxonomy::requestTypeKeys(false),
+            'categories' => TicketTaxonomy::topCategoryNames(false),
             'departments' => $depts,
         ]);
     }

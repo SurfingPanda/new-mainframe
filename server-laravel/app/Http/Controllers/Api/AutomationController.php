@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\Automation;
+use App\Services\TicketTaxonomy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -77,8 +78,8 @@ class AutomationController extends Controller
             'triggers' => self::TRIGGERS,
             'conditionFields' => Automation::CONDITION_FIELDS,
             'conditionOps' => Automation::CONDITION_OPS,
-            'settableFields' => Automation::SETTABLE_FIELDS,
-            'categories' => TicketController::ALLOWED_CATEGORIES,
+            'settableFields' => Automation::settableFields(),
+            'categories' => TicketTaxonomy::topCategoryNames(false),
         ]);
     }
 

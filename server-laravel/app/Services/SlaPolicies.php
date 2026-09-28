@@ -19,7 +19,6 @@ class SlaPolicies
 {
     private const MATCH_FIELDS = ['priority', 'request_type', 'category', 'department'];
     private const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
-    private const REQUEST_TYPES = ['incident', 'service_request', 'question', 'change'];
     private const CACHE_KEY = 'sla_policies_cache';
 
     /** @return array[] */
@@ -106,7 +105,7 @@ class SlaPolicies
             $out['priority'] = in_array($body['priority'] ?? null, self::PRIORITIES, true) ? $body['priority'] : null;
         }
         if (!$partial || array_key_exists('request_type', $body)) {
-            $out['request_type'] = in_array($body['request_type'] ?? null, self::REQUEST_TYPES, true) ? $body['request_type'] : null;
+            $out['request_type'] = in_array($body['request_type'] ?? null, TicketTaxonomy::requestTypeKeys(false), true) ? $body['request_type'] : null;
         }
         if (!$partial || array_key_exists('category', $body)) {
             $out['category'] = !empty($body['category']) ? mb_substr(trim((string) $body['category']), 0, 80) : null;

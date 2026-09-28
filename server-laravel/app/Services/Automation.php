@@ -28,16 +28,22 @@ class Automation
 
     private const STATUSES = ['open', 'in_progress', 'on_hold', 'pending', 'resolved', 'closed', 'cancelled'];
     private const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
-    private const REQUEST_TYPES = ['incident', 'service_request', 'question', 'change'];
-
+    // null = free value. request_type's allowlist is admin-editable, so it's
+    // filled in at runtime by settableFields() (TicketTaxonomy).
     public const SETTABLE_FIELDS = [
         'status' => self::STATUSES,
         'priority' => self::PRIORITIES,
-        'request_type' => self::REQUEST_TYPES,
+        'request_type' => null,
         'category' => null,
         'department' => null,
         'assignee' => null,
     ];
+
+    /** SETTABLE_FIELDS with the live request-type keys (incl. hidden ones). */
+    public static function settableFields(): array
+    {
+        return array_merge(self::SETTABLE_FIELDS, ['request_type' => TicketTaxonomy::requestTypeKeys(false)]);
+    }
 
     public const CONDITION_OPS = ['eq', 'neq', 'contains', 'in', 'is_empty', 'is_not_empty'];
     private const VALUELESS_OPS = ['is_empty', 'is_not_empty'];
@@ -158,7 +164,9 @@ class Automation
                     $value = null;
                 } else {
                     $value = mb_substr(trim((string) $value), 0, 120);
-                    $enumVals = self::SETTABLE_FIELDS[$a['field']];
+                    $enumVals = $a['field'] === 'request_type'
+                        ? TicketTaxonomy::requestTypeKeys(false)
+                        : self::SETTABLE_FIELDS[$a['field']];
                     if ($enumVals && !in_array($value, $enumVals, true)) {
                         continue;
                     }
