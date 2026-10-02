@@ -287,6 +287,7 @@ class TicketController extends Controller
     // Routing and people may be corrected by any user who can view the work
     // order. Other fields keep the manager/requester rules above.
     private const PEOPLE_EDITABLE_FIELDS = ['department', 'requester', 'assignee'];
+    private const ERP_LOCKED_MESSAGE = 'ERP Access work orders are routed to the Document Controller — only an admin can change the department or assignee.';
 
     public function update(Request $request, string $id)
     {
@@ -374,6 +375,9 @@ class TicketController extends Controller
             $prev = $before[$field] ?? null;
             if (($prev ?? null) === ($next ?? null)) {
                 continue;
+            }
+            if (in_array($field, self::PEOPLE_EDITABLE_FIELDS, true) && $field !== 'requester' && DocumentController::isLockedFor($user, $before)) {
+                return response()->json(['error' => self::ERP_LOCKED_MESSAGE], 403);
             }
 
             $updates[$field] = $next;
@@ -472,6 +476,11 @@ class TicketController extends Controller
                 continue;
             }
 
+            if ($field === 'assignee' && DocumentController::isLockedFor($user, $before)) {
+                $skipped[] = ['id' => $id, 'reason' => 'locked'];
+                continue;
+            }
+
             $prev = $before[$field] ?? null;
             if (($prev ?? null) === ($nextValue ?? null)) {
                 $skipped[] = ['id' => $id, 'reason' => 'unchanged'];
@@ -524,6 +533,10 @@ class TicketController extends Controller
         }
         if (!TV::isStaff($user) && !TV::sameDepartment($user, $ticket)) {
             return response()->json(['error' => 'You can only assign work orders routed to your department'], 403);
+        }
+
+        if (DocumentController::isLockedFor($user, $ticket)) {
+            return response()->json(['error' => self::ERP_LOCKED_MESSAGE], 403);
         }
 
         $me = $user['name'] ?? $user['email'] ?? null;
@@ -1163,6 +1176,19 @@ class TicketController extends Controller
             }
         }
 
+        // ERP Access requests always go to the designated Document Controller —
+        // assignee and department are forced (the form shows them read-only). The
+        // assignee email below (TicketEmails::notifyTicketCreated) notifies them.
+        $docController = $category === TV::ERP_ACCESS ? DocumentController::current() : null;
+        $docControllerAssigned = false;
+        if ($docController) {
+            $assignee = $docController['name'];
+            $docControllerAssigned = true;
+            if ($docController['department']) {
+                $departmentValue = mb_substr($docController['department'], 0, 80);
+            }
+        }
+
         $sla = SlaPolicies::effectiveTargets([
             'priority' => $priority, 'request_type' => $requestType,
             'category' => $category ?: null, 'department' => $departmentValue,
@@ -1190,6 +1216,14 @@ class TicketController extends Controller
             'field' => 'created', 'new_value' => mb_substr(trim((string) $title), 0, 500),
             'created_at' => now(),
         ]);
+
+        if ($docControllerAssigned) {
+            DB::table('ticket_activity')->insert([
+                'ticket_id' => $ticketId, 'type' => 'change', 'actor' => 'System', 'field' => 'assignee',
+                'old_value' => null, 'new_value' => mb_substr((string) $assignee, 0, 500),
+                'created_at' => now(),
+            ]);
+        }
 
         if ($files) {
             $rows = [];
@@ -1234,6 +1268,10 @@ class TicketController extends Controller
 
         if ($approvalStatus !== 'pending') {
             TicketNotifications::notifyTicketCreated($ticket, $user['name'] ?? $user['email'] ?? null);
+        }
+
+        if ($docControllerAssigned && ($docController['id'] ?? null) !== ($user['sub'] ?? null)) {
+            DocumentController::notifyAssigned(['id' => $ticketId, 'title' => $title, 'requester' => $requesterName], $docController);
         }
 
         TicketNotifications::emitTicketNotifications($ticket, []);

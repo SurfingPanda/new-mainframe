@@ -228,7 +228,7 @@ node scripts/package-deploy.mjs            # --allow-dirty, --vendor, --skip-tes
 ## Database and migrations
 
 - **There is no single up-to-date schema file in the repo.** The original `server/sql/schema.sql` was deleted with `server/`; its last version is in git history (`git show afe5d05:server/sql/schema.sql`). A fresh database = that file, then every file in `server-laravel/sql/` in order.
-- **Schema changes are hand-written SQL files in `server-laravel/sql/`**, run once per database (locally and on production) **before** deploying the code that needs them. Current files: `add-cancelled-ticket-status.sql`, `add-sla-warning-markers.sql`, `add-ticket-taxonomy.sql`. There's no runner or applied-migrations table yet, so always tell the user exactly which file(s) must be run on production.
+- **Schema changes are hand-written SQL files in `server-laravel/sql/`**, run once per database (locally and on production) **before** deploying the code that needs them. Current files: `add-cancelled-ticket-status.sql`, `add-sla-warning-markers.sql`, `add-ticket-taxonomy.sql`, `add-document-controller.sql`. There's no runner or applied-migrations table yet, so always tell the user exactly which file(s) must be run on production.
 - Make migrations additive and safe to re-run where possible (`CREATE TABLE IF NOT EXISTS`, `INSERT IGNORE` against a unique key). Plain `ADD COLUMN` (no `IF NOT EXISTS`) keeps MySQL 8 compatibility; say in the file header that a second run will just fail with "Duplicate column".
 - Avoid destructive changes (DROP COLUMN, type narrowing) unless explicitly requested.
 - Never run `php artisan migrate`.

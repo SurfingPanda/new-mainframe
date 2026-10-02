@@ -23,7 +23,7 @@ class UserController extends Controller
     private const EMAIL_RE = '/^[^\s@]+@[^\s@]+\.[^\s@]+$/';
 
     private const USER_COLUMNS = ['id', 'email', 'name', 'role', 'department', 'job_title',
-        'avatar_url', 'is_active', 'permissions', 'last_login_at', 'created_at', 'updated_at'];
+        'avatar_url', 'is_active', 'is_document_controller', 'permissions', 'last_login_at', 'created_at', 'updated_at'];
 
     /** Readable random password (no ambiguous chars) for bulk-imported accounts. */
     private function generatePassword(int $len = 12): string
@@ -49,7 +49,7 @@ class UserController extends Controller
     public function assignable()
     {
         return response()->json(
-            DB::table('users')->select('id', 'name', 'email', 'role', 'department', 'avatar_url')
+            DB::table('users')->select('id', 'name', 'email', 'role', 'department', 'avatar_url', 'is_document_controller')
                 ->where('is_active', 1)->orderBy('name')->get()
         );
     }
@@ -57,7 +57,7 @@ class UserController extends Controller
     public function directory()
     {
         return response()->json(
-            DB::table('users')->select('id', 'name', 'email', 'role', 'department', 'avatar_url', 'last_seen_at')
+            DB::table('users')->select('id', 'name', 'email', 'role', 'department', 'avatar_url', 'last_seen_at', 'is_document_controller')
                 ->where('is_active', 1)->orderBy('name')->get()
         );
     }
@@ -190,7 +190,7 @@ class UserController extends Controller
     public function update(Request $request, string $id)
     {
         $id = (int) $id;
-        $before = DB::table('users')->select('name', 'role', 'department', 'job_title', 'is_active', 'permissions')->where('id', $id)->first();
+        $before = DB::table('users')->select('name', 'role', 'department', 'job_title', 'is_active', 'is_document_controller', 'permissions')->where('id', $id)->first();
         $before = $before ? (array) $before : null;
 
         $role = $request->input('role');
@@ -218,6 +218,10 @@ class UserController extends Controller
         if ($request->has('is_active')) {
             $updates['is_active'] = $isActive ? 1 : 0;
         }
+        $isDocController = $request->has('is_document_controller') ? $request->boolean('is_document_controller') : null;
+        if ($isDocController !== null) {
+            $updates['is_document_controller'] = $isDocController ? 1 : 0;
+        }
         if ($request->has('permissions')) {
             $cleanPerms = Permissions::sanitize($permissions);
             $updates['permissions'] = $cleanPerms ? json_encode($cleanPerms) : null;
@@ -239,19 +243,34 @@ class UserController extends Controller
             }
         }
 
+        // The Document Controller must be an active account (it receives ERP Access work orders).
+        $willBeActive = $isActive ?? (bool) DB::table('users')->where('id', $id)->value('is_active');
+        if ($isDocController && !$willBeActive) {
+            return response()->json(['error' => 'The Document Controller must be an active user'], 400);
+        }
+        if (!$willBeActive && !isset($updates['is_document_controller'])) {
+            $updates['is_document_controller'] = 0; // deactivating the controller clears the designation
+        }
+
         $updates['updated_at'] = now();
         $affected = DB::table('users')->where('id', $id)->update($updates);
         if (!$affected) {
             return response()->json(['error' => 'User not found'], 404);
+        }
+        // At most one Document Controller (like the single is_hr department).
+        if ($isDocController) {
+            DB::table('users')->where('id', '<>', $id)->where('is_document_controller', 1)->update(['is_document_controller' => 0]);
         }
 
         $row = DB::table('users')->select(self::USER_COLUMNS)->where('id', $id)->first();
         $after = [
             'name' => $row->name, 'role' => $row->role, 'department' => $row->department,
             'job_title' => $row->job_title, 'is_active' => $row->is_active ? 1 : 0,
+            'is_document_controller' => $row->is_document_controller ? 1 : 0,
             'permissions' => $row->permissions,
         ];
-        $changes = Audit::diffChanges($before, $after, ['name', 'role', 'department', 'job_title', 'is_active', 'permissions']);
+        $before['is_document_controller'] = ($before['is_document_controller'] ?? 0) ? 1 : 0;
+        $changes = Audit::diffChanges($before, $after, ['name', 'role', 'department', 'job_title', 'is_active', 'is_document_controller', 'permissions']);
         if ($changes) {
             Audit::record($request, ['action' => 'user.update', 'entityType' => 'user', 'entityId' => $id, 'entityLabel' => $row->name, 'changes' => $changes]);
         }

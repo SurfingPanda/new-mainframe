@@ -27,6 +27,12 @@ const CHANGE_SCHED_FORM = 'Change Time Schedule / Cancel Restday / Change Restda
 // Picking this category swaps the Description for the EAM-ERP user access form.
 // The request type comes from the cascade's sub-subcategory (Access Request Type).
 const ERP_ACCESS = 'ERP Access';
+
+// Today's date (local time) as YYYY-MM-DD, for <input type="date"> defaults.
+const todayLocal = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 const emptyOtRow = () => ({ name: '', otIn: '', otOut: '', hours: '', signature: '' });
 const LEAVE_TYPES = [
   'Vacation Leave',
@@ -112,7 +118,7 @@ export default function CreateTicket() {
   const [leaveReason, setLeaveReason] = useState('');
 
   // Manpower-request fields (used when the 'Request for Manpower Personnel' sub-subcategory is picked).
-  const [mpDateRequested, setMpDateRequested] = useState('');
+  const [mpDateRequested, setMpDateRequested] = useState(todayLocal);
   const [mpType, setMpType] = useState(''); // 'replacement' | 'additional'
   const [mpReplacementFor, setMpReplacementFor] = useState('');
   const [mpSection, setMpSection] = useState('');
@@ -123,7 +129,7 @@ export default function CreateTicket() {
 
   // Schedule / rest-day change fields (used when that sub-subcategory is picked).
   // Name + section are prefilled from the signed-in user but stay editable.
-  const [csDateFiled, setCsDateFiled] = useState('');
+  const [csDateFiled, setCsDateFiled] = useState(todayLocal);
   const [csName, setCsName] = useState(user?.name || '');
   const [csSection, setCsSection] = useState(user?.department || '');
   const [csKind, setCsKind] = useState(''); // 'time_schedule' | 'change_rest_day' | 'cancel_rest_day'
@@ -138,7 +144,7 @@ export default function CreateTicket() {
 
   // EAM-ERP user access form fields (used when category === 'ERP Access').
   // Name / department / position are prefilled from the signed-in user but editable.
-  const [erpDate, setErpDate] = useState('');
+  const [erpDate, setErpDate] = useState(todayLocal);
   const [erpName, setErpName] = useState(user?.name || '');
   const [erpEmployeeId, setErpEmployeeId] = useState('');
   const [erpDept, setErpDept] = useState(user?.department || '');
@@ -236,6 +242,14 @@ export default function CreateTicket() {
     [deptList, assignableUsers]
   );
 
+  // ERP Access work orders always go to the Document Controller (set in Users →
+  // Edit): department + assignee are fixed to them and shown read-only. The server
+  // enforces the same. Without a Document Controller the fields stay editable.
+  const docController = useMemo(() => assignableUsers.find((u) => u.is_document_controller) || null, [assignableUsers]);
+  const erpLocked = isErpForm && !!docController;
+  const deptValue = erpLocked ? docController.department || '' : department;
+  const assigneeValue = erpLocked ? docController.name : assignee;
+
   const assigneeChoices = useMemo(
     () => (department ? assignableUsers.filter((u) => u.department === department) : assignableUsers),
     [assignableUsers, department]
@@ -253,7 +267,7 @@ export default function CreateTicket() {
     () =>
       title.trim().length >= 4 &&
       requester.trim() &&
-      (isLeaveRequest || department) &&
+      (isLeaveRequest || deptValue || erpLocked) &&
       !titleTooLong &&
       !descTooLong &&
       !(showLeaveForm && leaveIncomplete) &&
@@ -262,7 +276,7 @@ export default function CreateTicket() {
       !changeSchedIncomplete &&
       !erpIncomplete &&
       !submitting,
-    [title, requester, department, isLeaveRequest, titleTooLong, descTooLong, showLeaveForm, leaveIncomplete, overtimeIncomplete, manpowerIncomplete, changeSchedIncomplete, erpIncomplete, submitting]
+    [title, requester, deptValue, erpLocked, isLeaveRequest, titleTooLong, descTooLong, showLeaveForm, leaveIncomplete, overtimeIncomplete, manpowerIncomplete, changeSchedIncomplete, erpIncomplete, submitting]
   );
 
   const isDirty = useMemo(
@@ -282,7 +296,7 @@ export default function CreateTicket() {
       leaveEnd !== '' ||
       leaveReason.trim() !== '' ||
       otRows.some((r) => r.name || r.otIn || r.otOut || r.hours || r.signature) ||
-      mpDateRequested !== '' ||
+      mpDateRequested !== todayLocal() ||
       mpType !== '' ||
       mpReplacementFor.trim() !== '' ||
       mpSection.trim() !== '' ||
@@ -290,7 +304,7 @@ export default function CreateTicket() {
       mpDurationTo !== '' ||
       mpQualification.trim() !== '' ||
       mpReason.trim() !== '' ||
-      csDateFiled !== '' ||
+      csDateFiled !== todayLocal() ||
       csName.trim() !== (user?.name || '').trim() ||
       csSection.trim() !== (user?.department || '').trim() ||
       csKind !== '' ||
@@ -302,7 +316,7 @@ export default function CreateTicket() {
       csReason.trim() !== '' ||
       csEffectiveDate !== '' ||
       csParticularDate !== '' ||
-      erpDate !== '' ||
+      erpDate !== todayLocal() ||
       erpName.trim() !== (user?.name || '').trim() ||
       erpEmployeeId.trim() !== '' ||
       erpDept.trim() !== (user?.department || '').trim() ||
@@ -433,7 +447,7 @@ export default function CreateTicket() {
       if (!title.trim()) setError('Please add a title before submitting.');
       else if (title.trim().length < 4) setError('Title needs at least 4 characters.');
       else if (!requester.trim()) setError('Please confirm the requester before submitting.');
-      else if (!isLeaveRequest && !department) setError('Please select a department before submitting.');
+      else if (!isLeaveRequest && !deptValue && !erpLocked) setError('Please select a department before submitting.');
       else if (overtimeIncomplete) setError('Add at least one employee name to the overtime report.');
       else if (isManpowerForm && mpDurationInvalid) setError('Duration end date must be on or after the start date.');
       else if (manpowerIncomplete) setError('Please complete the manpower request details before submitting.');
@@ -472,9 +486,9 @@ export default function CreateTicket() {
         }));
         if (rows.length) fd.append('overtime_report', JSON.stringify(rows));
       }
-      if (department) fd.append('department', department);
+      if (deptValue) fd.append('department', deptValue);
       fd.append('requester', requester.trim());
-      if (assignee.trim()) fd.append('assignee', assignee.trim());
+      if (assigneeValue.trim()) fd.append('assignee', assigneeValue.trim());
       for (const f of files) fd.append('attachments', f);
 
       const created = await api('/api/tickets', { method: 'POST', body: fd });
@@ -1197,16 +1211,19 @@ export default function CreateTicket() {
                     htmlFor={departmentId}
                     required
                     hint={
-                      department
+                      erpLocked
+                        ? 'ERP Access requests are routed to the Document Controller.'
+                        : department
                         ? `Assignee list is filtered to ${department}.`
                         : 'Route this work order to a department.'
                     }
                   >
                     <select
                       id={departmentId}
-                      value={department}
+                      value={deptValue}
                       onChange={(e) => onDepartmentChange(e.target.value)}
-                      className={inputCls(false)}
+                      disabled={erpLocked}
+                      className={`${inputCls(false)} ${erpLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
                       required
                       aria-required="true"
                     >
@@ -1220,15 +1237,25 @@ export default function CreateTicket() {
                   <Field
                     label="Assignee"
                     htmlFor={assigneeId}
-                    hint="Search and select an assignee, or leave blank to triage later."
+                    hint={erpLocked ? 'Assigned automatically to the Document Controller.' : 'Search and select an assignee, or leave blank to triage later.'}
                   >
-                    <UserPicker
-                      id={assigneeId}
-                      value={assignee}
-                      users={assigneeChoices}
-                      onChange={setAssignee}
-                      placeholder="Type to search users (optional)"
-                    />
+                    {erpLocked ? (
+                      <input
+                        id={assigneeId}
+                        value={assigneeValue}
+                        readOnly
+                        disabled
+                        className={`${inputCls(false)} bg-slate-100 text-slate-500 cursor-not-allowed`}
+                      />
+                    ) : (
+                      <UserPicker
+                        id={assigneeId}
+                        value={assignee}
+                        users={assigneeChoices}
+                        onChange={setAssignee}
+                        placeholder="Type to search users (optional)"
+                      />
+                    )}
                   </Field>
                 </>
               )}

@@ -32,6 +32,10 @@ export default function Departments() {
 
   useEffect(() => { load(); }, []);
 
+  // The single Document Controller (set in Users → Edit) — shown so admins can see who
+  // receives ERP Access work orders from this page too.
+  const docController = useMemo(() => users.find((u) => u.is_document_controller) || null, [users]);
+
   // Active users feed the manager dropdown (filtered to the department in-form).
   useEffect(() => {
     api('/api/users/directory')
@@ -165,6 +169,14 @@ export default function Departments() {
           <div className="rounded-md bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>
         )}
 
+        <div className="rounded-md bg-sky-50 ring-1 ring-sky-200 px-3 py-2 text-sm text-sky-800">
+          <span className="font-semibold">Document Controller:</span>{' '}
+          {docController
+            ? <>{docController.name}{docController.department ? ` (${docController.department})` : ''} receives every ERP Access work order.</>
+            : <>not set — ERP Access work orders are left unassigned.</>}{' '}
+          <Link to="/users" className="underline hover:text-sky-900">Change in Users → Edit</Link>.
+        </div>
+
         <section className="grid gap-3 sm:grid-cols-3">
           <Stat label="Total" value={counts.total} tone="brand" />
           <Stat label="Active" value={counts.active} tone="accent" />
@@ -231,6 +243,11 @@ export default function Departments() {
                             {!!d.is_hr && (
                               <span className="inline-flex items-center rounded-full bg-accent-50 text-accent-700 ring-1 ring-inset ring-accent-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
                                 HR
+                              </span>
+                            )}
+                            {!!docController && docController.department === d.name && (
+                              <span className="inline-flex items-center rounded-full bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide" title={`Document Controller: ${docController.name}`}>
+                                Doc Controller
                               </span>
                             )}
                           </div>

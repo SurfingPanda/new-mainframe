@@ -14,6 +14,7 @@ namespace App\Services;
 class TicketVisibility
 {
     public const HR_CONCERNS = 'HR Concerns';
+    public const ERP_ACCESS = 'ERP Access';
 
     public static function isStaff(?array $user): bool
     {

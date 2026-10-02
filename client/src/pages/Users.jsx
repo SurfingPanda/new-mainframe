@@ -147,7 +147,8 @@ export default function Users() {
         method: 'PATCH',
         body: JSON.stringify(payload)
       });
-      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      // Only one Document Controller: saving one clears it from everyone else.
+      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : updated.is_document_controller ? { ...u, is_document_controller: 0 } : u)));
       setBanner({ type: 'success', text: `${updated.name} updated.` });
     }
     setEditTarget(null);
@@ -308,6 +309,7 @@ export default function Users() {
                             </div>
                             <div className="text-xs text-slate-500 truncate dark:text-slate-400">
                               {u.job_title ? <>{u.job_title} · {u.email}</> : u.email}
+                              {!!u.is_document_controller && <span className="ml-1.5 rounded bg-accent-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-700 dark:bg-accent-900/30 dark:text-accent-300">Document Controller</span>}
                             </div>
                           </div>
                         </div>
@@ -408,6 +410,7 @@ function UserFormModal({ target, onClose, onSave, onUserUpdate, isSelf }) {
   const [avatarUrl, setAvatarUrl] = useState(isNew ? null : target.avatar_url || null);
   const [departments, setDepartments] = useState([]);
   const [isActive, setIsActive] = useState(isNew ? true : !!target.is_active);
+  const [isDocController, setIsDocController] = useState(isNew ? false : !!target.is_document_controller);
   const [photoBusy, setPhotoBusy] = useState(false);
   const fileRef = useRef(null);
 
@@ -481,8 +484,8 @@ function UserFormModal({ target, onClose, onSave, onUserUpdate, isSelf }) {
     setSubmitting(true);
     try {
       const basePayload = isNew
-        ? { name: name.trim(), email: email.trim(), password, role, department: department.trim() || null, job_title: jobTitle.trim() || null, is_active: isActive }
-        : { name: name.trim(), role, department: department.trim() || null, job_title: jobTitle.trim() || null, is_active: isActive };
+        ? { name: name.trim(), email: email.trim(), password, role, department: department.trim() || null, job_title: jobTitle.trim() || null, is_active: isActive, is_document_controller: isDocController }
+        : { name: name.trim(), role, department: department.trim() || null, job_title: jobTitle.trim() || null, is_active: isActive, is_document_controller: isDocController };
       const payload = isSelf ? basePayload : { ...basePayload, permissions };
       await onSave(payload, isNew);
     } catch (err) {
@@ -583,6 +586,22 @@ function UserFormModal({ target, onClose, onSave, onUserUpdate, isSelf }) {
           />
           Account active
           {isSelf && <span className="text-[11px] text-slate-500 dark:text-slate-400">(you cannot deactivate yourself)</span>}
+        </label>
+
+        <label className="flex items-start gap-2 text-sm text-slate-700 select-none cursor-pointer dark:text-slate-300">
+          <input
+            type="checkbox"
+            checked={isDocController}
+            onChange={(e) => setIsDocController(e.target.checked)}
+            disabled={!isActive || isNew}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-accent-600 focus:ring-accent-500 dark:border-slate-600 dark:bg-slate-800"
+          />
+          <span>
+            Document Controller
+            <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+              Automatically assigned (and emailed) every new ERP Access work order. Only one person can hold this — selecting it moves it from the current Document Controller.{isNew && ' Available after the account is created.'}
+            </span>
+          </span>
         </label>
 
         <PermissionsPanel
