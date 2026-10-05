@@ -33,6 +33,9 @@ return [
     // Laravel's native MAIL_* convention) so this stays diffable against the
     // Node backend's config. See app/Services/Mailer.php: unconfigured = sends
     // are logged no-ops, matching the Node original's "app still works" design.
+    // MAIL_DISABLED=1 forces every send to be a logged no-op even when credentials
+    // are set — used by the Playwright e2e run so it can never email anyone.
+    'mail_disabled' => (bool) env('MAIL_DISABLED', false),
     'resend_api_key' => env('RESEND_API_KEY'),
     'smtp_host' => env('SMTP_HOST'),
     'smtp_port' => env('SMTP_PORT', 587),

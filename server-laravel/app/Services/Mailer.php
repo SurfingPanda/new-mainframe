@@ -34,7 +34,7 @@ class Mailer
 
     public static function isConfigured(): bool
     {
-        return self::resendConfigured() || self::smtpConfigured();
+        return !config('hubly.mail_disabled') && (self::resendConfigured() || self::smtpConfigured());
     }
 
     private static function fromAddress(): string

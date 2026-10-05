@@ -130,7 +130,7 @@ export default function TicketDetail() {
     if (!ticket) return [];
     const changed = [];
     for (const f of DRAFT_FIELDS) {
-      const a = (ticket[f] ?? '') === null ? '' : ticket[f] ?? '';
+      const a = ticket[f] ?? '';
       const b = draft[f] ?? '';
       if (String(a) !== String(b)) changed.push(f);
     }

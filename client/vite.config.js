@@ -31,13 +31,16 @@ function versionFile() {
   };
 }
 
+// The Playwright run (e2e/) points the dev server at its own isolated API on another port.
+const apiTarget = process.env.VITE_PROXY_TARGET || 'http://localhost:8000';
+
 export default defineConfig({
   plugins: [react(), versionFile()],
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:8000',
-      '/uploads': 'http://localhost:8000'
+      '/api': apiTarget,
+      '/uploads': apiTarget
     }
   }
 });

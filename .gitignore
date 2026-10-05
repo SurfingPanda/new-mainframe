@@ -11,3 +11,7 @@ deploy-out
 .client/public/
 .client/public/images
 .CLAUDE.md
+# Playwright (client/e2e)
+client/e2e/.auth/
+client/playwright-report/
+client/test-results/
