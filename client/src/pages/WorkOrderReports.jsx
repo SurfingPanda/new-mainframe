@@ -1,12 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import { ChartBar, ChartDoughnut } from '../components/DashboardCharts.jsx';
 import { api } from '../lib/auth.js';
-import { slaInfo, RESOLVED_STATUSES, TERMINAL_STATUSES } from '../lib/sla.js';
 import { useTaxonomy, requestTypeLabel } from '../lib/categories.js';
-
-const DAY = 86400000;
 
 const STATUS_ORDER = ['open', 'in_progress', 'on_hold', 'pending', 'resolved', 'closed', 'cancelled'];
 const STATUS_LABEL = { open: 'Open', in_progress: 'In progress', on_hold: 'On hold', pending: 'Pending', resolved: 'Resolved', closed: 'Closed', cancelled: 'Cancelled' };
@@ -46,57 +43,26 @@ function presetRange(key) {
   return { from: ymd(start), to: ymd(now) };
 }
 
-function countBy(rows, order, field) {
-  return order.map((k) => rows.filter((r) => r[field] === k).length);
-}
+const zero = (obj, order) => order.map((k) => Number(obj?.[k] || 0));
+const toSeries = (rows) => ({ labels: rows.map((r) => r.label), values: rows.map((r) => r.value) });
 
-function aggregate(rows, field, fallback) {
-  const map = new Map();
-  for (const r of rows) {
-    const key = (r?.[field] && String(r[field]).trim()) || fallback;
-    map.set(key, (map.get(key) || 0) + 1);
-  }
-  return Array.from(map, ([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
-}
-
-// Monthly buckets spanning the active range (or earliest row -> now for "all
-// time"), capped to the most recent 12 months.
-function monthSeries(rows, fromMs, toMs) {
-  const end = Number.isFinite(toMs) ? new Date(toMs) : new Date();
-  let start;
-  if (Number.isFinite(fromMs)) {
-    start = new Date(fromMs);
-  } else {
-    const times = rows.map((r) => (r.created_at ? new Date(r.created_at).getTime() : NaN)).filter((n) => !Number.isNaN(n));
-    start = times.length ? new Date(Math.min(...times)) : new Date(end.getFullYear(), end.getMonth() - 5, 1);
-  }
-  const months = [];
-  let y = start.getFullYear();
-  let m = start.getMonth();
-  while ((y < end.getFullYear() || (y === end.getFullYear() && m <= end.getMonth())) && months.length < 24) {
-    months.push({ y, m, key: `${y}-${m}`, count: 0 });
-    if (++m > 11) { m = 0; y += 1; }
-  }
-  const capped = months.length > 12 ? months.slice(-12) : months;
-  const multiYear = capped.length > 0 && capped[0].y !== capped[capped.length - 1].y;
-  const index = new Map(capped.map((b) => [b.key, b]));
-  for (const r of rows) {
-    if (!r.created_at) continue;
-    const d = new Date(r.created_at);
-    const b = index.get(`${d.getFullYear()}-${d.getMonth()}`);
-    if (b) b.count += 1;
-  }
-  const fmt = (b) => {
-    const label = new Date(b.y, b.m, 1).toLocaleDateString(undefined, { month: 'short' });
-    return multiYear ? `${label} ${String(b.y).slice(2)}` : label;
+// Server month buckets ({ y, m (0-based), count }) -> chart labels; the year is
+// shown only when the range spans more than one.
+function monthSeries(buckets) {
+  const list = Array.isArray(buckets) ? buckets : [];
+  const multiYear = list.length > 0 && list[0].y !== list[list.length - 1].y;
+  const label = (b) => {
+    const mon = new Date(b.y, b.m, 1).toLocaleDateString(undefined, { month: 'short' });
+    return multiYear ? `${mon} ${String(b.y).slice(2)}` : mon;
   };
-  return { labels: capped.map(fmt), values: capped.map((b) => b.count) };
+  return { labels: list.map(label), values: list.map((b) => b.count) };
 }
 
 
 export default function WorkOrderReports() {
   const { requestTypes } = useTaxonomy();
-  const [tickets, setTickets] = useState([]);
+  // Aggregates computed by the API (GET /api/tickets/reports) — the queue itself is never shipped here.
+  const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -104,12 +70,19 @@ export default function WorkOrderReports() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
+  // A request counter drops responses superseded by a newer date-range change.
+  const reqId = useRef(0);
   useEffect(() => {
-    api('/api/tickets')
-      .then((list) => { setTickets(Array.isArray(list) ? list : []); setError(''); })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
+    const id = ++reqId.current;
+    const params = new URLSearchParams({ tz_offset: String(new Date().getTimezoneOffset()) });
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    setLoading(true);
+    api(`/api/tickets/reports?${params.toString()}`)
+      .then((r) => { if (id === reqId.current) { setReport(r); setError(''); } })
+      .catch((e) => { if (id === reqId.current) setError(e.message); })
+      .finally(() => { if (id === reqId.current) setLoading(false); });
+  }, [from, to]);
 
   const applyPreset = (key) => {
     const r = presetRange(key);
@@ -118,79 +91,36 @@ export default function WorkOrderReports() {
     setTo(r.to);
   };
 
-  const fromMs = useMemo(() => (from ? new Date(`${from}T00:00:00`).getTime() : -Infinity), [from]);
-  const toMs = useMemo(() => (to ? new Date(`${to}T23:59:59.999`).getTime() : Infinity), [to]);
+  const r = useMemo(() => report || {}, [report]);
+  const rs = r.stats || {};
+  const stats = { total: rs.total || 0, open: rs.open || 0, incidents: rs.incidents || 0, overdueOpen: rs.overdue_open || 0, withinPct: rs.within_pct ?? null };
 
-  const filtered = useMemo(() => tickets.filter((t) => {
-    if (!t.created_at) return fromMs === -Infinity && toMs === Infinity;
-    const c = new Date(t.created_at).getTime();
-    return c >= fromMs && c <= toMs;
-  }), [tickets, fromMs, toMs]);
-
-  const incidents = useMemo(() => filtered.filter((t) => t.request_type === 'incident'), [filtered]);
-  const active = useMemo(() => filtered.filter((t) => !TERMINAL_STATUSES.has(t.status)), [filtered]);
-  const resolved = useMemo(() => filtered.filter((t) => RESOLVED_STATUSES.has(t.status)), [filtered]);
-
-  const stats = useMemo(() => {
-    const overdueOpen = active.filter((t) => slaInfo(t)?.overdue).length;
-    const resolvedWithin = resolved.filter((t) => { const s = slaInfo(t); return s && !s.overdue; }).length;
-    const withinPct = resolved.length ? Math.round((resolvedWithin / resolved.length) * 100) : null;
-    return { total: filtered.length, open: active.length, incidents: incidents.length, overdueOpen, withinPct };
-  }, [filtered, active, resolved, incidents]);
-
-  const byStatus = useMemo(() => ({ labels: STATUS_ORDER.map((s) => STATUS_LABEL[s]), values: countBy(filtered, STATUS_ORDER, 'status') }), [filtered]);
-  const byPriority = useMemo(() => ({ labels: PRIORITY_ORDER.map((p) => p[0].toUpperCase() + p.slice(1)), values: countBy(filtered, PRIORITY_ORDER, 'priority'), colors: PRIORITY_ORDER.map((p) => PRIORITY_COLORS[p]) }), [filtered]);
+  const byStatus = useMemo(() => ({ labels: STATUS_ORDER.map((s) => STATUS_LABEL[s]), values: zero(r.by_status, STATUS_ORDER) }), [r]);
+  const byPriority = useMemo(() => ({ labels: PRIORITY_ORDER.map((p) => p[0].toUpperCase() + p.slice(1)), values: zero(r.by_priority, PRIORITY_ORDER), colors: PRIORITY_ORDER.map((p) => PRIORITY_COLORS[p]) }), [r]);
   const byReqType = useMemo(() => {
     // Configured order first, then any type still on old work orders but since hidden/deleted.
+    const counts = r.by_request_type || {};
     const order = requestTypes.map((t) => t.key);
-    for (const t of filtered) if (t.request_type && !order.includes(t.request_type)) order.push(t.request_type);
+    for (const k of Object.keys(counts)) if (!order.includes(k)) order.push(k);
     let extra = 0;
     return {
       labels: order.map((k) => requestTypeLabel(requestTypes, k)),
-      values: countBy(filtered, order, 'request_type'),
+      values: order.map((k) => Number(counts[k] || 0)),
       colors: order.map((k) => REQ_COLORS[k] || REQ_EXTRA_COLORS[extra++ % REQ_EXTRA_COLORS.length])
     };
-  }, [filtered, requestTypes]);
-  const byDept = useMemo(() => { const d = aggregate(filtered, 'department', 'Unassigned').slice(0, 8); return { labels: d.map((x) => x.label), values: d.map((x) => x.value) }; }, [filtered]);
-  const openByAssignee = useMemo(() => { const d = aggregate(active, 'assignee', 'Unassigned').slice(0, 8); return { labels: d.map((x) => x.label), values: d.map((x) => x.value) }; }, [active]);
-  const woByMonth = useMemo(() => monthSeries(filtered, fromMs, toMs), [filtered, fromMs, toMs]);
+  }, [r, requestTypes]);
+  const byDept = useMemo(() => toSeries(r.by_department || []), [r]);
+  const openByAssignee = useMemo(() => toSeries(r.open_by_assignee || []), [r]);
+  const woByMonth = useMemo(() => monthSeries(r.volume_by_month), [r]);
 
-  const incByPriority = useMemo(() => ({ labels: PRIORITY_ORDER.map((p) => p[0].toUpperCase() + p.slice(1)), values: countBy(incidents, PRIORITY_ORDER, 'priority'), colors: PRIORITY_ORDER.map((p) => PRIORITY_COLORS[p]) }), [incidents]);
-  const incByStatus = useMemo(() => ({ labels: STATUS_ORDER.map((s) => STATUS_LABEL[s]), values: countBy(incidents, STATUS_ORDER, 'status') }), [incidents]);
-  const incByMonth = useMemo(() => monthSeries(incidents, fromMs, toMs), [incidents, fromMs, toMs]);
+  const incByPriority = useMemo(() => ({ labels: PRIORITY_ORDER.map((p) => p[0].toUpperCase() + p.slice(1)), values: zero(r.incidents_by_priority, PRIORITY_ORDER), colors: PRIORITY_ORDER.map((p) => PRIORITY_COLORS[p]) }), [r]);
+  const incByStatus = useMemo(() => ({ labels: STATUS_ORDER.map((s) => STATUS_LABEL[s]), values: zero(r.incidents_by_status, STATUS_ORDER) }), [r]);
+  const incByMonth = useMemo(() => monthSeries(r.incidents_by_month), [r]);
 
-  const slaCompliance = useMemo(() => {
-    const within = resolved.filter((t) => { const s = slaInfo(t); return s && !s.overdue; }).length;
-    const breached = resolved.filter((t) => slaInfo(t)?.overdue).length;
-    return { labels: ['Within SLA', 'Breached'], values: [within, breached], colors: [C.accent, C.rose] };
-  }, [resolved]);
-
-  const openSlaHealth = useMemo(() => {
-    let onTrack = 0, dueSoon = 0, overdue = 0;
-    for (const t of active) {
-      const s = slaInfo(t);
-      if (!s) continue;
-      if (s.overdue) overdue += 1;
-      else if (s.remaining < s.totalMs * 0.25) dueSoon += 1;
-      else onTrack += 1;
-    }
-    return { labels: ['On track', 'Due soon', 'Overdue'], values: [onTrack, dueSoon, overdue] };
-  }, [active]);
-
-  const breachesByPriority = useMemo(() => ({
-    labels: PRIORITY_ORDER.map((p) => p[0].toUpperCase() + p.slice(1)),
-    values: PRIORITY_ORDER.map((p) => filtered.filter((t) => t.priority === p && slaInfo(t)?.overdue).length)
-  }), [filtered]);
-
-  const avgResolutionByPriority = useMemo(() => ({
-    labels: PRIORITY_ORDER.map((p) => p[0].toUpperCase() + p.slice(1)),
-    values: PRIORITY_ORDER.map((p) => {
-      const items = resolved.filter((t) => t.priority === p && t.created_at && t.updated_at);
-      if (!items.length) return 0;
-      const sum = items.reduce((acc, t) => acc + Math.max(0, new Date(t.updated_at) - new Date(t.created_at)), 0);
-      return Math.round((sum / items.length / DAY) * 10) / 10;
-    })
-  }), [resolved]);
+  const slaCompliance = { labels: ['Within SLA', 'Breached'], values: [r.sla_compliance?.within || 0, r.sla_compliance?.breached || 0], colors: [C.accent, C.rose] };
+  const openSlaHealth = { labels: ['On track', 'Due soon', 'Overdue'], values: [r.open_sla_health?.on_track || 0, r.open_sla_health?.due_soon || 0, r.open_sla_health?.overdue || 0] };
+  const breachesByPriority = { labels: PRIORITY_ORDER.map((p) => p[0].toUpperCase() + p.slice(1)), values: zero(r.breaches_by_priority, PRIORITY_ORDER) };
+  const avgResolutionByPriority = { labels: PRIORITY_ORDER.map((p) => p[0].toUpperCase() + p.slice(1)), values: zero(r.avg_resolution_days, PRIORITY_ORDER) };
 
   const rangeLabel = from || to
     ? `${from || '…'} → ${to || 'today'}`
@@ -271,7 +201,7 @@ export default function WorkOrderReports() {
         ) : (
           <>
             <p className="text-xs text-slate-500">
-              Showing <span className="font-semibold text-slate-700">{filtered.length}</span> of {tickets.length} work orders
+              Showing <span className="font-semibold text-slate-700">{stats.total}</span> of {r.scope_total ?? 0} work orders
               {' · '}<span className="font-medium">{rangeLabel}</span>
             </p>
 

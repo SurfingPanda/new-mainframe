@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import BulkTicketActionBar from '../components/BulkTicketActionBar.jsx';
 import { api, getUser } from '../lib/auth.js';
-import { formatTicketId, matchesTicketId, truncateWords } from '../lib/ticket.js';
+import { formatTicketId, truncateWords } from '../lib/ticket.js';
 
 const STATUSES = [
   { key: 'open', label: 'Open' },
@@ -24,19 +24,23 @@ const SORTS = [
   { key: 'priority', label: 'Priority' }
 ];
 
-const PRIORITY_RANK = { urgent: 0, high: 1, normal: 2, low: 3 };
-const PAGE_SIZE = 7;
+const PAGE_SIZE = 20;
 
 export default function AllTickets() {
   const location = useLocation();
   const navigate = useNavigate();
   const user = getUser();
   const isStaff = user?.role === 'admin' || user?.role === 'agent';
-  const [tickets, setTickets] = useState([]);
+  // One server page of work orders (filters/sort/paging run in the API — GET /api/tickets?page=…).
+  const [pageRows, setPageRows] = useState([]);
+  const [total, setTotal] = useState(0);            // rows matching the current filters
+  const [counts, setCounts] = useState({});         // per-status counts for the whole visible queue
+  const [facets, setFacets] = useState({ assignees: [], categories: [] });
+  const [newCount, setNewCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [banner, setBanner] = useState(location.state?.banner || null);
-  const [capped, setCapped] = useState(false); // server truncated the queue (see X-Result-Capped)
+  const [capped, setCapped] = useState(false); // overdue filter scanned only the most recent work orders
   const [assignableUsers, setAssignableUsers] = useState([]);
   const [selected, setSelected] = useState(new Set());
 
@@ -72,25 +76,47 @@ export default function AllTickets() {
   const [sort, setSort] = useState('newest');
   const [page, setPage] = useState(1);
 
-  // scope=all returns every work order (not just the caller's own/department)
-  // so any user can browse and search the full queue here. withMeta surfaces
-  // the server's cap signal so we can warn the user instead of silently
-  // filtering/searching a truncated set.
+  // Fetch the current page. A request counter drops responses that were superseded
+  // by a newer filter/page change while they were in flight.
+  const reqId = useRef(0);
   const loadTickets = () => {
+    const id = ++reqId.current;
+    const params = new URLSearchParams({
+      scope: 'all',
+      page: String(page),
+      pageSize: String(PAGE_SIZE),
+      sort,
+      new_since: String(seenThreshold)
+    });
+    if (query) params.set('q', query);
+    if (statusFilter.size) params.set('status', [...statusFilter].join(','));
+    if (priorityFilter !== 'all') params.set('priority', priorityFilter);
+    if (assigneeFilter !== 'all') params.set('assignee', assigneeFilter);
+    if (categoryFilter !== 'all') params.set('category', categoryFilter);
+    if (overdueOnly) params.set('overdue', '1');
     setLoading(true);
-    return api('/api/tickets?scope=all', { withMeta: true })
-      .then(({ data, capped }) => {
-        setTickets(Array.isArray(data) ? data : []);
-        setCapped(capped);
+    return api(`/api/tickets?${params.toString()}`)
+      .then((res) => {
+        if (id !== reqId.current) return;
+        setPageRows(Array.isArray(res?.items) ? res.items : []);
+        setTotal(res?.total || 0);
+        setCounts(res?.counts || {});
+        setFacets(res?.facets || { assignees: [], categories: [] });
+        setNewCount(res?.new_count || 0);
+        setCapped(!!res?.capped);
+        setError('');
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch((e) => { if (id === reqId.current) setError(e.message); })
+      .finally(() => { if (id === reqId.current) setLoading(false); });
   };
 
   useEffect(() => {
-    loadTickets();
     if (isStaff) api('/api/users/assignable').then(setAssignableUsers).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    loadTickets();
+  }, [query, statusFilter, priorityFilter, assigneeFilter, categoryFilter, overdueOnly, sort, page]);
 
   // Once the list has loaded and the user has seen it, advance the "last viewed"
   // mark so these same work orders aren't flagged New on the next visit.
@@ -98,59 +124,24 @@ export default function AllTickets() {
     if (!loading) localStorage.setItem(seenKey, String(Date.now()));
   }, [loading]);
 
-  const newCount = useMemo(() => tickets.filter(isNew).length, [tickets, seenThreshold]);
+  const assignees = facets.assignees || [];
+  const categories = facets.categories || [];
+  const scopeTotal = Object.values(counts).reduce((n, c) => n + Number(c || 0), 0);
 
-  const assignees = useMemo(() => {
-    const set = new Set();
-    tickets.forEach((t) => t.assignee && set.add(t.assignee));
-    return Array.from(set).sort();
-  }, [tickets]);
-
-  const categories = useMemo(() => {
-    const set = new Set();
-    tickets.forEach((t) => t.category && set.add(t.category));
-    return Array.from(set).sort();
-  }, [tickets]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    let rows = tickets.filter((t) => {
-      if (statusFilter.size && !statusFilter.has(t.status)) return false;
-      if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
-      if (categoryFilter !== 'all' && t.category !== categoryFilter) return false;
-      if (overdueOnly && !(t.sla?.overdue && !t.sla?.resolved)) return false;
-      if (assigneeFilter === 'unassigned' && t.assignee) return false;
-      if (assigneeFilter !== 'all' && assigneeFilter !== 'unassigned' && t.assignee !== assigneeFilter) return false;
-      if (!q) return true;
-      return t.title.toLowerCase().includes(q) || matchesTicketId(t.id, q);
-    });
-
-    rows = [...rows].sort((a, b) => {
-      switch (sort) {
-        case 'oldest':
-          return new Date(a.created_at) - new Date(b.created_at);
-        case 'updated':
-          return new Date(b.updated_at) - new Date(a.updated_at);
-        case 'priority':
-          return (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9);
-        case 'newest':
-        default:
-          return new Date(b.created_at) - new Date(a.created_at);
-      }
-    });
-
-    return rows;
-  }, [tickets, query, statusFilter, priorityFilter, assigneeFilter, categoryFilter, overdueOnly, sort]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageStart = (safePage - 1) * PAGE_SIZE;
-  const pageRows = filtered.slice(pageStart, pageStart + PAGE_SIZE);
 
+  // Any filter/sort change returns to page 1; the page effect above then refetches.
   useEffect(() => {
     setPage(1);
     setSelected(new Set());
   }, [query, statusFilter, priorityFilter, assigneeFilter, categoryFilter, overdueOnly, sort]);
+
+  // If the last page empties (e.g. rows were bulk-updated away), step back.
+  useEffect(() => {
+    if (!loading && page > totalPages) setPage(totalPages);
+  }, [loading, page, totalPages]);
 
   const toggleSelected = (id) => {
     setSelected((prev) => {
@@ -192,12 +183,6 @@ export default function AllTickets() {
     setSort('newest');
   };
 
-  const counts = useMemo(() => {
-    const c = { open: 0, in_progress: 0, on_hold: 0, pending: 0, resolved: 0, closed: 0, cancelled: 0 };
-    tickets.forEach((t) => { if (c[t.status] != null) c[t.status]++; });
-    return c;
-  }, [tickets]);
-
   const hasActiveFilters =
     query || statusFilter.size > 0 || priorityFilter !== 'all' || assigneeFilter !== 'all' ||
     categoryFilter !== 'all' || overdueOnly;
@@ -224,7 +209,7 @@ export default function AllTickets() {
             <p className="mt-1 text-slate-600">
               {loading
                 ? 'Loading work orders…'
-                : `${filtered.length} of ${tickets.length} ${tickets.length === 1 ? 'work order' : 'work orders'} shown`}
+                : `${total} of ${scopeTotal} ${scopeTotal === 1 ? 'work order' : 'work orders'} shown`}
               {!loading && newCount > 0 && (
                 <span className="ml-2 inline-flex items-center rounded-full bg-accent-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white align-middle">
                   {newCount} new
@@ -282,8 +267,8 @@ export default function AllTickets() {
               <path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
             </svg>
             <span className="flex-1">
-              Showing the most recent {tickets.length.toLocaleString()} work orders — the full queue is larger.
-              Use search or filters to find older ones.
+              The Overdue filter only checked the most recent 2,000 matching work orders — older ones aren't included.
+              Narrow it with search or other filters.
             </span>
           </div>
         )}
@@ -450,15 +435,15 @@ export default function AllTickets() {
                   <tr>
                     <td colSpan={isStaff ? 9 : 8} className="px-5 py-12 text-center">
                       <p className="text-sm font-semibold text-slate-700">
-                        {tickets.length === 0 ? 'No work orders yet' : 'No work orders match your filters'}
+                        {scopeTotal === 0 ? 'No work orders yet' : 'No work orders match your filters'}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
-                        {tickets.length === 0
+                        {scopeTotal === 0
                           ? 'Open the first work order to get started.'
                           : 'Try clearing filters or broadening your search.'}
                       </p>
                       <div className="mt-4">
-                        {tickets.length === 0 ? (
+                        {scopeTotal === 0 ? (
                           <Link to="/tickets/create" className="btn-primary !px-3.5 !py-2 text-xs">Create work order</Link>
                         ) : (
                           <button onClick={clearFilters} className="btn-secondary !px-3.5 !py-2 text-xs">Clear filters</button>
@@ -519,12 +504,12 @@ export default function AllTickets() {
             </table>
           </div>
 
-          {!loading && filtered.length > 0 && (
+          {!loading && total > 0 && (
             <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 sm:flex-row">
               <span className="text-xs text-slate-500">
                 Showing <span className="font-semibold text-slate-700">{pageStart + 1}</span>–
-                <span className="font-semibold text-slate-700">{Math.min(pageStart + PAGE_SIZE, filtered.length)}</span>{' '}
-                of <span className="font-semibold text-slate-700">{filtered.length}</span>
+                <span className="font-semibold text-slate-700">{Math.min(pageStart + PAGE_SIZE, total)}</span>{' '}
+                of <span className="font-semibold text-slate-700">{total}</span>
               </span>
               <div className="flex items-center gap-1">
                 <button

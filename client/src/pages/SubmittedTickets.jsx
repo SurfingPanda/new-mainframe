@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import { api, getUser } from '../lib/auth.js';
-import { formatTicketId, matchesTicketId, truncateWords } from '../lib/ticket.js';
+import { formatTicketId, truncateWords } from '../lib/ticket.js';
 
 const STATUSES = [
   { key: 'open', label: 'Open' },
@@ -29,25 +29,20 @@ const SORTS = [
   { key: 'priority', label: 'Priority' }
 ];
 
-const PRIORITY_RANK = { urgent: 0, high: 1, normal: 2, low: 3 };
 const PAGE_SIZE = 10;
 const ACTIVE_STATUSES = new Set(['open', 'in_progress', 'on_hold', 'pending']);
-
-function matchesMe(field, name, email) {
-  if (!field) return false;
-  const f = String(field).trim().toLowerCase();
-  if (!f) return false;
-  if (name && f === name) return true;
-  if (email && f === email) return true;
-  return false;
-}
+const ZERO_COUNTS = { open: 0, in_progress: 0, on_hold: 0, pending: 0, resolved: 0, closed: 0, cancelled: 0 };
 
 export default function SubmittedTickets() {
   const user = getUser();
   const meName = (user?.name || '').trim().toLowerCase();
   const meEmail = (user?.email || '').trim().toLowerCase();
 
-  const [tickets, setTickets] = useState([]);
+  // One server page of the work orders I requested or am assigned (see loadTickets).
+  const [pageRows, setPageRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [counts, setCounts] = useState(ZERO_COUNTS);
+  const [roleCounts, setRoleCounts] = useState({ owner: 0, assignee: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -59,68 +54,49 @@ export default function SubmittedTickets() {
   const [page, setPage] = useState(1);
   const [showResolvedClosed, setShowResolvedClosed] = useState(false);
 
-  useEffect(() => {
-    api('/api/tickets')
-      .then(setTickets)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const involved = useMemo(() => {
-    if (!meName && !meEmail) return [];
-    return tickets
-      .map((t) => {
-        const isOwner = matchesMe(t.requester, meName, meEmail);
-        const isAssignee = matchesMe(t.assignee, meName, meEmail);
-        if (!isOwner && !isAssignee) return null;
-        return { ...t, _role: isOwner && isAssignee ? 'both' : isOwner ? 'owner' : 'assignee' };
+  // One server page (GET /api/tickets?scope=involved&page=…): filtering, sorting and paging
+  // run in the API. A request counter drops responses superseded by a newer change.
+  const reqId = useRef(0);
+  const loadTickets = () => {
+    const id = ++reqId.current;
+    const params = new URLSearchParams({ scope: 'involved', page: String(page), pageSize: String(PAGE_SIZE), sort });
+    if (query) params.set('q', query);
+    if (statusFilter.size) params.set('status', [...statusFilter].join(','));
+    if (priorityFilter !== 'all') params.set('priority', priorityFilter);
+    if (!showResolvedClosed) params.set('active', '1');
+    if (roleFilter !== 'all') params.set('role', roleFilter);
+    setLoading(true);
+    return api(`/api/tickets?${params.toString()}`)
+      .then((res) => {
+        if (id !== reqId.current) return;
+        setPageRows(Array.isArray(res?.items) ? res.items : []);
+        setTotal(res?.total || 0);
+        setCounts({ ...ZERO_COUNTS, ...(res?.counts || {}) });
+        setRoleCounts(res?.role_counts || { owner: 0, assignee: 0 });
+        setError('');
       })
-      .filter(Boolean);
-  }, [tickets, meName, meEmail]);
+      .catch((e) => { if (id === reqId.current) setError(e.message); })
+      .finally(() => { if (id === reqId.current) setLoading(false); });
+  };
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    let rows = involved.filter((t) => {
-      if (!showResolvedClosed && !ACTIVE_STATUSES.has(t.status)) return false;
-      if (statusFilter.size && !statusFilter.has(t.status)) return false;
-      if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
-      if (roleFilter === 'owner' && t._role === 'assignee') return false;
-      if (roleFilter === 'assignee' && t._role === 'owner') return false;
-      if (!q) return true;
-      return (
-        t.title.toLowerCase().includes(q) ||
-        matchesTicketId(t.id, q) ||
-        (t.requester || '').toLowerCase().includes(q) ||
-        (t.assignee || '').toLowerCase().includes(q) ||
-        (t.description || '').toLowerCase().includes(q)
-      );
-    });
+  useEffect(() => {
+    loadTickets();
+  }, [query, statusFilter, priorityFilter, roleFilter, sort, showResolvedClosed, page]);
 
-    rows = [...rows].sort((a, b) => {
-      switch (sort) {
-        case 'oldest':
-          return new Date(a.created_at) - new Date(b.created_at);
-        case 'updated':
-          return new Date(b.updated_at) - new Date(a.updated_at);
-        case 'priority':
-          return (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9);
-        case 'newest':
-        default:
-          return new Date(b.created_at) - new Date(a.created_at);
-      }
-    });
-
-    return rows;
-  }, [involved, query, statusFilter, priorityFilter, roleFilter, sort, showResolvedClosed]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const scopeTotal = Object.values(counts).reduce((n, c) => n + Number(c || 0), 0);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageStart = (safePage - 1) * PAGE_SIZE;
-  const pageRows = filtered.slice(pageStart, pageStart + PAGE_SIZE);
 
+  // Any filter/sort change returns to page 1; the page effect above then refetches.
   useEffect(() => {
     setPage(1);
   }, [query, statusFilter, priorityFilter, roleFilter, sort, showResolvedClosed]);
+
+  // If the last page empties (e.g. rows were bulk-updated away), step back.
+  useEffect(() => {
+    if (!loading && page > totalPages) setPage(totalPages);
+  }, [loading, page, totalPages]);
 
   const toggleStatus = (key) => {
     const next = new Set(statusFilter);
@@ -136,22 +112,6 @@ export default function SubmittedTickets() {
     setRoleFilter('all');
     setSort('newest');
   };
-
-  const counts = useMemo(() => {
-    const c = { open: 0, in_progress: 0, on_hold: 0, pending: 0, resolved: 0, closed: 0, cancelled: 0 };
-    involved.forEach((t) => { if (c[t.status] != null) c[t.status]++; });
-    return c;
-  }, [involved]);
-
-  const roleCounts = useMemo(() => {
-    let owner = 0, assignee = 0, both = 0;
-    involved.forEach((t) => {
-      if (t._role === 'owner') owner++;
-      else if (t._role === 'assignee') assignee++;
-      else if (t._role === 'both') both++;
-    });
-    return { owner: owner + both, assignee: assignee + both };
-  }, [involved]);
 
   const activeCount = counts.open + counts.in_progress + counts.on_hold + counts.pending;
   const hasActiveFilters = query || statusFilter.size > 0 || priorityFilter !== 'all' || roleFilter !== 'all';
@@ -303,17 +263,17 @@ export default function SubmittedTickets() {
                   <tr>
                     <td colSpan={8} className="px-5 py-12 text-center">
                       <p className="text-sm font-semibold text-slate-700">
-                        {involved.length === 0
+                        {scopeTotal === 0
                           ? 'No work orders you own or are working on'
                           : 'No work orders match your filters'}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
-                        {involved.length === 0
+                        {scopeTotal === 0
                           ? 'Work orders you submit, or that are filed on your behalf, will appear here.'
                           : 'Try clearing filters or broadening your search.'}
                       </p>
                       <div className="mt-4">
-                        {involved.length === 0 ? (
+                        {scopeTotal === 0 ? (
                           <Link to="/tickets/create" className="btn-secondary !px-3.5 !py-2 text-xs">Create a work order</Link>
                         ) : (
                           <button onClick={clearFilters} className="btn-secondary !px-3.5 !py-2 text-xs">Clear filters</button>
@@ -329,7 +289,7 @@ export default function SubmittedTickets() {
                           {formatTicketId(t.id)}
                         </Link>
                       </td>
-                      <td className="px-5 py-3"><RolePill role={t._role} /></td>
+                      <td className="px-5 py-3"><RolePill role={t.my_role} /></td>
                       <td className="px-5 py-3 max-w-md">
                         <Link to={`/tickets/${t.id}`} className="block">
                           <span className="font-medium text-slate-800 line-clamp-1">{t.title}</span>
@@ -350,12 +310,12 @@ export default function SubmittedTickets() {
             </table>
           </div>
 
-          {!loading && filtered.length > 0 && (
+          {!loading && total > 0 && (
             <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 sm:flex-row">
               <span className="text-xs text-slate-500">
                 Showing <span className="font-semibold text-slate-700">{pageStart + 1}</span>–
-                <span className="font-semibold text-slate-700">{Math.min(pageStart + PAGE_SIZE, filtered.length)}</span>{' '}
-                of <span className="font-semibold text-slate-700">{filtered.length}</span>
+                <span className="font-semibold text-slate-700">{Math.min(pageStart + PAGE_SIZE, total)}</span>{' '}
+                of <span className="font-semibold text-slate-700">{total}</span>
               </span>
               <div className="flex items-center gap-1">
                 <button

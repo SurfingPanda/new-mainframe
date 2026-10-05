@@ -108,7 +108,7 @@ All routes are in `server-laravel/routes/api.php` (under `/api`), plus `routes/u
 | --- | --- |
 | `/api/health` | DB ping + `build: { sha, time }` (from `build.json`, written by the deploy script; `null` in a checkout) |
 | `/api/auth` | Login/logout (httpOnly cookie), `/me` (+ `PATCH` name/job_title), `/me/stats` (technician scorecard), `/me/preferences` (GET/PATCH), `/me/invalidate-sessions`, `/me/avatar` + `/me/signature` (POST/DELETE), change / forgot / reset password |
-| `/api/tickets` | Work orders: list/create/detail/update, bulk update, activity + notes, attachments, KB links, watchers, self-claim/release, HR approve/deny. `GET /:id` returns `can_edit`, `can_post_note`, `can_approve` |
+| `/api/tickets` | Work orders: list/create/detail/update (`GET /` returns a bare array capped at 2000; **with `?page=` it is server-paginated** — `scope` = `all` (All Work Orders) / `assigned` (My Queue) / `involved` (Submitted; items get `my_role`, response `role_counts`), `status`, `priority`, `assignee`, `category`, `role`, `active=1`, `q` (title or WO id; assigned/involved also match requester/assignee/description), `overdue`, `sort`, `pageSize` ≤100 — returning `{items,total,page,pageSize,counts,facets,new_count,capped,role_counts}`), `GET /summary` (dashboard: `{total,open,high_priority,recent}`), `GET /reports?from=&to=&tz_offset=` (admin/agent role; Work Order Reports aggregates computed server-side in `TicketReports`),  bulk update, activity + notes, attachments, KB links, watchers, self-claim/release, HR approve/deny. `GET /:id` returns `can_edit`, `can_post_note`, `can_approve` |
 | `/api/taxonomy` | `GET /` (active request types + category tree, any signed-in user); `users.manage`: `GET /manage` (all + usage counts), CRUD `/request-types`, `/categories`, `POST /reorder` |
 | `/api/settings` | `GET`/`PUT /sla` — flat per-priority SLA day defaults (read: anyone; write: `users.manage`) |
 | `/api/sla` | SLA policies, business-hours calendars + holidays, `/meta` (`users.manage`) |
@@ -219,16 +219,20 @@ cd server-laravel && php artisan test
 # build (frontend)
 cd client && npm run build
 
+# lint + browser smoke tests (frontend)
+cd client && npm run lint            # ESLint; errors = real bugs (undefined names, hook rules), the rest are warnings
+cd client && npm run test:e2e        # Playwright; self-contained, see below
+
 # package a deploy (from repo root)
 node scripts/package-deploy.mjs            # --allow-dirty, --vendor, --skip-tests
 ```
 
-**Tests:** `tests/Unit/` covers pure helpers (Permissions, TicketVisibility, SlaPolicies, BusinessHours, SpacesHelpers, Automation). `tests/Feature/` makes real HTTP calls against the local `mainframe_app` database inside rolled-back transactions (`DatabaseTransactions`), so they need the DB up and every `sql/` migration applied. Tests that trigger mail fake the Resend endpoint (`Http::fake`) so nothing is ever sent, even if run on a server with real mail credentials. No frontend test runner and no linter are configured — propose one before installing.
+**Tests:** `tests/Unit/` covers pure helpers (Permissions, TicketVisibility, SlaPolicies, BusinessHours, SpacesHelpers, Automation). `tests/Feature/` makes real HTTP calls against the local `mainframe_app` database inside rolled-back transactions (`DatabaseTransactions`), so they need the DB up and every `sql/` migration applied. Tests that trigger mail fake the Resend endpoint (`Http::fake`) so nothing is ever sent, even if run on a server with real mail credentials. **Frontend:** ESLint (`client/eslint.config.js`) and Playwright smoke tests (`client/e2e/` — sign-in, create work order, ERP Access routing/locking, HR form date defaults). `npm run test:e2e` is self-contained: it starts its own API on `:8010` (`MAIL_DISABLED=1`, `CACHE_STORE=array`) and Vite on `:5180`, seeds throw-away `@e2e.test` accounts into the **local** database via `php artisan e2e:data seed` (refuses in production; takes the single Document Controller designation and hands it back on `cleanup`), drives your installed Chrome (`PW_BROWSER=bundled` for Playwright's Chromium), then removes everything it created. It never uses your dev servers. Add a spec when you add a form rule worth protecting.
 
 ## Database and migrations
 
 - **There is no single up-to-date schema file in the repo.** The original `server/sql/schema.sql` was deleted with `server/`; its last version is in git history (`git show afe5d05:server/sql/schema.sql`). A fresh database = that file, then every file in `server-laravel/sql/` in order.
-- **Schema changes are hand-written SQL files in `server-laravel/sql/`**, run once per database (locally and on production) **before** deploying the code that needs them. Current files: `add-cancelled-ticket-status.sql`, `add-sla-warning-markers.sql`, `add-ticket-taxonomy.sql`, `add-document-controller.sql`. There's no runner or applied-migrations table yet, so always tell the user exactly which file(s) must be run on production.
+- **Schema changes are hand-written SQL files in `server-laravel/sql/`**, run once per database (locally and on production) **before** deploying the code that needs them. Current files: `add-cancelled-ticket-status.sql`, `add-sla-warning-markers.sql`, `add-ticket-taxonomy.sql`, `add-document-controller.sql`, `add-ticket-list-indexes.sql`. There's no runner or applied-migrations table yet, so always tell the user exactly which file(s) must be run on production.
 - Make migrations additive and safe to re-run where possible (`CREATE TABLE IF NOT EXISTS`, `INSERT IGNORE` against a unique key). Plain `ADD COLUMN` (no `IF NOT EXISTS`) keeps MySQL 8 compatibility; say in the file header that a second run will just fail with "Duplicate column".
 - Avoid destructive changes (DROP COLUMN, type narrowing) unless explicitly requested.
 - Never run `php artisan migrate`.

@@ -84,6 +84,31 @@ class Sla
     }
 
     /**
+     * Add the computed `sla` standing to each row (plain arrays with the ticket
+     * columns standing() needs). One query fetches every row's status changes.
+     */
+    public static function attachStanding(array $rows): array
+    {
+        if (!$rows) {
+            return [];
+        }
+        $byTicket = [];
+        $changes = \Illuminate\Support\Facades\DB::table('ticket_activity')
+            ->select('ticket_id', 'field', 'old_value', 'new_value', 'created_at')
+            ->whereIn('ticket_id', array_column($rows, 'id'))->where('type', 'change')->where('field', 'status')
+            ->orderBy('created_at')
+            ->get();
+        foreach ($changes as $c) {
+            $byTicket[$c->ticket_id][] = (array) $c;
+        }
+        foreach ($rows as &$r) {
+            $r['sla'] = self::standing($r, $byTicket[$r['id']] ?? []);
+        }
+        unset($r);
+        return $rows;
+    }
+
+    /**
      * Pause-aware SLA standing for a ticket given its status-change rows.
      * Returns null when the ticket has no resolution target or a missing/
      * invalid created date. $ticket is a plain array (cast from a DB row).

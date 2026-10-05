@@ -82,6 +82,11 @@ Route::prefix('tickets')->middleware('auth.jwt')->group(function () {
     Route::post('/', [TicketController::class, 'store'])
         ->middleware(['permission:tickets,create', 'throttle:ticket-write']);
 
+    // Aggregates instead of rows (dashboard / reports). Literal paths — registered
+    // before '/{id}' so they're never captured as an id.
+    Route::get('/summary', [TicketController::class, 'summary'])->middleware('permission:tickets,view');
+    Route::get('/reports', [TicketController::class, 'reports'])->middleware('role:admin,agent');
+
     // Literal path — must stay registered before the '/{id}' routes below so
     // Laravel's router never captures 'bulk' as an {id} wildcard.
     Route::post('/bulk', [TicketController::class, 'bulkUpdate'])

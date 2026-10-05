@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\DepartmentManagers;
+use App\Services\DocumentController;
 use App\Services\Sla;
 use App\Services\SlaPolicies;
 use App\Services\TicketNotifications;
+use App\Services\TicketReports;
 use App\Services\TicketTaxonomy;
 use App\Services\TicketVisibility as TV;
 use Illuminate\Http\Request;
@@ -134,92 +136,339 @@ class TicketController extends Controller
 
     // --- List / detail -------------------------------------------------
 
-    public function index(Request $request)
+    private const LIST_CAP = 2000;
+    private const PAGE_SIZE_DEFAULT = 20;
+    private const PAGE_SIZE_MAX = 100;
+    private const ACTIVE_STATUSES = ['open', 'in_progress', 'on_hold', 'pending'];
+
+    /**
+     * Builder factory for the work orders $user may see in a list, or null when
+     * they can see none. Non-staff only get those they requested/are assigned, or
+     * that are routed to a department they belong to/manage, unless $all (browse
+     * everything). 'HR Concerns' are need-to-know, so non-staff additionally only
+     * get the ones they requested/are assigned, approve, or whose department they
+     * belong to/manage (the SQL twin of TV::hrConcernVisibleToList).
+     */
+    private function visibleScope(?array $user, bool $all): ?\Closure
     {
-        $user = $request->authUser();
-        $wantsAll = $request->query('scope') === 'all';
         $staff = TV::isStaff($user);
         $identities = TV::userIdentities($user);
         $managedDepts = $staff ? [] : DepartmentManagers::managedDepartments($user['sub'] ?? null);
+        $myDept = $user['department'] ?? null;
 
-        $query = DB::table('tickets');
-        if (!$staff && !$wantsAll) {
-            $hasClause = false;
-            $query->where(function ($q) use ($identities, $user, $managedDepts, &$hasClause) {
-                if ($identities) {
-                    $q->orWhereIn('requester', $identities)->orWhereIn('assignee', $identities);
-                    $hasClause = true;
-                }
-                if (!empty($user['department'])) {
-                    $q->orWhere('department', $user['department']);
-                    $hasClause = true;
-                }
-                if ($managedDepts) {
-                    $q->orWhere(function ($q2) use ($managedDepts) {
-                        $q2->where('approval_status', 'pending')->whereIn('approval_dept', $managedDepts);
-                    });
-                    $hasClause = true;
-                }
-            });
-            if (!$hasClause) {
-                return response()->json([]);
-            }
+        if (!($staff || $all || $identities || !empty($myDept) || $managedDepts)) {
+            return null;
         }
 
-        $listCap = 2000;
-        $rows = $query->selectRaw(self::LIST_COLUMNS)
+        return function () use ($staff, $all, $identities, $myDept, $managedDepts) {
+            $query = DB::table('tickets');
+            if (!$staff && !$all) {
+                $query->where(function ($q) use ($identities, $myDept, $managedDepts) {
+                    if ($identities) {
+                        $q->orWhereIn('requester', $identities)->orWhereIn('assignee', $identities);
+                    }
+                    if (!empty($myDept)) {
+                        $q->orWhere('department', $myDept);
+                    }
+                    if ($managedDepts) {
+                        $q->orWhere(fn ($q2) => $q2->where('approval_status', 'pending')->whereIn('approval_dept', $managedDepts));
+                    }
+                });
+            }
+            if (!$staff) {
+                $query->where(function ($q) use ($identities, $myDept, $managedDepts) {
+                    $q->whereNull('category')->orWhere('category', '<>', TV::HR_CONCERNS);
+                    if ($identities) {
+                        $q->orWhereIn('requester', $identities)->orWhereIn('assignee', $identities);
+                    }
+                    if ($managedDepts) {
+                        $q->orWhereIn('approval_dept', $managedDepts)->orWhereIn('department', $managedDepts);
+                    }
+                    if (!empty($myDept)) {
+                        $q->orWhere('department', $myDept);
+                    }
+                });
+            }
+            return $query;
+        };
+    }
+
+    /**
+     * Work-order list. Without `page` it returns the whole visible set as a bare
+     * array (capped at LIST_CAP, X-Result-Capped when truncated). With `page` it is
+     * paginated server-side and returns
+     * { items, total, page, pageSize, counts, facets, new_count, capped, role_counts }.
+     *
+     * scope = all (browse everything) | assigned (My Queue) | involved (Submitted:
+     * I requested or am assigned; each item gets `my_role`) | omitted (default
+     * visibility). Filters = status (comma list), priority, assignee ('unassigned'
+     * ok), category, role (owner|assignee, involved only), active=1 (hide
+     * resolved/closed/cancelled), q (title or WO id; assigned/involved also match
+     * requester, assignee and description), overdue=1, sort =
+     * newest|oldest|updated|priority. `counts`, `facets` and `new_count` describe
+     * the whole scope, not the filtered result, so summary tiles and dropdowns stay
+     * stable while filtering.
+     */
+    public function index(Request $request)
+    {
+        $user = $request->authUser();
+        $scopeName = (string) $request->query('scope', '');
+        $paged = $request->query->has('page');
+
+        $makeScope = $this->visibleScope($user, $scopeName === 'all');
+        if (!$makeScope) {
+            return response()->json($paged ? $this->emptyPage($request) : []);
+        }
+
+        $identities = TV::userIdentities($user);
+        $mine = in_array($scopeName, ['assigned', 'involved'], true);
+        if ($mine) {
+            $base = $makeScope;
+            $makeScope = function () use ($base, $identities, $scopeName) {
+                $q = $base();
+                if (!$identities) {
+                    return $q->whereRaw('1 = 0');
+                }
+                return $scopeName === 'assigned'
+                    ? $q->whereIn('assignee', $identities)
+                    : $q->where(fn ($w) => $w->whereIn('requester', $identities)->orWhereIn('assignee', $identities));
+            };
+        }
+
+        if ($paged) {
+            return $this->pagedIndex($request, $makeScope, $scopeName, $identities);
+        }
+
+        $rows = $makeScope()->selectRaw(self::LIST_COLUMNS)
             ->orderByDesc('created_at')
-            ->limit($listCap)
+            ->limit(self::LIST_CAP)
             ->get()
             ->map(fn ($r) => (array) $r)
             ->all();
+        $capped = count($rows) >= self::LIST_CAP;
 
-        if (count($rows) >= $listCap) {
-            $request->attributes->set('_capped', true);
-        }
-
-        if (!$staff) {
-            $managedSet = $managedDepts;
-            $ctx = ['identities' => $identities, 'myDept' => $user['department'] ?? null, 'managedDepts' => $managedSet];
-            $rows = array_values(array_filter($rows, fn ($r) => TV::hrConcernVisibleToList($r, $ctx)));
-        }
-
-        if (empty($rows)) {
-            return response()->json([]);
-        }
-
-        $ids = array_column($rows, 'id');
-
-        $attachments = DB::table('ticket_attachments')
-            ->select('id', 'ticket_id', 'original_filename', 'stored_filename', 'mime_type', 'size_bytes', 'uploaded_at')
-            ->whereIn('ticket_id', $ids)
-            ->orderBy('uploaded_at')
-            ->get();
-        $attsByTicket = [];
-        foreach ($attachments as $a) {
-            $attsByTicket[$a->ticket_id][] = $this->serializeAttachment($a);
-        }
-
-        $changes = DB::table('ticket_activity')
-            ->select('ticket_id', 'field', 'old_value', 'new_value', 'created_at')
-            ->whereIn('ticket_id', $ids)->where('type', 'change')->where('field', 'status')
-            ->orderBy('created_at')
-            ->get();
-        $changesByTicket = [];
-        foreach ($changes as $c) {
-            $changesByTicket[$c->ticket_id][] = (array) $c;
-        }
-
-        foreach ($rows as &$r) {
-            $r['attachments'] = $attsByTicket[$r['id']] ?? [];
-            $r['sla'] = Sla::standing($r, $changesByTicket[$r['id']] ?? []);
-        }
+        $rows = $this->withAttachments(Sla::attachStanding($rows));
 
         $response = response()->json($rows);
-        if ($request->attributes->get('_capped')) {
+        if ($capped) {
             $response->headers->set('X-Result-Capped', '1');
         }
         return $response;
+    }
+
+    /**
+     * GET /api/tickets/summary — what the staff dashboard shows, without shipping
+     * the queue: total / open / high-priority counts plus the latest few work
+     * orders (default visibility). Total and high-priority count every status, as
+     * the dashboard always has.
+     */
+    public function summary(Request $request)
+    {
+        $makeScope = $this->visibleScope($request->authUser(), false);
+        if (!$makeScope) {
+            return response()->json(['total' => 0, 'open' => 0, 'high_priority' => 0, 'recent' => []]);
+        }
+
+        $row = $makeScope()->selectRaw(
+            "COUNT(*) AS total,
+             COALESCE(SUM(status NOT IN ('closed', 'resolved', 'cancelled')), 0) AS open_count,
+             COALESCE(SUM(priority IN ('high', 'urgent')), 0) AS high_count"
+        )->first();
+
+        $limit = min(20, max(1, (int) $request->query('recent', 4)));
+        $recent = $makeScope()->selectRaw(self::LIST_COLUMNS)
+            ->orderByDesc('created_at')->orderByDesc('id')->limit($limit)
+            ->get()->map(fn ($r) => (array) $r)->all();
+
+        return response()->json([
+            'total' => (int) $row->total,
+            'open' => (int) $row->open_count,
+            'high_priority' => (int) $row->high_count,
+            'recent' => $this->withAttachments(Sla::attachStanding($recent)),
+        ]);
+    }
+
+    /**
+     * GET /api/tickets/reports?from=YYYY-MM-DD&to=YYYY-MM-DD&tz_offset=<minutes> —
+     * aggregates for the Work Order Reports page (staff only; see routes). The
+     * date range is by creation date in the caller's timezone (`tz_offset` is JS
+     * getTimezoneOffset()).
+     */
+    public function reports(Request $request)
+    {
+        return response()->json(TicketReports::build(
+            (string) $request->query('from', ''),
+            (string) $request->query('to', ''),
+            (int) $request->query('tz_offset', 0)
+        ));
+    }
+
+    private function emptyPage(Request $request): array
+    {
+        return [
+            'items' => [], 'total' => 0, 'page' => 1, 'pageSize' => $this->pageSize($request),
+            'counts' => (object) [], 'facets' => ['assignees' => [], 'categories' => []], 'new_count' => 0, 'capped' => false,
+            'role_counts' => ['owner' => 0, 'assignee' => 0],
+        ];
+    }
+
+    private function pageSize(Request $request): int
+    {
+        return min(self::PAGE_SIZE_MAX, max(1, (int) $request->query('pageSize', self::PAGE_SIZE_DEFAULT)));
+    }
+
+    /** Escape LIKE wildcards in user input. */
+    private function likeEscape(string $v): string
+    {
+        return addcslashes($v, '%_\\');
+    }
+
+    private function pagedIndex(Request $request, \Closure $makeScope, string $scopeName, array $identities)
+    {
+        $page = max(1, (int) $request->query('page', 1));
+        $pageSize = $this->pageSize($request);
+        $mine = in_array($scopeName, ['assigned', 'involved'], true);
+
+        // Whole-scope summaries (independent of the filters below).
+        $counts = $makeScope()->selectRaw('status, COUNT(*) AS c')->groupBy('status')->pluck('c', 'status');
+        $facets = ['assignees' => [], 'categories' => []];
+        if (!$mine) {
+            $facets = [
+                'assignees' => $makeScope()->whereNotNull('assignee')->where('assignee', '<>', '')->distinct()->orderBy('assignee')->limit(500)->pluck('assignee'),
+                'categories' => $makeScope()->whereNotNull('category')->where('category', '<>', '')->distinct()->orderBy('category')->limit(500)->pluck('category'),
+            ];
+        }
+        $roleCounts = ['owner' => 0, 'assignee' => 0];
+        if ($scopeName === 'involved' && $identities) {
+            $in = implode(',', array_fill(0, count($identities), '?'));
+            $r = $makeScope()->selectRaw(
+                "COALESCE(SUM(requester IN ({$in})), 0) AS owner_count, COALESCE(SUM(assignee IN ({$in})), 0) AS assignee_count",
+                array_merge($identities, $identities)
+            )->first();
+            $roleCounts = ['owner' => (int) $r->owner_count, 'assignee' => (int) $r->assignee_count];
+        }
+        $newCount = 0;
+        $newSince = $request->query('new_since');
+        if (is_numeric($newSince) && (float) $newSince > 0) {
+            $newCount = $makeScope()->where('created_at', '>', \Illuminate\Support\Carbon::createFromTimestampMs((int) $newSince)->toDateTimeString())->count();
+        }
+
+        // Filters.
+        $filtered = $makeScope();
+        $statuses = array_values(array_intersect(array_filter(explode(',', (string) $request->query('status', ''))), self::ALLOWED_STATUSES));
+        if ($statuses) {
+            $filtered->whereIn('status', $statuses);
+        }
+        if ($request->boolean('active')) {
+            $filtered->whereIn('status', self::ACTIVE_STATUSES);
+        }
+        $priority = (string) $request->query('priority', '');
+        if (in_array($priority, self::ALLOWED_PRIORITIES, true)) {
+            $filtered->where('priority', $priority);
+        }
+        $assignee = (string) $request->query('assignee', '');
+        if ($assignee === 'unassigned') {
+            $filtered->where(fn ($q) => $q->whereNull('assignee')->orWhere('assignee', ''));
+        } elseif ($assignee !== '' && $assignee !== 'all') {
+            $filtered->where('assignee', $assignee);
+        }
+        $category = (string) $request->query('category', '');
+        if ($category !== '' && $category !== 'all') {
+            $filtered->where('category', $category);
+        }
+        $role = (string) $request->query('role', '');
+        if ($scopeName === 'involved' && $identities && in_array($role, ['owner', 'assignee'], true)) {
+            $filtered->whereIn($role === 'owner' ? 'requester' : 'assignee', $identities);
+        }
+        $q = strtolower(trim((string) $request->query('q', '')));
+        if ($q !== '') {
+            $idExpr = "CONCAT('wo', LPAD(id, 8, '0'))";
+            $like = '%' . $this->likeEscape($q) . '%';
+            $filtered->where(function ($w) use ($q, $idExpr, $like, $mine) {
+                $w->where('title', 'like', $like);
+                if ($mine) {
+                    $w->orWhere('requester', 'like', $like)->orWhere('assignee', 'like', $like)->orWhere('description', 'like', $like);
+                }
+                if (str_contains($q, '%')) {
+                    // "WO%22" / "%22" = exactly work order 22; any other "%" is a wildcard over the whole id.
+                    if (preg_match('/^(?:wo)?%0*(\d+)$/', $q, $m)) {
+                        $w->orWhere('id', (int) $m[1]);
+                    } else {
+                        $w->orWhereRaw("{$idExpr} LIKE ?", [addcslashes($q, '_\\')]);
+                    }
+                } else {
+                    $w->orWhereRaw("{$idExpr} LIKE ?", [$like]);
+                }
+            });
+        }
+
+        $sort = (string) $request->query('sort', 'newest');
+        $order = function ($query) use ($sort) {
+            match ($sort) {
+                'oldest' => $query->orderBy('created_at')->orderBy('id'),
+                'updated' => $query->orderByDesc('updated_at')->orderByDesc('id'),
+                'priority' => $query->orderByRaw("FIELD(priority, 'urgent', 'high', 'normal', 'low')")->orderByDesc('created_at')->orderByDesc('id'),
+                default => $query->orderByDesc('created_at')->orderByDesc('id'),
+            };
+            return $query;
+        };
+
+        $capped = false;
+        if ($request->boolean('overdue')) {
+            // Overdue is computed (business hours, pauses) in PHP, so it can't be a SQL
+            // WHERE: scan the filtered set (capped), compute SLA, then page in memory.
+            $rows = $order($filtered->selectRaw(self::LIST_COLUMNS))->limit(self::LIST_CAP)->get()->map(fn ($r) => (array) $r)->all();
+            $capped = count($rows) >= self::LIST_CAP;
+            $rows = array_values(array_filter(
+                Sla::attachStanding($rows),
+                fn ($r) => !empty($r['sla']['overdue']) && empty($r['sla']['resolved'])
+            ));
+            $total = count($rows);
+            $items = array_slice($rows, ($page - 1) * $pageSize, $pageSize);
+        } else {
+            $total = (clone $filtered)->count();
+            $rows = $order($filtered->selectRaw(self::LIST_COLUMNS))->forPage($page, $pageSize)->get()->map(fn ($r) => (array) $r)->all();
+            $items = Sla::attachStanding($rows);
+        }
+
+        if ($scopeName === 'involved') {
+            $ids = array_map(fn ($v) => strtolower(trim((string) $v)), $identities);
+            foreach ($items as &$it) {
+                $isOwner = in_array(strtolower(trim((string) ($it['requester'] ?? ''))), $ids, true);
+                $isAssignee = in_array(strtolower(trim((string) ($it['assignee'] ?? ''))), $ids, true);
+                $it['my_role'] = $isOwner && $isAssignee ? 'both' : ($isOwner ? 'owner' : 'assignee');
+            }
+            unset($it);
+        }
+
+        return response()->json([
+            'items' => $this->withAttachments($items),
+            'total' => $total, 'page' => $page, 'pageSize' => $pageSize,
+            'counts' => $counts, 'facets' => $facets, 'new_count' => $newCount, 'capped' => $capped,
+            'role_counts' => $roleCounts,
+        ]);
+    }
+
+    /** Add `attachments` to each list row (one query for all). */
+    private function withAttachments(array $rows): array
+    {
+        if (!$rows) {
+            return [];
+        }
+        $attachments = DB::table('ticket_attachments')
+            ->select('id', 'ticket_id', 'original_filename', 'stored_filename', 'mime_type', 'size_bytes', 'uploaded_at')
+            ->whereIn('ticket_id', array_column($rows, 'id'))
+            ->orderBy('uploaded_at')
+            ->get();
+        $byTicket = [];
+        foreach ($attachments as $a) {
+            $byTicket[$a->ticket_id][] = $this->serializeAttachment($a);
+        }
+        foreach ($rows as &$r) {
+            $r['attachments'] = $byTicket[$r['id']] ?? [];
+        }
+        unset($r);
+        return $rows;
     }
 
     public function show(Request $request, string $id)

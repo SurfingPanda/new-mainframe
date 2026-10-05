@@ -31,7 +31,8 @@ export default function Dashboard() {
 }
 
 function StaffDashboard({ user }) {
-  const [tickets, setTickets] = useState([]);
+  // Aggregates + the latest few work orders only — the queue itself is never shipped here.
+  const [summary, setSummary] = useState({ total: 0, open: 0, high_priority: 0, recent: [] });
   const [kb, setKb] = useState([]);
   const [spaces, setSpaces] = useState([]);
   const [error, setError] = useState('');
@@ -41,12 +42,12 @@ function StaffDashboard({ user }) {
 
   useEffect(() => {
     Promise.all([
-      api('/api/tickets'),
+      api('/api/tickets/summary'),
       api('/api/kb'),
       api('/api/spaces').catch(() => [])
     ])
       .then(([t, k, s]) => {
-        setTickets(Array.isArray(t) ? t : []);
+        setSummary({ total: 0, open: 0, high_priority: 0, recent: [], ...(t || {}) });
         setKb(Array.isArray(k) ? k : []);
         setSpaces(Array.isArray(s) ? s : []);
       })
@@ -61,8 +62,6 @@ function StaffDashboard({ user }) {
       .catch(() => {});
   }, [canReviewAssets]);
 
-  const openTickets = tickets.filter((t) => !['closed', 'resolved', 'cancelled'].includes(t.status));
-  const highPriority = tickets.filter((t) => t.priority === 'high' || t.priority === 'urgent').length;
   const spaceItems = spaces.reduce((n, s) => n + (s.item_count || 0), 0);
   const greeting = getGreeting();
 
@@ -110,8 +109,8 @@ function StaffDashboard({ user }) {
         <section className={`grid gap-5 md:grid-cols-3 ${canReviewAssets ? 'xl:grid-cols-4' : ''}`}>
           <StatCard
             label="Open work orders"
-            value={openTickets.length}
-            sub={`${tickets.length} total · ${highPriority} high priority`}
+            value={summary.open}
+            sub={`${summary.total} total · ${summary.high_priority} high priority`}
             tone="amber"
             to="/tickets/all"
             icon={
@@ -174,7 +173,7 @@ function StaffDashboard({ user }) {
             </div>
             {loading ? (
               <div className="px-5 py-10 text-center text-sm text-slate-500 dark:text-slate-400">Loading…</div>
-            ) : tickets.length === 0 ? (
+            ) : summary.total === 0 ? (
               <EmptyState
                 title="No work orders yet"
                 desc="When someone opens a work order it'll show up here."
@@ -182,7 +181,7 @@ function StaffDashboard({ user }) {
               />
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {tickets.slice(0, 4).map((t) => (
+                {summary.recent.map((t) => (
                   <li key={t.id}>
                     <Link
                       to={`/tickets/${t.id}`}

@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardHeader from '../components/DashboardHeader.jsx';
 import BulkTicketActionBar from '../components/BulkTicketActionBar.jsx';
 import { api, getUser } from '../lib/auth.js';
-import { formatTicketId, matchesTicketId, truncateWords } from '../lib/ticket.js';
+import { formatTicketId, truncateWords } from '../lib/ticket.js';
 
 const STATUSES = [
   { key: 'open', label: 'Open' },
@@ -24,17 +24,18 @@ const SORTS = [
   { key: 'priority', label: 'Priority' }
 ];
 
-const PRIORITY_RANK = { urgent: 0, high: 1, normal: 2, low: 3 };
 const PAGE_SIZE = 10;
-
 const ACTIVE_STATUSES = new Set(['open', 'in_progress', 'on_hold', 'pending']);
+const ZERO_COUNTS = { open: 0, in_progress: 0, on_hold: 0, pending: 0, resolved: 0, closed: 0, cancelled: 0 };
 
 export default function MyQueue() {
   const user = getUser();
   const me = user?.name || '';
-  const myEmail = (user?.email || '').toLowerCase();
 
-  const [tickets, setTickets] = useState([]);
+  // One server page of the work orders assigned to me (see loadTickets).
+  const [pageRows, setPageRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [counts, setCounts] = useState(ZERO_COUNTS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [assignableUsers, setAssignableUsers] = useState([]);
@@ -47,69 +48,52 @@ export default function MyQueue() {
   const [page, setPage] = useState(1);
   const [showResolvedClosed, setShowResolvedClosed] = useState(false);
 
+  useEffect(() => {
+    api('/api/users/assignable').then(setAssignableUsers).catch(() => {});
+  }, []);
+
+  // One server page (GET /api/tickets?scope=assigned&page=…): filtering, sorting and paging
+  // run in the API. A request counter drops responses superseded by a newer change.
+  const reqId = useRef(0);
   const loadTickets = () => {
+    const id = ++reqId.current;
+    const params = new URLSearchParams({ scope: 'assigned', page: String(page), pageSize: String(PAGE_SIZE), sort });
+    if (query) params.set('q', query);
+    if (statusFilter.size) params.set('status', [...statusFilter].join(','));
+    if (priorityFilter !== 'all') params.set('priority', priorityFilter);
+    if (!showResolvedClosed) params.set('active', '1');
     setLoading(true);
-    return api('/api/tickets')
-      .then(setTickets)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    return api(`/api/tickets?${params.toString()}`)
+      .then((res) => {
+        if (id !== reqId.current) return;
+        setPageRows(Array.isArray(res?.items) ? res.items : []);
+        setTotal(res?.total || 0);
+        setCounts({ ...ZERO_COUNTS, ...(res?.counts || {}) });
+        setError('');
+      })
+      .catch((e) => { if (id === reqId.current) setError(e.message); })
+      .finally(() => { if (id === reqId.current) setLoading(false); });
   };
 
   useEffect(() => {
     loadTickets();
-    api('/api/users/assignable').then(setAssignableUsers).catch(() => {});
-  }, []);
+  }, [query, statusFilter, priorityFilter, sort, showResolvedClosed, page]);
 
-  const myTickets = useMemo(() => {
-    if (!me) return [];
-    const meLower = me.toLowerCase();
-    return tickets.filter((t) => {
-      const a = (t.assignee || '').toLowerCase();
-      return a === meLower || (myEmail && a === myEmail);
-    });
-  }, [tickets, me, myEmail]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    let rows = myTickets.filter((t) => {
-      if (!showResolvedClosed && !ACTIVE_STATUSES.has(t.status)) return false;
-      if (statusFilter.size && !statusFilter.has(t.status)) return false;
-      if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
-      if (!q) return true;
-      return (
-        t.title.toLowerCase().includes(q) ||
-        matchesTicketId(t.id, q) ||
-        (t.requester || '').toLowerCase().includes(q) ||
-        (t.description || '').toLowerCase().includes(q)
-      );
-    });
-
-    rows = [...rows].sort((a, b) => {
-      switch (sort) {
-        case 'oldest':
-          return new Date(a.created_at) - new Date(b.created_at);
-        case 'updated':
-          return new Date(b.updated_at) - new Date(a.updated_at);
-        case 'priority':
-          return (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9);
-        case 'newest':
-        default:
-          return new Date(b.created_at) - new Date(a.created_at);
-      }
-    });
-
-    return rows;
-  }, [myTickets, query, statusFilter, priorityFilter, sort, showResolvedClosed]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const scopeTotal = Object.values(counts).reduce((n, c) => n + Number(c || 0), 0);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageStart = (safePage - 1) * PAGE_SIZE;
-  const pageRows = filtered.slice(pageStart, pageStart + PAGE_SIZE);
 
+  // Any filter/sort change returns to page 1; the page effect above then refetches.
   useEffect(() => {
     setPage(1);
     setSelected(new Set());
   }, [query, statusFilter, priorityFilter, sort, showResolvedClosed]);
+
+  // If the last page empties (e.g. rows were bulk-updated away), step back.
+  useEffect(() => {
+    if (!loading && page > totalPages) setPage(totalPages);
+  }, [loading, page, totalPages]);
 
   const toggleSelected = (id) => {
     setSelected((prev) => {
@@ -147,12 +131,6 @@ export default function MyQueue() {
     setSort('newest');
   };
 
-  const counts = useMemo(() => {
-    const c = { open: 0, in_progress: 0, on_hold: 0, pending: 0, resolved: 0, closed: 0, cancelled: 0 };
-    myTickets.forEach((t) => { if (c[t.status] != null) c[t.status]++; });
-    return c;
-  }, [myTickets]);
-
   const activeCount = counts.open + counts.in_progress + counts.on_hold + counts.pending;
   const hasActiveFilters = query || statusFilter.size > 0 || priorityFilter !== 'all';
 
@@ -177,7 +155,7 @@ export default function MyQueue() {
               {loading
                 ? 'Loading your work orders…'
                 : me
-                  ? `${activeCount} active ${activeCount === 1 ? 'work order' : 'work orders'} assigned to you${myTickets.length !== activeCount ? ` · ${myTickets.length} total` : ''}`
+                  ? `${activeCount} active ${activeCount === 1 ? 'work order' : 'work orders'} assigned to you${scopeTotal !== activeCount ? ` · ${scopeTotal} total` : ''}`
                   : 'Sign in to see work orders assigned to you.'}
             </p>
           </div>
@@ -315,17 +293,17 @@ export default function MyQueue() {
                   <tr>
                     <td colSpan={7} className="px-5 py-12 text-center">
                       <p className="text-sm font-semibold text-slate-700">
-                        {myTickets.length === 0
+                        {scopeTotal === 0
                           ? 'Nothing in your queue'
                           : 'No work orders match your filters'}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
-                        {myTickets.length === 0
+                        {scopeTotal === 0
                           ? `No work orders are currently assigned to ${me || 'you'}.`
                           : 'Try clearing filters or broadening your search.'}
                       </p>
                       <div className="mt-4">
-                        {myTickets.length === 0 ? (
+                        {scopeTotal === 0 ? (
                           <Link to="/tickets/all" className="btn-secondary !px-3.5 !py-2 text-xs">Browse all work orders</Link>
                         ) : (
                           <button onClick={clearFilters} className="btn-secondary !px-3.5 !py-2 text-xs">Clear filters</button>
@@ -369,12 +347,12 @@ export default function MyQueue() {
             </table>
           </div>
 
-          {!loading && filtered.length > 0 && (
+          {!loading && total > 0 && (
             <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 sm:flex-row">
               <span className="text-xs text-slate-500">
                 Showing <span className="font-semibold text-slate-700">{pageStart + 1}</span>–
-                <span className="font-semibold text-slate-700">{Math.min(pageStart + PAGE_SIZE, filtered.length)}</span>{' '}
-                of <span className="font-semibold text-slate-700">{filtered.length}</span>
+                <span className="font-semibold text-slate-700">{Math.min(pageStart + PAGE_SIZE, total)}</span>{' '}
+                of <span className="font-semibold text-slate-700">{total}</span>
               </span>
               <div className="flex items-center gap-1">
                 <button
